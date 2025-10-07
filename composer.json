@@ -7,7 +7,11 @@
         }
     },
     "require": {
-      "mcp/sdk": "dev-main#b1e54f1",
+      "php": ">8.2",
+      "mcp/sdk": "dev-main#4b91567",
       "cakephp/cakephp": "^5.0"
-    }
+    },
+    "bin": [
+        "bin/mcp-server"
+    ]
 }

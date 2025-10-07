@@ -1,0 +1,24 @@
+#!/usr/bin/env php
+<?php
+
+require_once dirname(__DIR__) . '/config/bootstrap.php';
+chdir(__DIR__);
+
+use Mcp\Server\Transport\StdioTransport;
+
+logger()->info('Starting CakePHP MCP Server...');
+
+$root = dirname(__DIR__, 4);
+$server = \CakeDC\Mcp\Server\CakeServer::builder(new \App\Application($root . '/config'))
+    ->setServerInfo('CakePHP MCP Server', '1.0.0', 'CakePHP MCP Server')
+    ->setContainer(container())
+    ->setLogger(logger())
+    ->setDiscovery($root, ['./src'])
+    ->build();
+
+$transport = new StdioTransport(logger: logger());
+
+$server->connect($transport);
+
+$transport->listen();
+logger()->info('Server listener has been successfully stopped.');
