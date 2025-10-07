@@ -1,0 +1,13 @@
+{
+    "name": "cakedc/cakephp-mcp",
+    "description": "MCP server for CakePHP",
+    "autoload": {
+        "psr-4": {
+            "CakeDC\\Mcp\\": "src/"
+        }
+    },
+    "require": {
+      "mcp/sdk": "dev-main#b1e54f1",
+      "cakephp/cakephp": "^5.0"
+    }
+}
