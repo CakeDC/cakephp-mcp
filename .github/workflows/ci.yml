@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ['2.next-cake5', 'master']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testsuite:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3', '8.4', '8.5']
+        dependencies: ['highest']
+        include:
+          - php-version: '8.2'
+            dependencies: 'lowest'
+    name: PHP ${{ matrix.php-version }} (${{ matrix.dependencies }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring, intl
+          coverage: none
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: ${{ matrix.dependencies }}
+      - run: vendor/bin/phpunit
+
+  cs-stan:
+    runs-on: ubuntu-24.04
+    name: Coding standard and static analysis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      - run: vendor/bin/phpcs
+      - run: vendor/bin/phpstan analyse --no-progress

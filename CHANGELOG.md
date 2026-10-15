@@ -1,0 +1,14 @@
+# Changelog
+
+## 2.0.0-beta1 (unreleased)
+
+Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
+
+- Remote MCP over Streamable HTTP at a Cake route (`/mcp` by default), serving both protocol eras (handshake with sessions, and the stateless 2026-07-28 revision).
+- `bin/cake mcp server` for stdio.
+- Tool discovery through `#[McpTool]`, `#[McpResource]` and `#[McpPrompt]` attributes in `src/Mcp/`, with constructor injection from Cake's container (autowired).
+- Sessions and the discovery cache stored in Cake cache configs.
+- Authentication delegated to the host: the identity set by `cakephp/authentication` becomes the SDK access token and the injectable `CurrentIdentity`.
+- Per-tool authorization with `ToolAuthorizerInterface`; `RbacToolAuthorizer` for `cakedc/auth` permission rules.
+- DNS-rebinding protection defaults to the `App.fullBaseUrl` host.
+- Removed `bin/mcp-server` and `CakeDC\Mcp\Server\CakeServer`.
