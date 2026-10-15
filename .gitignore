@@ -1,3 +1,5 @@
-.idea
-vendor
-composer.lock
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/tests/test_app/tmp/
+.phpunit.result.cache
