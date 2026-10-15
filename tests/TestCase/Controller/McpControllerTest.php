@@ -95,6 +95,15 @@ class McpControllerTest extends TestCase
         $this->assertHeader('WWW-Authenticate', 'Bearer');
     }
 
+    public function testNullRequiredStillChallenges(): void
+    {
+        Configure::write('Mcp.identity.required', null);
+
+        $this->mcp($this->initialize(1), ['Authorization' => '']);
+
+        $this->assertResponseCode(401);
+    }
+
     public function testInvalidTokenIsChallenged(): void
     {
         $this->mcp($this->initialize(1), ['Authorization' => 'Bearer nope']);

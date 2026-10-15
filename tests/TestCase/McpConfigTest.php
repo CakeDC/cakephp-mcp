@@ -68,4 +68,19 @@ class McpConfigTest extends TestCase
 
         $this->assertSame(['api.example.com'], McpConfig::allowedHosts());
     }
+
+    public function testEmptyArrayOverAnAssociativeDefaultKeepsTheDefault(): void
+    {
+        Configure::write('Mcp.identity', []);
+
+        $this->assertTrue(McpConfig::get('identity.required'));
+        $this->assertSame('identity', McpConfig::get('identity.attribute'));
+    }
+
+    public function testEmptyListOverAListDefaultStillReplaces(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+
+        $this->assertSame([], McpConfig::get('discovery.scanDirs'));
+    }
 }

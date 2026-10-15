@@ -57,7 +57,7 @@ class McpController extends Controller
                         $identity,
                         $responseFactory,
                         $streamFactory,
-                        (bool)McpConfig::get('identity.required'),
+                        McpConfig::get('identity.required') !== false,
                         (string)McpConfig::get('identity.attribute'),
                         is_callable($scopes) ? Closure::fromCallable($scopes) : null,
                     ),

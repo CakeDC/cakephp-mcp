@@ -11,7 +11,8 @@ use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
  * Reads the plugin configuration (`Mcp` in Configure) merged over its defaults.
  *
  * The merge happens on every read, so the host may write `Mcp` at any point of
- * its bootstrap. Lists (such as `discovery.scanDirs`) replace the default list.
+ * its bootstrap. Lists (such as `discovery.scanDirs`) replace the default list. An empty array
+ * over an associative default keeps the default, so `Mcp.identity => []` cannot disable authentication.
  */
 final class McpConfig
 {
@@ -89,6 +90,13 @@ final class McpConfig
     private static function merge(array $base, array $override): array
     {
         foreach ($override as $key => $value) {
+            if (
+                $value === [] && isset($base[$key]) && is_array($base[$key])
+                && $base[$key] !== [] && !array_is_list($base[$key])
+            ) {
+                // An empty array over an associative default is a misconfiguration, not an intent to clear it.
+                continue;
+            }
             if (
                 is_array($value) && isset($base[$key]) && is_array($base[$key])
                 && !array_is_list($value) && !array_is_list($base[$key])
