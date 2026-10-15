@@ -10,10 +10,12 @@ use Cake\Core\Container;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\Event\EventDispatcher;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
+use Mcp\Server\Builder;
 use stdClass;
 
 class ServerFactoryTest extends TestCase
@@ -138,6 +140,54 @@ class ServerFactoryTest extends TestCase
 
         $this->assertSame('Test Server', $result['serverInfo']['name'] ?? null);
         $this->assertSame('Use echo to test.', $result['instructions'] ?? null);
+    }
+
+    public function testConfigureHookReceivesTheBuilder(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(fn(): string => 'pong', name: 'ping', description: 'Answers pong.');
+        });
+
+        $transport = $this->runServer([$this->call(3, 'ping')]);
+
+        $this->assertContains('ping', $this->toolNames($transport));
+        $this->assertSame('pong', $transport->responseFor(3)['result']['content'][0]['text'] ?? null);
+    }
+
+    public function testConfigureHookCannotReplaceThePluginSettings(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', $this->onlyEcho());
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setServerInfo('Replaced', '9.9.9')->setEventDispatcher(new EventDispatcher());
+        });
+
+        $transport = $this->runServer([$this->call(3, 'admin_only')]);
+
+        $this->assertSame('CakePHP MCP Server', $transport->responseFor(1)['result']['serverInfo']['name'] ?? null);
+        $this->assertSame(['echo'], $this->toolNames($transport));
+        $this->assertSame('Tool not found: "admin_only".', $transport->responseFor(3)['error']['message'] ?? null);
+    }
+
+    public function testAuthorizerAppliesToToolsAddedByTheHook(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', $this->onlyEcho());
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(fn(): string => 'pong', name: 'ping', description: 'Answers pong.');
+        });
+
+        $transport = $this->runServer([$this->call(3, 'ping')]);
+
+        $this->assertSame(['echo'], $this->toolNames($transport));
+        $this->assertSame('Tool not found: "ping".', $transport->responseFor(3)['error']['message'] ?? null);
+    }
+
+    public function testRejectsAConfigureHookThatIsNotCallable(): void
+    {
+        Configure::write('Mcp.server.configure', 'not_a_function');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Mcp.server.configure');
+        $this->factory->create();
     }
 
     public function testRejectsAnInvalidAuthorizer(): void

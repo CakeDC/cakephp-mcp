@@ -17,6 +17,7 @@ use CakeDC\Mcp\McpConfig;
 use InvalidArgumentException;
 use Mcp\Event\ResponseEvent;
 use Mcp\Server;
+use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
 use Psr\Container\ContainerInterface;
 
@@ -55,7 +56,11 @@ final class ServerFactory
         $events = new EventDispatcher();
         $events->listen(ResponseEvent::class, new ToolListFilter($gate));
 
-        $builder = Server::builder()
+        // The guard goes first: the SDK asks request handlers in the order they were added.
+        $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
+        $this->configure($builder);
+        // Set after the host hook, so the hook cannot drop the tool list filter or replace these.
+        $builder
             ->setServerInfo((string)McpConfig::get('server.name'), (string)McpConfig::get('server.version'))
             ->setContainer(new ContainerBridge($this->container))
             ->setLogger(new McpLogger())
@@ -64,8 +69,7 @@ final class ServerFactory
                 Cache::pool((string)McpConfig::get('session.cache')),
                 'mcp-',
                 (int)McpConfig::get('session.ttl'),
-            ))
-            ->addRequestHandler(new ToolCallGuard($gate));
+            ));
 
         $instructions = McpConfig::get('server.instructions');
         if (is_string($instructions) && $instructions !== '') {
@@ -84,6 +88,28 @@ final class ServerFactory
         }
 
         return $builder->build();
+    }
+
+    /**
+     * Runs the `Mcp.server.configure` hook, which may use anything the SDK
+     * builder offers (tools added in code, request state, cache policy...).
+     *
+     * @param \Mcp\Server\Builder $builder The SDK builder.
+     * @return void
+     */
+    private function configure(Builder $builder): void
+    {
+        $configure = McpConfig::get('server.configure');
+        if ($configure === null) {
+            return;
+        }
+        if (!is_callable($configure)) {
+            throw new InvalidArgumentException(sprintf(
+                '`Mcp.server.configure` must be a callable that receives the SDK `%s`.',
+                Builder::class,
+            ));
+        }
+        $configure($builder);
     }
 
     /**
