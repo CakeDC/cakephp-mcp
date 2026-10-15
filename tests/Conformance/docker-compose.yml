@@ -12,7 +12,10 @@ services:
       - php-fpm
 
   php-fpm:
-    build: .
+    build:
+      context: .
+      args:
+        PHP_VERSION: "${CONFORMANCE_PHP:-8.4}"
     volumes:
       - ../..:/app:ro
       - ./tmp:/app/tests/Conformance/tmp

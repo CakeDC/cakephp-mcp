@@ -24,7 +24,12 @@ tests/Conformance/run.sh 2026-07-28   # one revision
 `CONFORMANCE_PACKAGE` the suite version. The suite version is pinned, so a new
 release cannot break the build on its own; raise it on purpose.
 
-The CI workflow runs the suite on every push and pull request.
+The CI workflow runs the suite on pushes to the main branches and on every
+pull request.
+
+The container uses the PHP version of the host that runs the script (8.4 in
+CI), because it runs the `vendor/` directory installed there. Set
+`CONFORMANCE_PHP` to use another one.
 
 ## How it is set up
 
