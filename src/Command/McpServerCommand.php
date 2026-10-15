@@ -30,7 +30,6 @@ class McpServerCommand extends Command
         private readonly ServerFactory $serverFactory,
         private readonly CurrentIdentity $identity,
     ) {
-        parent::__construct();
     }
 
     /**

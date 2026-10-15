@@ -18,6 +18,7 @@ use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\McpPlugin;
 use CakeDC\Mcp\Server\ServerFactory;
+use ReflectionClass;
 use stdClass;
 use TestApp\Command\RecordingMcpServerCommand;
 
@@ -44,6 +45,14 @@ class McpServerCommandTest extends TestCase
 
         $this->assertTrue($commands->has('mcp server'));
         $this->assertSame(McpServerCommand::class, $commands->get('mcp server'));
+    }
+
+    public function testConstructorDoesNotCallTheParentConstructor(): void
+    {
+        // Cake 5.0.x Command has no constructor, so calling it fatals on the lowest supported version.
+        $source = (string)file_get_contents((string)(new ReflectionClass(McpServerCommand::class))->getFileName());
+
+        $this->assertStringNotContainsString('parent::__construct', $source);
     }
 
     public function testTheContainerBuildsTheCommand(): void
