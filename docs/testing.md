@@ -1,14 +1,15 @@
 # Testing your tools
 
 `CakeDC\Mcp\TestSuite\McpTestTrait` calls your tools from a regular Cake test
-case, without HTTP. Each call builds your application and its container, then
-the MCP server the same way the endpoint does: tool discovery, constructor
-injection and your authorizer. So a test covers the tool, its dependencies and
-who may call it.
+case, without HTTP. Each call builds your application (bootstrap and routes)
+and its container, then the MCP server the same way the endpoint does: tool
+discovery, constructor injection and your authorizer. So a test covers the
+tool, its dependencies and who may call it.
 
 ```php
 namespace App\Test\TestCase\Mcp;
 
+use Authentication\Identity;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
 
@@ -20,8 +21,7 @@ class ArticleToolsTest extends TestCase
 
     public function testEditorsCreateDrafts(): void
     {
-        $editor = $this->fetchTable('Users')->get(1);
-        $this->mcpActingAs($editor);
+        $this->mcpActingAs(new Identity($this->fetchTable('Users')->get(1)));
 
         $this->mcpCallTool('create_draft', ['title' => 'Hello', 'body' => 'First post']);
 
@@ -31,7 +31,7 @@ class ArticleToolsTest extends TestCase
 
     public function testInvalidDraftsExplainWhatToFix(): void
     {
-        $this->mcpActingAs($this->fetchTable('Users')->get(1));
+        $this->mcpActingAs(new Identity($this->fetchTable('Users')->get(1)));
 
         $this->mcpCallTool('create_draft', ['title' => '', 'body' => 'No title']);
 
@@ -40,7 +40,7 @@ class ArticleToolsTest extends TestCase
 
     public function testReadersCannotCreateDrafts(): void
     {
-        $this->mcpActingAs($this->fetchTable('Users')->get(2));
+        $this->mcpActingAs(new Identity($this->fetchTable('Users')->get(2)));
 
         $this->assertMcpToolNotListed('create_draft');
         $this->mcpCallTool('create_draft', ['title' => 'Hello', 'body' => 'Nope']);
@@ -51,11 +51,16 @@ class ArticleToolsTest extends TestCase
 
 ## The identity
 
-`mcpActingAs()` sets who makes the next calls, in the shape your
-authentication produces: an entity, an `ArrayObject`, an array. Tools see it
-through `CurrentIdentity`, and through the SDK access token built as the
-endpoint builds it (identifier as subject, scopes from `Mcp.identity.scopes`).
-Without `mcpActingAs()` the calls are anonymous.
+`mcpActingAs()` sets who makes the next calls. Pass it in the shape your
+middleware produces: `cakephp/authentication` wraps the user in
+`Authentication\Identity`, and `cakephp/authorization` wraps that in
+`Authorization\IdentityDecorator`. A raw entity works for tools and authorizers
+that only read fields, but not for code that calls `can()` or
+`getOriginalData()`.
+
+Tools see the identity through `CurrentIdentity`, and through the SDK access
+token built as the endpoint builds it (identifier as subject, scopes from
+`Mcp.identity.scopes`). Without `mcpActingAs()` the calls are anonymous.
 
 The trait does not go through your HTTP authentication, so it does not check
 tokens or `Mcp.identity.required`. Cover that with an integration test of the
@@ -75,7 +80,7 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 
 | Assertion | Passes when the last call |
 | --- | --- |
-| `assertMcpToolSucceeded()` | returned a result that is not a tool error. |
+| `assertMcpToolSucceeded()` | returned a result that is not a tool error. On failure it shows what the server logged, including the exception of a tool that threw. |
 | `assertMcpToolError(?$contains)` | returned a tool error, the kind the model reads (`ToolCallException`, `ToolError::invalid()`). |
 | `assertMcpJsonRpcError(?$code, ?$contains)` | was answered with a JSON-RPC error: `-32602` for arguments that do not match the input schema, `-32603` for an unexpected exception. |
 | `assertMcpToolDenied()` | was rejected by your authorizer. It also checks that the tool exists, because a denied tool is answered like an unknown one and a typo would pass otherwise. |
@@ -84,6 +89,8 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 
 `assertMcpToolListed($name)` and `assertMcpToolNotListed($name)` check what the
 current identity sees in `tools/list`. They make their own call.
+`assertMcpToolNotListed()` also checks that the tool exists, for the same
+reason as `assertMcpToolDenied()`.
 
 ## Replacing services
 

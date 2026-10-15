@@ -7,6 +7,11 @@ use Cake\Core\ContainerApplicationInterface;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
 use Cake\Core\TestSuite\ContainerStubTrait;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
+use Cake\Routing\Router;
+use Cake\Routing\RoutingApplicationInterface;
+use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\Server\ServerFactory;
@@ -18,9 +23,9 @@ use stdClass;
 /**
  * Calls the MCP tools of the application in memory, for `Cake\TestSuite\TestCase`.
  *
- * Every call builds the application and its container, then the server the
- * same way the HTTP endpoint does: discovery, constructor injection and the
- * configured authorizer. The identity comes from `mcpActingAs()` instead of
+ * Every call builds the application (bootstrap, routes) and its container,
+ * then the server the same way the HTTP endpoint does: discovery, constructor
+ * injection and the configured authorizer. The identity comes from `mcpActingAs()` instead of
  * the HTTP authentication, which `IntegrationTestTrait` can cover. Services
  * can be replaced with `mockService()`.
  */
@@ -44,6 +49,14 @@ trait McpTestTrait
      * The name of the tool of the last `mcpCallTool()`.
      */
     protected ?string $_mcpTool = null;
+
+    /**
+     * What the server logged in the `mcp` scope during the last `mcpCallTool()`,
+     * warnings and worse. Shown when an assertion fails.
+     *
+     * @var list<string>
+     */
+    protected array $_mcpLog = [];
 
     /**
      * Makes the next calls as this identity, in the shape your authentication
@@ -70,7 +83,7 @@ trait McpTestTrait
         $this->_mcpResponse = $this->mcpRequest('tools/call', [
             'name' => $name,
             'arguments' => $arguments === [] ? new stdClass() : $arguments,
-        ]);
+        ], log: $this->_mcpLog);
 
         return $this->_mcpResponse;
     }
@@ -127,11 +140,11 @@ trait McpTestTrait
         Assert::assertArrayHasKey(
             'result',
             $response,
-            $message ?: 'The tool call failed: ' . $this->mcpJson($response),
+            $message ?: 'The tool call failed: ' . $this->mcpJson($response) . $this->mcpLogText(),
         );
         Assert::assertNotTrue(
             $this->mcpResult()['isError'] ?? false,
-            $message ?: 'The tool returned an error: ' . $this->mcpResultText(),
+            $message ?: 'The tool returned an error: ' . $this->mcpResultText() . $this->mcpLogText(),
         );
     }
 
@@ -147,7 +160,7 @@ trait McpTestTrait
     {
         Assert::assertTrue(
             ($this->mcpResult()['isError'] ?? false) === true,
-            $message ?: 'Expected a tool error, got: ' . $this->mcpJson($this->mcpResponse()),
+            $message ?: 'Expected a tool error, got: ' . $this->mcpJson($this->mcpResponse()) . $this->mcpLogText(),
         );
         if ($contains !== null) {
             Assert::assertStringContainsString($contains, $this->mcpResultText(), $message);
@@ -168,7 +181,9 @@ trait McpTestTrait
         $response = $this->mcpResponse();
         $error = $response['error'] ?? null;
         if (!is_array($error)) {
-            Assert::fail($message ?: 'Expected a JSON-RPC error, got: ' . $this->mcpJson($response));
+            Assert::fail(
+                $message ?: 'Expected a JSON-RPC error, got: ' . $this->mcpJson($response) . $this->mcpLogText(),
+            );
         }
         if ($code !== null) {
             Assert::assertSame($code, $error['code'] ?? null, $message ?: 'Unexpected JSON-RPC error code.');
@@ -244,7 +259,8 @@ trait McpTestTrait
     }
 
     /**
-     * Asserts that the current identity does not see a tool in `tools/list`.
+     * Asserts that the current identity does not see a tool in `tools/list`. It
+     * also checks that the tool exists, so a typo cannot pass as hidden.
      *
      * @param string $name The tool name.
      * @param string $message The failure message.
@@ -256,6 +272,11 @@ trait McpTestTrait
             $name,
             array_column($this->mcpListTools(), 'name'),
             $message ?: sprintf('Tool "%s" is listed for the current identity.', $name),
+        );
+        Assert::assertContains(
+            $name,
+            array_column($this->mcpToolDefinitions(true), 'name'),
+            $message ?: sprintf('Tool "%s" is not registered, so its absence proves nothing. Check the name.', $name),
         );
     }
 
@@ -272,6 +293,15 @@ trait McpTestTrait
         if ($app instanceof PluginApplicationInterface) {
             $app->pluginBootstrap();
         }
+        // createApp() resets the routes. Load them as the HTTP and console runners do,
+        // so tools that build URLs work as in production.
+        if ($app instanceof RoutingApplicationInterface) {
+            $builder = Router::createRouteBuilder('/');
+            $app->routes($builder);
+            if ($app instanceof PluginApplicationInterface) {
+                $app->pluginRoutes($builder);
+            }
+        }
         if (!$app instanceof ContainerApplicationInterface) {
             Assert::fail(sprintf('`%s` has no container to build the MCP server from.', $app::class));
         }
@@ -285,9 +315,10 @@ trait McpTestTrait
      * @param string $method The JSON-RPC method.
      * @param array<string, mixed>|null $params Its params.
      * @param bool $trusted Skip the authorizer.
+     * @param list<string> $log Receives what the server logged, warnings and worse.
      * @return array<string, mixed>
      */
-    private function mcpRequest(string $method, ?array $params, bool $trusted = false): array
+    private function mcpRequest(string $method, ?array $params, bool $trusted = false, array &$log = []): array
     {
         $request = ['jsonrpc' => '2.0', 'id' => 2, 'method' => $method];
         if ($params !== null) {
@@ -316,7 +347,20 @@ trait McpTestTrait
                 is_callable($scopes) ? Closure::fromCallable($scopes) : null,
             ),
         );
-        $factory->create($trusted)->run($transport);
+        // The real exception of a failing tool only reaches the log, rarely configured in tests.
+        $logConfig = '_mcp_test_trait';
+        Log::setConfig($logConfig, [
+            'className' => ArrayLog::class,
+            'scopes' => [McpLogger::SCOPE],
+            'levels' => ['warning', 'error', 'critical', 'alert', 'emergency'],
+        ]);
+        try {
+            $factory->create($trusted)->run($transport);
+        } finally {
+            $engine = Log::engine($logConfig);
+            $log = $engine instanceof ArrayLog ? array_values(array_map('strval', $engine->read())) : [];
+            Log::drop($logConfig);
+        }
 
         $response = $transport->responseFor(2);
         if ($response === null) {
@@ -379,6 +423,14 @@ trait McpTestTrait
         }
 
         return $value;
+    }
+
+    /**
+     * @return string The server log of the last call, for failure messages, or an empty string.
+     */
+    private function mcpLogText(): string
+    {
+        return $this->_mcpLog === [] ? '' : "\nServer log:\n" . implode("\n", $this->_mcpLog);
     }
 
     /**

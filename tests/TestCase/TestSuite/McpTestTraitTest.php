@@ -124,12 +124,39 @@ class McpTestTraitTest extends TestCase
 
     public function testMockedServicesReachTheTools(): void
     {
-        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpGreeting']);
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpExtra']);
         $this->mockService(Greeter::class, fn(): Greeter => new Greeter(new Clock(), 'Hola'));
 
         $this->mcpCallTool('greet', ['name' => 'Ana']);
 
         $this->assertSame('Hola, Ana', $this->mcpResultText());
+    }
+
+    public function testToolsCanUseTheApplicationRoutes(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpExtra']);
+
+        $this->mcpCallTool('article_link', ['id' => 5]);
+
+        $this->assertMcpToolSucceeded();
+        $this->assertSame('/Articles/view/5', $this->mcpResultText());
+    }
+
+    public function testFailuresShowTheServerLog(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpExtra']);
+        $this->mcpCallTool('broken');
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('The broken tool is broken on purpose.');
+        $this->assertMcpToolSucceeded();
+    }
+
+    public function testNotListedFailsForAToolThatDoesNotExist(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('is not registered');
+        $this->assertMcpToolNotListed('no_such_tool');
     }
 
     public function testAssertionsNeedACall(): void

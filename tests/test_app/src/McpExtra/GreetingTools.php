@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace TestApp\McpGreeting;
+namespace TestApp\McpExtra;
 
 use Mcp\Capability\Attribute\McpTool;
 use TestApp\Service\Greeter;
