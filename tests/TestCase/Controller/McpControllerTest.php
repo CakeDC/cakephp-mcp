@@ -175,6 +175,13 @@ class McpControllerTest extends TestCase
             $this->modernHeaders('tools/call', 'explode'),
         );
 
+        // The SDK answers an unhandled tool exception with HTTP 400 and this JSON-RPC error, which proves
+        // the call was not rejected earlier (that would be 401, 403 or 404, or "Tool not found").
+        $this->assertResponseCode(400);
+        $this->assertSame(
+            ['code' => -32603, 'message' => 'Error while executing tool'],
+            $this->json()['error'] ?? null,
+        );
         $body = (string)$this->_response->getBody();
         $this->assertStringNotContainsString('secret details', $body);
         $this->assertStringNotContainsString('#0 ', $body);
