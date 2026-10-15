@@ -3,3 +3,5 @@
 /.phpunit.cache/
 /tests/test_app/tmp/
 .phpunit.result.cache
+/tests/Conformance/tmp/
+/tests/Conformance/results/

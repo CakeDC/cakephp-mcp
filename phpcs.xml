@@ -6,4 +6,8 @@
     <file>tests/</file>
 
     <exclude-pattern>tests/test_app/tmp/*</exclude-pattern>
+    <!-- Copied verbatim from the SDK, kept in its own style so it can be diffed against upstream. -->
+    <exclude-pattern>tests/Conformance/Sdk/*</exclude-pattern>
+    <exclude-pattern>tests/Conformance/tmp/*</exclude-pattern>
+    <exclude-pattern>tests/Conformance/results/*</exclude-pattern>
 </ruleset>

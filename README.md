@@ -110,6 +110,7 @@ $service->loadAuthenticator('Authentication.Token', [
 - [stdio](docs/stdio.md)
 - [Connecting clients](docs/clients.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Protocol conformance](docs/conformance.md)
 
 ## License
 

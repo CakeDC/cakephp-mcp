@@ -16,9 +16,16 @@ define('APP_DIR', 'src');
 define('APP', ROOT . 'src' . DS);
 define('CONFIG', ROOT . 'config' . DS);
 define('WWW_ROOT', ROOT . 'webroot' . DS);
-define('TMP', ROOT . 'tmp' . DS);
-define('LOGS', TMP . 'logs' . DS);
-define('CACHE', TMP . 'cache' . DS);
+// The conformance fixture defines its own writable directories first.
+if (!defined('TMP')) {
+    define('TMP', ROOT . 'tmp' . DS);
+}
+if (!defined('LOGS')) {
+    define('LOGS', TMP . 'logs' . DS);
+}
+if (!defined('CACHE')) {
+    define('CACHE', TMP . 'cache' . DS);
+}
 define('CAKE_CORE_INCLUDE_PATH', $pluginRoot . DS . 'vendor' . DS . 'cakephp' . DS . 'cakephp');
 define('CORE_PATH', CAKE_CORE_INCLUDE_PATH . DS);
 define('CAKE', CORE_PATH . 'src' . DS);
