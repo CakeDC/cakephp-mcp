@@ -51,6 +51,35 @@ class OrderTools
 }
 ```
 
+## Annotations
+
+Annotations tell the client how a tool behaves. Clients such as Claude use them
+to decide when to ask the user before running a tool, so mark the tools that
+only read as read-only and the ones that delete or overwrite as destructive:
+
+```php
+use Mcp\Capability\Attribute\McpTool;
+use Mcp\Schema\ToolAnnotations;
+
+#[McpTool(name: 'find_order', annotations: new ToolAnnotations(readOnlyHint: true))]
+public function find(string $number): array
+
+#[McpTool(name: 'cancel_order', annotations: new ToolAnnotations(destructiveHint: true, idempotentHint: true))]
+public function cancel(string $number): string
+```
+
+| Hint | Meaning |
+| --- | --- |
+| `title` | A human-readable name for the tool. |
+| `readOnlyHint` | The tool does not change anything. |
+| `destructiveHint` | The tool may delete or overwrite data. Only meaningful when it is not read-only. |
+| `idempotentHint` | Calling it again with the same arguments changes nothing more. Only meaningful when it is not read-only. |
+| `openWorldHint` | The tool reaches systems outside your application, such as a third-party API. |
+
+A hint you leave out means the worst case: not read-only, destructive, not
+idempotent and open world. Annotations are hints for the client, not a security
+boundary. Who may call a tool is decided by [authorization](authorization.md).
+
 ## Constructor injection
 
 Tool classes are built through Cake's container, so constructor dependencies

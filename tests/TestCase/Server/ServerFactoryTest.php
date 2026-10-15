@@ -44,6 +44,14 @@ class ServerFactoryTest extends TestCase
         $this->assertSame(['admin_only', 'echo', 'explode', 'whoami'], $this->toolNames($this->runServer()));
     }
 
+    public function testToolAnnotationsReachTheToolList(): void
+    {
+        $tools = array_column($this->runServer()->responseFor(2)['result']['tools'] ?? [], null, 'name');
+
+        $this->assertSame(['readOnlyHint' => true, 'idempotentHint' => true], $tools['echo']['annotations'] ?? null);
+        $this->assertArrayNotHasKey('annotations', $tools['explode'] ?? []);
+    }
+
     public function testCallsATool(): void
     {
         $transport = $this->runServer([$this->call(3, 'echo', ['text' => 'hello'])]);

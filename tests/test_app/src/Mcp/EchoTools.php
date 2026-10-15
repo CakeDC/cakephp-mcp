@@ -5,6 +5,7 @@ namespace TestApp\Mcp;
 
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use Mcp\Capability\Attribute\McpTool;
+use Mcp\Schema\ToolAnnotations;
 use Mcp\Server\RequestContext;
 use RuntimeException;
 
@@ -17,7 +18,7 @@ class EchoTools
     /**
      * Returns the given text unchanged.
      */
-    #[McpTool(name: 'echo')]
+    #[McpTool(name: 'echo', annotations: new ToolAnnotations(readOnlyHint: true, idempotentHint: true))]
     public function echoText(string $text): string
     {
         return $text;
