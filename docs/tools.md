@@ -167,3 +167,48 @@ public function cancel(string $number): string
 ```
 
 Unhandled exceptions are logged through Cake's `Log` with the `mcp` scope.
+
+### Validation errors
+
+The SDK already rejects arguments that do not match the tool's input schema.
+For the rules that live in your tables and validators, throw
+`CakeDC\Mcp\Tool\ToolError::invalid()`. It turns Cake's validation errors into
+a message with one line per field, so the model sees what to fix and can try
+again:
+
+```php
+use Cake\ORM\Locator\LocatorAwareTrait;
+use CakeDC\Mcp\Tool\ToolError;
+use Mcp\Capability\Attribute\McpTool;
+
+class ArticleTools
+{
+    use LocatorAwareTrait;
+
+    #[McpTool(name: 'create_draft')]
+    public function createDraft(string $title, string $body): array
+    {
+        $articles = $this->fetchTable('Articles');
+        $article = $articles->newEntity(['title' => $title, 'body' => $body]);
+        if (!$articles->save($article)) {
+            throw ToolError::invalid($article, 'The draft was not saved.');
+        }
+
+        return ['id' => $article->id];
+    }
+}
+```
+
+The client receives a tool error with this text:
+
+```
+The draft was not saved.
+- title: This field cannot be left empty
+- tags.0.name: This field is required
+```
+
+`invalid()` takes an entity (errors of associated entities included) or the
+array returned by `Validator::validate()` or `getErrors()`. With `saveOrFail()`,
+catch `Cake\ORM\Exception\PersistenceFailedException` and pass
+`$exception->getEntity()`. The messages are your validation messages as they
+are, so write them for someone who has to fix the data.

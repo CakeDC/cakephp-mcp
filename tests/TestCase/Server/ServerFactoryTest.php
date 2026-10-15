@@ -41,7 +41,22 @@ class ServerFactoryTest extends TestCase
 
     public function testListsDiscoveredTools(): void
     {
-        $this->assertSame(['admin_only', 'echo', 'explode', 'whoami'], $this->toolNames($this->runServer()));
+        $this->assertSame(
+            ['admin_only', 'create_note', 'echo', 'explode', 'whoami'],
+            $this->toolNames($this->runServer()),
+        );
+    }
+
+    public function testValidationErrorsReachTheModelAsAToolError(): void
+    {
+        $transport = $this->runServer([$this->call(3, 'create_note', ['title' => 'ab'])]);
+
+        $result = $transport->responseFor(3)['result'] ?? [];
+        $this->assertTrue($result['isError'] ?? false);
+        $this->assertSame(
+            "The note was not created.\n- title: Use at least 3 characters.",
+            $result['content'][0]['text'] ?? null,
+        );
     }
 
     public function testToolAnnotationsReachTheToolList(): void
