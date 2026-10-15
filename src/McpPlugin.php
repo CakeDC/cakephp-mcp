@@ -5,10 +5,12 @@ namespace CakeDC\Mcp;
 
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\FileEngine;
+use Cake\Console\CommandCollection;
 use Cake\Core\BasePlugin;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
 use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 
@@ -58,6 +60,17 @@ class McpPlugin extends BasePlugin
     }
 
     /**
+     * Registers `bin/cake mcp server`, the stdio transport.
+     *
+     * @param \Cake\Console\CommandCollection $commands The collection.
+     * @return \Cake\Console\CommandCollection
+     */
+    public function console(CommandCollection $commands): CommandCollection
+    {
+        return $commands->add('mcp server', McpServerCommand::class);
+    }
+
+    /**
      * @param \Cake\Core\ContainerInterface $container The host container.
      * @return void
      */
@@ -66,6 +79,9 @@ class McpPlugin extends BasePlugin
         $container->addShared(CurrentIdentity::class);
         $container->addShared(ServerFactory::class)
             ->addArgument($container)
+            ->addArgument(CurrentIdentity::class);
+        $container->add(McpServerCommand::class)
+            ->addArgument(ServerFactory::class)
             ->addArgument(CurrentIdentity::class);
     }
 }
