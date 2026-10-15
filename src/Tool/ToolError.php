@@ -42,7 +42,9 @@ final class ToolError
 
     /**
      * Turns Cake's nested errors into messages keyed by dotted field path. A
-     * string is a message, and its key is the name of the rule that failed.
+     * string is a message, and its key is the name of the rule that failed. At
+     * the top level, where Cake never puts a message, a string under a named key
+     * is a hand-written `field => message`.
      *
      * @param array<mixed> $errors Nested errors.
      * @param string $path The path of $errors.
@@ -53,7 +55,8 @@ final class ToolError
         $flat = [];
         foreach ($errors as $key => $value) {
             if (is_string($value)) {
-                $flat[$path][] = $value;
+                $field = $path === '' && is_string($key) ? $key : $path;
+                $flat[$field][] = $value;
 
                 continue;
             }

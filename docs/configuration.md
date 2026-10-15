@@ -7,7 +7,15 @@ want to change; everything else keeps its default. These are the defaults
 ```php
 'Mcp' => [
     'route' => '/mcp',
-    'server' => ['name' => 'CakePHP MCP Server', 'version' => '1.0.0', 'instructions' => null, 'configure' => null],
+    'server' => [
+        'name' => 'CakePHP MCP Server',
+        'version' => '1.0.0',
+        'title' => null,
+        'description' => null,
+        'websiteUrl' => null,
+        'instructions' => null,
+        'configure' => null,
+    ],
     'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
     'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
     'http' => ['allowedHosts' => null, 'allowedOrigins' => []],
@@ -21,6 +29,7 @@ want to change; everything else keeps its default. These are the defaults
 
 - `route`: path of the HTTP endpoint. `false` (or an empty string) connects no route.
 - `server.name`, `server.version`: reported to clients in the `initialize` result.
+- `server.title`, `server.description`, `server.websiteUrl`: optional, also reported to clients. `null` sends none.
 - `server.instructions`: optional text telling the client's model how to use your server. `null` sends none.
 - `server.configure`: optional callable that receives the SDK `Mcp\Server\Builder` before the server is built. See [Using the SDK builder](#using-the-sdk-builder).
 - `discovery.scanDirs`: directories (relative to `ROOT`) scanned for attributes. Missing directories are skipped.
@@ -65,9 +74,14 @@ Configure::write('Mcp.server.configure', function (Builder $builder): void {
 ```
 
 The plugin applies its own settings after the callable, so these always win:
-server name and version, container, logger, event dispatcher, session store,
-and discovery when `discovery.scanDirs` has a directory. The authorizer applies
-to every tool, including the ones added here.
+the server info (a `setServerInfo()` call in the callable is ignored; use the
+`server.*` keys), container, logger, event dispatcher, session store, and
+discovery when `discovery.scanDirs` has a directory. The authorizer applies to
+every tool, including the ones added here.
+
+If you set a cache policy, keep `tools/list` private unless every caller sees
+the same tools. With an authorizer, the list depends on who asks, and a
+`CacheScope::Public` hint lets shared caches serve one user's list to others.
 
 ## Caches
 

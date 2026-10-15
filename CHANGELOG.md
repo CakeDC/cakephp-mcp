@@ -11,6 +11,7 @@ Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
 - Sessions and the discovery cache stored in Cake cache configs.
 - Authentication delegated to the host: the identity set by `cakephp/authentication` becomes the SDK access token and the injectable `CurrentIdentity`.
 - Per-tool authorization with `ToolAuthorizerInterface`; `RbacToolAuthorizer` for `cakedc/auth` permission rules.
+- `server.title`, `server.description` and `server.websiteUrl` config keys, reported in the server info.
 - `Mcp.server.configure` hands the SDK builder to the host for anything the plugin does not configure itself; the plugin's own settings and the authorizer still apply.
 - `McpTestTrait` calls the application's tools in memory from a Cake test case, acting as any identity, with assertions for results, tool errors, JSON-RPC errors, denials and `tools/list`.
 - `ToolError::invalid()` turns Cake validation errors (an entity or a `Validator` result) into a tool error the model can read and act on.

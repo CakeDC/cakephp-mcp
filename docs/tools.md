@@ -207,8 +207,9 @@ The draft was not saved.
 - tags.0.name: This field is required
 ```
 
-`invalid()` takes an entity (errors of associated entities included) or the
-array returned by `Validator::validate()` or `getErrors()`. With `saveOrFail()`,
+`invalid()` takes an entity (errors of associated entities included), the
+array returned by `Validator::validate()` or `getErrors()`, or a simple
+`['field' => 'message']` array. With `saveOrFail()`,
 catch `Cake\ORM\Exception\PersistenceFailedException` and pass
 `$exception->getEntity()`. The messages are your validation messages as they
 are, so write them for someone who has to fix the data.

@@ -142,6 +142,22 @@ class ServerFactoryTest extends TestCase
         $this->assertSame('Use echo to test.', $result['instructions'] ?? null);
     }
 
+    public function testServerInfoFromConfig(): void
+    {
+        Configure::write('Mcp.server', [
+            'title' => 'My App',
+            'description' => 'Articles and orders.',
+            'websiteUrl' => 'https://app.example.com',
+        ]);
+
+        $info = $this->runServer()->responseFor(1)['result']['serverInfo'] ?? [];
+
+        $this->assertSame('CakePHP MCP Server', $info['name'] ?? null);
+        $this->assertSame('My App', $info['title'] ?? null);
+        $this->assertSame('Articles and orders.', $info['description'] ?? null);
+        $this->assertSame('https://app.example.com', $info['websiteUrl'] ?? null);
+    }
+
     public function testConfigureHookReceivesTheBuilder(): void
     {
         Configure::write('Mcp.server.configure', function (Builder $builder): void {

@@ -22,6 +22,14 @@ class ToolErrorTest extends TestCase
         );
     }
 
+    public function testFlatFieldMessagesKeepTheFieldName(): void
+    {
+        $this->assertSame(
+            "The data is invalid.\n- title: Required\n- slug: Taken",
+            ToolError::invalid(['title' => 'Required', 'slug' => 'Taken'])->getMessage(),
+        );
+    }
+
     public function testNestedErrorsUseDottedPaths(): void
     {
         $exception = ToolError::invalid([

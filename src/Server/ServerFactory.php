@@ -61,7 +61,13 @@ final class ServerFactory
         $this->configure($builder);
         // Set after the host hook, so the hook cannot drop the tool list filter or replace these.
         $builder
-            ->setServerInfo((string)McpConfig::get('server.name'), (string)McpConfig::get('server.version'))
+            ->setServerInfo(
+                (string)McpConfig::get('server.name'),
+                (string)McpConfig::get('server.version'),
+                $this->optionalString('server.description'),
+                websiteUrl: $this->optionalString('server.websiteUrl'),
+                title: $this->optionalString('server.title'),
+            )
             ->setContainer(new ContainerBridge($this->container))
             ->setLogger(new McpLogger())
             ->setEventDispatcher($events)
@@ -110,6 +116,17 @@ final class ServerFactory
             ));
         }
         $configure($builder);
+    }
+
+    /**
+     * @param string $path Dot path inside the `Mcp` config.
+     * @return string|null The value, or null when it is not a non-empty string.
+     */
+    private function optionalString(string $path): ?string
+    {
+        $value = McpConfig::get($path);
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**

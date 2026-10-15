@@ -21,7 +21,15 @@ final class McpConfig
      */
     public const DEFAULTS = [
         'route' => '/mcp',
-        'server' => ['name' => 'CakePHP MCP Server', 'version' => '1.0.0', 'instructions' => null, 'configure' => null],
+        'server' => [
+            'name' => 'CakePHP MCP Server',
+            'version' => '1.0.0',
+            'title' => null,
+            'description' => null,
+            'websiteUrl' => null,
+            'instructions' => null,
+            'configure' => null,
+        ],
         'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
         'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
         'http' => ['allowedHosts' => null, 'allowedOrigins' => []],
