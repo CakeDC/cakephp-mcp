@@ -57,9 +57,11 @@ bin/cake mcp inspector --url https://staging.example.com/mcp --header "Authoriza
   starting it. Header and environment values are shown as `***`.
 
 The configuration goes to a temporary file only you can read, and it is
-deleted when the Inspector stops, also when you stop it with Ctrl+C. Only if
-the PHP process is killed outright (for example `kill -9`) does it stay behind:
-remove `mcp-inspector-*.json` from the temporary directory then. If the token is wrong, the endpoint answers
+deleted when the Inspector stops, also when you stop it with Ctrl+C. On Linux
+and macOS that needs PHP's `pcntl` extension, usual in the CLI; without it the
+command warns and prints the path to delete. If the PHP process is killed
+outright (for example `kill -9`), remove `mcp-inspector-*.json` from the
+temporary directory yourself. If the token is wrong, the endpoint answers
 401 and the Inspector offers an OAuth sign-in, which this version does not
 support: check the token instead.
 

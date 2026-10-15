@@ -113,6 +113,12 @@ class McpInspectorCommand extends Command
             return static::CODE_ERROR;
         }
         $io->out(sprintf('Opening the MCP Inspector on %s. Stop it with Ctrl+C.', $server['url'] ?? 'stdio'));
+        if (!self::interruptsHandled() && (isset($server['headers']) || isset($server['env']))) {
+            $io->warning(sprintf(
+                'Without the pcntl extension, stopping with Ctrl+C leaves `%s` behind. Delete it afterwards.',
+                $file,
+            ));
+        }
 
         try {
             $code = $this->launch($this->command($file), $io);
@@ -145,10 +151,32 @@ class McpInspectorCommand extends Command
                 return static::CODE_ERROR;
             }
 
-            return proc_close($process);
+            // Polled rather than waited for in proc_close(): PHP only runs signal
+            // handlers between calls, so this lets SIGTERM and SIGHUP be passed on.
+            do {
+                $status = proc_get_status($process);
+                if ($status['running']) {
+                    usleep(100000);
+                }
+            } while ($status['running']);
+            proc_close($process);
+
+            return $status['signaled'] ? 128 + $status['termsig'] : $status['exitcode'];
         } finally {
             $restore();
         }
+    }
+
+    /**
+     * Whether `launch()` can keep PHP alive through Ctrl+C to delete the
+     * configuration file: it needs the pcntl extension, or PHP on Windows.
+     *
+     * @return bool
+     */
+    private static function interruptsHandled(): bool
+    {
+        return (function_exists('pcntl_async_signals') && function_exists('pcntl_signal'))
+            || function_exists('sapi_windows_set_ctrl_handler');
     }
 
     /**
@@ -164,6 +192,10 @@ class McpInspectorCommand extends Command
      */
     private function outliveInterrupts(mixed &$process): Closure
     {
+        if (!self::interruptsHandled()) {
+            return static function (): void {
+            };
+        }
         if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
             $async = pcntl_async_signals(true);
             $forward = static function (int $signal) use (&$process): void {
@@ -186,17 +218,12 @@ class McpInspectorCommand extends Command
                 pcntl_async_signals($async);
             };
         }
-        if (function_exists('sapi_windows_set_ctrl_handler')) {
-            $handler = static function (int $event): void {
-            };
-            sapi_windows_set_ctrl_handler($handler);
+        $handler = static function (int $event): void {
+        };
+        sapi_windows_set_ctrl_handler($handler);
 
-            return static function () use ($handler): void {
-                sapi_windows_set_ctrl_handler($handler, false);
-            };
-        }
-
-        return static function (): void {
+        return static function () use ($handler): void {
+            sapi_windows_set_ctrl_handler($handler, false);
         };
     }
 
