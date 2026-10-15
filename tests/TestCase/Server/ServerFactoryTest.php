@@ -12,9 +12,9 @@ use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use stdClass;
-use TestApp\RecordingTransport;
 
 class ServerFactoryTest extends TestCase
 {

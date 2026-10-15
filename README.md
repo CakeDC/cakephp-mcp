@@ -9,6 +9,7 @@ Built on the official [`mcp/sdk`](https://github.com/modelcontextprotocol/php-sd
 - Tools are plain PHP classes with `#[McpTool]` attributes, with constructor injection.
 - Authentication stays in your app (`cakephp/authentication`); the plugin reads the identity.
 - Per-tool authorization, including `config/permissions.php` rules through `cakedc/auth`.
+- `McpTestTrait` to test your tools, and who may call them, from a regular Cake test case.
 
 ## Requirements
 
@@ -105,6 +106,7 @@ $service->loadAuthenticator('Authentication.Token', [
 - [Writing tools](docs/tools.md)
 - [Authentication](docs/authentication.md)
 - [Authorization](docs/authorization.md)
+- [Testing your tools](docs/testing.md)
 - [stdio](docs/stdio.md)
 - [Connecting clients](docs/clients.md)
 - [Troubleshooting](docs/troubleshooting.md)

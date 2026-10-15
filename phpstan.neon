@@ -2,5 +2,7 @@ parameters:
     level: 8
     paths:
         - src/
+        # Analyses McpTestTrait, which PHPStan only checks through a class using it.
+        - tests/TestCase/TestSuite/McpTestTraitTest.php
     bootstrapFiles:
         - tests/bootstrap.php

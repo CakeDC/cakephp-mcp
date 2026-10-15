@@ -6,8 +6,8 @@ namespace TestApp\Command;
 use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
 use Mcp\Server\Transport\TransportInterface;
-use TestApp\RecordingTransport;
 
 /**
  * Runs the real command against queued messages instead of STDIN/STDOUT.

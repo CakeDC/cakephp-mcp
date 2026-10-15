@@ -57,30 +57,32 @@ final class IdentityMiddleware implements MiddlewareInterface
         }
 
         $this->current->set($identity);
+
+        return $handler->handle($request->withAttribute(
+            AccessToken::class,
+            self::accessTokenFor($identity, $this->scopes),
+        ));
+    }
+
+    /**
+     * The SDK access token for a host identity: its identifier as the `sub`
+     * claim, and the scopes returned by `$scopes`.
+     *
+     * @param mixed $identity The identity.
+     * @param \Closure|null $scopes `fn(mixed $identity): array` returning scope strings.
+     * @return \Mcp\Server\Authorization\AccessToken
+     */
+    public static function accessTokenFor(mixed $identity, ?Closure $scopes = null): AccessToken
+    {
         $claims = [];
         $identifier = CurrentIdentity::identifierOf($identity);
         if ($identifier !== null) {
             $claims['sub'] = (string)$identifier;
         }
+        $granted = $scopes === null ? [] : $scopes($identity);
+        $granted = is_array($granted) ? array_values(array_filter($granted, 'is_string')) : [];
 
-        return $handler->handle($request->withAttribute(
-            AccessToken::class,
-            new AccessToken($this->scopesFor($identity), $claims),
-        ));
-    }
-
-    /**
-     * @param mixed $identity The identity.
-     * @return list<string>
-     */
-    private function scopesFor(mixed $identity): array
-    {
-        if ($this->scopes === null) {
-            return [];
-        }
-        $scopes = ($this->scopes)($identity);
-
-        return is_array($scopes) ? array_values(array_filter($scopes, 'is_string')) : [];
+        return new AccessToken($granted, $claims);
     }
 
     /**
