@@ -86,9 +86,38 @@ challenged.
 
 ## cakedc/auth and cakedc/users
 
-Applications built on `cakedc/auth` or `cakedc/users` need nothing special.
-They already put the identity in the `identity` attribute, so the plugin works
-unchanged. To restrict tools by role, see [Authorization](authorization.md).
+Applications built on `cakedc/auth` or `cakedc/users` already put the identity
+in the `identity` attribute, so the plugin reads it unchanged. Two defaults of
+`cakedc/users` get in the way of the endpoint, though, and need configuration:
+
+1. `cakedc/users` loads `RequestAuthorizationMiddleware` with `RbacPolicy`, which
+   authorizes the route before the controller runs. The plugin's
+   `skipAuthorization()` call never gets a chance, and an anonymous request is
+   redirected to the login page instead of receiving the plugin's 401. Add a
+   permission rule for the endpoint in your `config/permissions.php`, with
+   `bypassAuth` so the request reaches the plugin, which then does its own 401
+   and per-tool authorization:
+
+   ```php
+   [
+       'role' => '*',
+       'plugin' => 'CakeDC/Mcp',
+       'controller' => 'Mcp',
+       'action' => 'handle',
+       'bypassAuth' => true,
+   ],
+   ```
+
+2. The default `Token` authenticator of `cakedc/users` reads the `api_key` query
+   parameter (`'header' => null`, `'queryParam' => 'api_key'`), not the
+   `Authorization` header. Configure a header based Bearer authenticator, as
+   shown in [Bearer tokens](#bearer-tokens), for example through
+   `Auth.Authenticators.Token` (`'header' => 'Authorization'`,
+   `'queryParam' => null`, `'tokenPrefix' => 'Bearer'`).
+
+The key names above come from `cakedc/users` and `cakedc/auth` as installed in
+a local project; check them against the versions you use. To restrict tools by
+role, see [Authorization](authorization.md).
 
 ## OAuth
 

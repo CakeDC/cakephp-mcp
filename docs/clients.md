@@ -9,7 +9,7 @@ claude mcp add --transport http my-app https://example.com/mcp \
 
 Check that it connected with `claude mcp list`, or `/mcp` inside Claude Code.
 The server must be reachable from your machine, and its host must be allowed
-(`http.allowedHosts`, by default the host of `App.fullBaseUrl`).
+(`http.allowedHosts`; by default the host of `App.fullBaseUrl`, which only restricts anything when it is set explicitly, so set `http.allowedHosts` for a real deployment).
 
 For a server running on your own machine you can use the local URL, for
 example `https://my-app.ddev.site/mcp`.

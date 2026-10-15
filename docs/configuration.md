@@ -27,7 +27,7 @@ want to change; everything else keeps its default. These are the defaults
 - `discovery.cache`: name of the cache config for the discovery result. Set it to `null` or an empty string to disable the cache.
 - `session.cache`: name of the cache config that stores handshake-era sessions.
 - `session.ttl`: session lifetime in seconds.
-- `http.allowedHosts`: hosts accepted in the `Host` header (DNS-rebinding protection). `null` means the host of `App.fullBaseUrl` plus `localhost`, `127.0.0.1` and `[::1]`. A list replaces that.
+- `http.allowedHosts`: hosts accepted in the `Host` header (DNS-rebinding protection). `null` means the host of `App.fullBaseUrl` plus `localhost`, `127.0.0.1` and `[::1]`, which only protects when `App.fullBaseUrl` is set explicitly (the Cake 5 skeleton derives it from the request `Host` otherwise, and then every host is accepted). A list replaces that. Set it explicitly in production; it is required for servers with `identity.required` set to `false`.
 - `http.allowedOrigins`: origins accepted for browser clients, also used for CORS. Empty by default.
 - `identity.required`: answer 401 when the request has no identity.
 - `identity.attribute`: request attribute that holds the identity.
@@ -65,6 +65,8 @@ The plugin logs through Cake's `Log` with the `mcp` scope. Route those messages
 to their own file with a scoped log config:
 
 ```php
+use Cake\Log\Engine\FileLog;
+
 'Log' => [
     'mcp' => [
         'className' => FileLog::class,
@@ -74,3 +76,8 @@ to their own file with a scoped log config:
     ],
 ],
 ```
+
+Engines without `scopes` (the default `[]`) catch every scope, so the default
+`debug` and `error` engines of the skeleton also receive the `mcp` messages. To
+keep them out, give those engines `'scopes' => null`: an engine with `null`
+scopes only handles messages that have no scope.

@@ -44,7 +44,7 @@ Let MCP requests through CSRF protection (in `Application::middleware()`):
 
 ```php
 $csrf = new CsrfProtectionMiddleware();
-$csrf->skipCheckCallback(fn (ServerRequest $request): bool => str_starts_with($request->getPath(), '/mcp'));
+$csrf->skipCheckCallback(fn (ServerRequest $request): bool => $request->getPath() === '/mcp');
 ```
 
 ## Your first tool

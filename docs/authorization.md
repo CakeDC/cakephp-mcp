@@ -42,7 +42,9 @@ class StaffOnlyAuthorizer implements ToolAuthorizerInterface
 ```
 
 Configure it by class name (built through the container, so it can have
-injected dependencies) or by instance:
+injected dependencies) or by instance. The authorizer is chosen only through
+`Mcp.authorization.authorizer`; binding `ToolAuthorizerInterface` in the
+container is not consulted:
 
 ```php
 Configure::write('Mcp.authorization.authorizer', \App\Mcp\StaffOnlyAuthorizer::class);
@@ -56,7 +58,13 @@ Configure::write('Mcp.authorization.authorizer', new StaffOnlyAuthorizer());
 - Calling it anyway gets the same answer as calling a tool that does not
   exist: JSON-RPC error `-32602` with the message `Tool not found: "<name>".`
 
-So callers cannot discover which protected tools exist.
+So callers generally cannot discover which protected tools exist. One
+exception: tools whose input schema uses `x-mcp-header` annotations can be told
+apart on the stateless (2026-07-28) era, because header validation runs before
+the guard.
+
+Resources and prompts are not covered by the tool authorizer: any identified
+caller can list and read them.
 
 ## RbacToolAuthorizer (cakedc/auth)
 

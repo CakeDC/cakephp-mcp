@@ -14,12 +14,24 @@
 ## 403 Invalid Host header
 
 The `Host` of the request is not allowed. By default the host of
-`App.fullBaseUrl` and localhost are. Make sure `App.fullBaseUrl` is set
-correctly in production, or list the hosts yourself:
+`App.fullBaseUrl` and localhost are, but only when `App.fullBaseUrl` is set
+explicitly: the Cake 5 skeleton derives it from the request `Host` when it is
+not set, and then every host is accepted. Set `Mcp.http.allowedHosts` yourself
+(required for servers with `identity.required` set to `false`):
 
 ```php
 Configure::write('Mcp.http.allowedHosts', ['example.com', 'localhost']);
 ```
+
+## 403 or a redirect to the login page (cakedc/users)
+
+On a `cakedc/users` host, `RequestAuthorizationMiddleware` authorizes the
+route before the plugin runs, so an anonymous or unlisted request gets a 403 or
+a redirect to the login page instead of the plugin's 401. Add a `bypassAuth`
+permission rule for `CakeDC/Mcp` `Mcp::handle`; see
+[Authentication](authentication.md#cakedcauth-and-cakedcusers). If tokens are
+sent but ignored, the default `Token` authenticator reads `api_key` from the
+query string, not the header.
 
 ## 403 from CSRF
 

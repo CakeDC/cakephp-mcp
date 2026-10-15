@@ -42,7 +42,7 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function middleware(MiddlewareQueue $middlewareQueue): MiddlewareQueue
     {
         $csrf = new CsrfProtectionMiddleware();
-        $csrf->skipCheckCallback(fn(ServerRequest $request): bool => str_starts_with($request->getPath(), '/mcp'));
+        $csrf->skipCheckCallback(fn(ServerRequest $request): bool => $request->getPath() === '/mcp');
 
         return $middlewareQueue
             ->add(new ErrorHandlerMiddleware())

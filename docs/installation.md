@@ -45,7 +45,7 @@ use Cake\Http\Middleware\CsrfProtectionMiddleware;
 use Cake\Http\ServerRequest;
 
 $csrf = new CsrfProtectionMiddleware();
-$csrf->skipCheckCallback(fn (ServerRequest $request): bool => str_starts_with($request->getPath(), '/mcp'));
+$csrf->skipCheckCallback(fn (ServerRequest $request): bool => $request->getPath() === '/mcp');
 
 $middlewareQueue->add($csrf);
 ```
@@ -55,7 +55,8 @@ If you change `Mcp.route`, change the path here too.
 ## The route
 
 The plugin connects `/mcp` (methods GET, POST, DELETE and OPTIONS) to its own
-controller. To use another path:
+controller. GET is routed, but this SDK version answers it with 405 (there is
+no standalone server-to-client stream). To use another path:
 
 ```php
 // config/app_local.php or config/bootstrap.php
