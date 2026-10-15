@@ -7,7 +7,10 @@ use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Cache\Engine\FileEngine;
 use Cake\Core\Configure;
+use Cake\Routing\RouteBuilder;
+use Cake\Routing\RouteCollection;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\McpPlugin;
 use TestApp\Application;
 
 class McpPluginTest extends TestCase
@@ -60,5 +63,26 @@ class McpPluginTest extends TestCase
         $app->pluginBootstrap();
 
         $this->assertInstanceOf(ArrayEngine::class, Cache::pool('host_sessions'));
+    }
+
+    public function testRoutesConnectTheEndpointAtTheConfiguredPath(): void
+    {
+        Configure::write('Mcp.route', '/ai/mcp');
+        $collection = new RouteCollection();
+
+        (new McpPlugin())->routes(new RouteBuilder($collection, '/'));
+
+        $this->assertCount(1, $collection->routes());
+        $this->assertSame('/ai/mcp', $collection->routes()[0]->template);
+    }
+
+    public function testRoutesAreSkippedWhenDisabled(): void
+    {
+        Configure::write('Mcp.route', false);
+        $collection = new RouteCollection();
+
+        (new McpPlugin())->routes(new RouteBuilder($collection, '/'));
+
+        $this->assertCount(0, $collection->routes());
     }
 }

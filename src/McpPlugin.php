@@ -6,7 +6,11 @@ namespace CakeDC\Mcp;
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\FileEngine;
 use Cake\Core\BasePlugin;
+use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
+use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\Identity\CurrentIdentity;
+use CakeDC\Mcp\Server\ServerFactory;
 
 /**
  * Exposes an MCP (Model Context Protocol) server from a CakePHP application.
@@ -34,5 +38,34 @@ class McpPlugin extends BasePlugin
                 'duration' => '+1 hours',
             ]);
         }
+    }
+
+    /**
+     * Connects the MCP endpoint at `Mcp.route` (nothing when it is false).
+     *
+     * @param \Cake\Routing\RouteBuilder $routes The route builder.
+     * @return void
+     */
+    public function routes(RouteBuilder $routes): void
+    {
+        $path = McpConfig::get('route');
+        if (!is_string($path) || $path === '') {
+            return;
+        }
+
+        $routes->connect($path, ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'])
+            ->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
+    }
+
+    /**
+     * @param \Cake\Core\ContainerInterface $container The host container.
+     * @return void
+     */
+    public function services(ContainerInterface $container): void
+    {
+        $container->addShared(CurrentIdentity::class);
+        $container->addShared(ServerFactory::class)
+            ->addArgument($container)
+            ->addArgument(CurrentIdentity::class);
     }
 }
