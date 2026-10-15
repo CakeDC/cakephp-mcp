@@ -36,7 +36,7 @@ class McpInspectorCommandTest extends TestCase
 
         $this->assertCount(1, $this->launched);
         $command = $this->launched[0]['command'];
-        $this->assertSame(['npx', '--yes', '@modelcontextprotocol/inspector', '--config'], array_slice($command, 0, 4));
+        $this->assertSame(['npx', '--yes', '@modelcontextprotocol/inspector@2', '--config'], array_slice($command, 0, 4));
         $this->assertSame([
             'type' => 'stdio',
             'command' => PHP_BINARY,
@@ -87,7 +87,58 @@ class McpInspectorCommandTest extends TestCase
         $this->assertStringContainsString('"url": "https://app.example.com/mcp"', $output);
         $this->assertStringContainsString('"Authorization": "***"', $output);
         $this->assertStringNotContainsString('secret-token', $output);
-        $this->assertStringContainsString('npx --yes @modelcontextprotocol/inspector --config', $output);
+        $this->assertStringContainsString('npx --yes @modelcontextprotocol/inspector@2 --config', $output);
+    }
+
+    public function testEnvironmentVariablesArePassedToTheStdioServer(): void
+    {
+        putenv('MCP_INSPECTOR_TEST=from-the-shell');
+        try {
+            $this->assertSame(0, $this->runCommand(['--env', 'MCP_INSPECTOR_TEST']));
+            $this->assertSame(0, $this->runCommand(['--env', 'MCP_INSPECTOR_TEST', '--dry-run']));
+        } finally {
+            putenv('MCP_INSPECTOR_TEST');
+        }
+
+        $server = $this->launched[0]['config']['mcpServers']['cakephp-mcp-server'] ?? [];
+        $this->assertSame(['MCP_INSPECTOR_TEST' => 'from-the-shell'], $server['env'] ?? null);
+        $output = implode("\n", $this->out->messages());
+        $this->assertStringContainsString('"MCP_INSPECTOR_TEST": "***"', $output);
+        $this->assertStringNotContainsString('from-the-shell', $output);
+    }
+
+    public function testMissingEnvironmentVariablesAreRejected(): void
+    {
+        $this->assertSame(1, $this->runCommand(['--env', 'MCP_INSPECTOR_NOT_SET']));
+
+        $this->assertSame([], $this->launched);
+        $this->assertStringContainsString('MCP_INSPECTOR_NOT_SET', implode("\n", $this->err->messages()));
+    }
+
+    public function testEnvironmentVariablesNeedStdio(): void
+    {
+        $this->assertSame(1, $this->runCommand(['--http', '--env', 'PATH']));
+
+        $this->assertStringContainsString('stdio', implode("\n", $this->err->messages()));
+    }
+
+    public function testLaunchRunsTheCommandAndRestoresSignalHandlers(): void
+    {
+        $before = function_exists('pcntl_signal_get_handler') ? pcntl_signal_get_handler(SIGINT) : null;
+        $command = new class extends McpInspectorCommand {
+            /**
+             * @param list<string> $command
+             */
+            public function launchNow(array $command): int
+            {
+                return $this->launch($command, new ConsoleIo(new StubConsoleOutput(), new StubConsoleOutput()));
+            }
+        };
+
+        $this->assertSame(3, $command->launchNow([PHP_BINARY, '-r', 'exit(3);']));
+        if (function_exists('pcntl_signal_get_handler')) {
+            $this->assertSame($before, pcntl_signal_get_handler(SIGINT));
+        }
     }
 
     public function testHttpWithoutABaseUrlAsksForOne(): void

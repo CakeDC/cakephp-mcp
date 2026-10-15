@@ -10,6 +10,7 @@ use Cake\Console\ConsoleOptionParser;
 use Cake\Core\Configure;
 use Cake\Utility\Text;
 use CakeDC\Mcp\McpConfig;
+use Closure;
 
 /**
  * `bin/cake mcp inspector`: opens the MCP Inspector (a web app, run with npx)
@@ -18,11 +19,12 @@ use CakeDC\Mcp\McpConfig;
 class McpInspectorCommand extends Command
 {
     /**
-     * The npm package of the Inspector.
+     * The npm package of the Inspector. Pinned to the major version whose
+     * configuration format this command writes.
      *
      * @var string
      */
-    public const PACKAGE = '@modelcontextprotocol/inspector';
+    public const PACKAGE = '@modelcontextprotocol/inspector@2';
 
     /**
      * @inheritDoc
@@ -37,7 +39,7 @@ class McpInspectorCommand extends Command
      */
     public static function getDescription(): string
     {
-        return 'Open the MCP Inspector on this server, over stdio or HTTP. Needs Node.js.';
+        return 'Open the MCP Inspector on this server, over stdio or HTTP. Needs Node.js 22.19 or later.';
     }
 
     /**
@@ -58,6 +60,11 @@ class McpInspectorCommand extends Command
                 'multiple' => true,
                 'help' => 'Header sent to the HTTP endpoint, as "Name: Value". Repeat it for more headers.',
             ])
+            ->addOption('env', [
+                'multiple' => true,
+                'help' => 'Environment variable passed to the stdio server, by name. The Inspector passes only '
+                    . 'a few (PATH, HOME...), so name the ones your app reads. Repeat it for more.',
+            ])
             ->addOption('dry-run', [
                 'boolean' => true,
                 'help' => 'Print the Inspector configuration and command without starting it.',
@@ -70,17 +77,23 @@ class McpInspectorCommand extends Command
     public function execute(Arguments $args, ConsoleIo $io): int
     {
         $url = $args->getOption('url');
-        // Read raw: getMultipleOption() is deprecated from Cake 5.2 and getArrayOption() is new in 5.2.
-        $headers = $args->getOptions()['header'] ?? [];
-        $headers = is_array($headers) ? array_values(array_filter($headers, 'is_string')) : [];
+        $headers = $this->listOption($args, 'header');
+        $env = $this->listOption($args, 'env');
         $http = $args->getOption('http') === true || is_string($url);
         if ($headers !== [] && !$http) {
             $io->error('Headers are only sent over HTTP. Add --http or --url.');
 
             return static::CODE_ERROR;
         }
+        if ($env !== [] && $http) {
+            $io->error('Environment variables only reach the stdio server. Drop --http and --url.');
 
-        $server = $http ? $this->httpServer(is_string($url) ? $url : null, $headers, $io) : $this->stdioServer($io);
+            return static::CODE_ERROR;
+        }
+
+        $server = $http
+            ? $this->httpServer(is_string($url) ? $url : null, $headers, $io)
+            : $this->stdioServer($env, $io);
         if ($server === null) {
             return static::CODE_ERROR;
         }
@@ -107,7 +120,7 @@ class McpInspectorCommand extends Command
             unlink($file);
         }
         if ($code === 127) {
-            $io->error('Could not run npx. The Inspector needs Node.js 22 or later.');
+            $io->error('Could not run npx. The Inspector needs Node.js 22.19 or later.');
         }
 
         return $code;
@@ -122,14 +135,69 @@ class McpInspectorCommand extends Command
      */
     protected function launch(array $command, ConsoleIo $io): int
     {
-        $process = proc_open($command, [STDIN, STDOUT, STDERR], $pipes, rtrim(ROOT, DS));
-        if ($process === false) {
-            $io->error('Could not start the Inspector.');
+        $process = null;
+        $restore = $this->outliveInterrupts($process);
+        try {
+            $process = proc_open($command, [STDIN, STDOUT, STDERR], $pipes, rtrim(ROOT, DS));
+            if ($process === false) {
+                $io->error('Could not start the Inspector. It needs Node.js 22.19 or later, with npx.');
 
-            return static::CODE_ERROR;
+                return static::CODE_ERROR;
+            }
+
+            return proc_close($process);
+        } finally {
+            $restore();
+        }
+    }
+
+    /**
+     * Ctrl+C reaches PHP as well as the Inspector, both being in the terminal's
+     * process group. Left alone, PHP would die at once and leave the
+     * configuration file, and any token in it, on disk. These handlers keep PHP
+     * waiting for the Inspector to exit so the file is deleted; SIGTERM and
+     * SIGHUP are passed on to the Inspector. They are handlers and not
+     * `SIG_IGN`, which the Inspector would inherit and then ignore Ctrl+C.
+     *
+     * @param resource|false|null $process The Inspector process, once started.
+     * @return \Closure Restores the previous behavior.
+     */
+    private function outliveInterrupts(mixed &$process): Closure
+    {
+        if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
+            $async = pcntl_async_signals(true);
+            $forward = static function (int $signal) use (&$process): void {
+                if (is_resource($process)) {
+                    proc_terminate($process, $signal);
+                }
+            };
+            $handlers = [SIGINT => static function (): void {
+            }, SIGTERM => $forward, SIGHUP => $forward];
+            $previous = [];
+            foreach ($handlers as $signal => $handler) {
+                $previous[$signal] = pcntl_signal_get_handler($signal);
+                pcntl_signal($signal, $handler);
+            }
+
+            return static function () use ($previous, $async): void {
+                foreach ($previous as $signal => $handler) {
+                    pcntl_signal($signal, $handler);
+                }
+                pcntl_async_signals($async);
+            };
+        }
+        if (function_exists('sapi_windows_set_ctrl_handler')) {
+            $handler = static function (int $event): void {
+            };
+            sapi_windows_set_ctrl_handler($handler);
+
+            return static function () use ($handler): void {
+                sapi_windows_set_ctrl_handler($handler, false);
+            };
         }
 
-        return proc_close($process);
+        return static function (): void {
+        };
     }
 
     /**
@@ -138,14 +206,33 @@ class McpInspectorCommand extends Command
      */
     private function command(string $configFile): array
     {
-        return ['npx', '--yes', self::PACKAGE, '--config', $configFile];
+        // On Windows npm installs npx as a batch file, which proc_open() only finds by its full name.
+        $npx = PHP_OS_FAMILY === 'Windows' ? 'npx.cmd' : 'npx';
+
+        return [$npx, '--yes', self::PACKAGE, '--config', $configFile];
     }
 
     /**
+     * The values of a multiple option. Read raw: `getMultipleOption()` is
+     * deprecated from Cake 5.2 and `getArrayOption()` only exists from 5.2.
+     *
+     * @param \Cake\Console\Arguments $args The arguments.
+     * @param string $name The option.
+     * @return list<string>
+     */
+    private function listOption(Arguments $args, string $name): array
+    {
+        $values = $args->getOptions()[$name] ?? [];
+
+        return is_array($values) ? array_values(array_filter($values, 'is_string')) : [];
+    }
+
+    /**
+     * @param list<string> $env Names of the environment variables to pass on.
      * @param \Cake\Console\ConsoleIo $io The console.
      * @return array<string, mixed>|null
      */
-    private function stdioServer(ConsoleIo $io): ?array
+    private function stdioServer(array $env, ConsoleIo $io): ?array
     {
         // ROOT has no trailing separator in the app skeleton.
         $cake = rtrim(ROOT, DS) . DS . 'bin' . DS . 'cake.php';
@@ -155,13 +242,24 @@ class McpInspectorCommand extends Command
             return null;
         }
 
-        return [
+        $server = [
             'type' => 'stdio',
             'command' => PHP_BINARY,
             'args' => [$cake, 'mcp', 'server'],
             'cwd' => rtrim(ROOT, DS),
-            'protocolEra' => 'auto',
         ];
+        foreach ($env as $name) {
+            $value = getenv($name);
+            if ($value === false) {
+                $io->error(sprintf('The environment variable `%s` is not set.', $name));
+
+                return null;
+            }
+            $server['env'][$name] = $value;
+        }
+        $server['protocolEra'] = 'auto';
+
+        return $server;
     }
 
     /**
@@ -213,13 +311,15 @@ class McpInspectorCommand extends Command
 
     /**
      * @param array<string, mixed> $config The Inspector configuration.
-     * @return array<string, mixed> The same, with header values hidden.
+     * @return array<string, mixed> The same, with header and environment values hidden.
      */
     private function redact(array $config): array
     {
         foreach ($config['mcpServers'] as $name => $server) {
-            foreach (array_keys($server['headers'] ?? []) as $header) {
-                $config['mcpServers'][$name]['headers'][$header] = '***';
+            foreach (['headers', 'env'] as $secrets) {
+                foreach (array_keys($server[$secrets] ?? []) as $key) {
+                    $config['mcpServers'][$name][$secrets][$key] = '***';
+                }
             }
         }
 
@@ -228,7 +328,7 @@ class McpInspectorCommand extends Command
 
     /**
      * Writes the configuration to a file only the current user can read, since
-     * headers may carry a token.
+     * headers and environment variables may carry secrets.
      *
      * @param array<string, mixed> $config The Inspector configuration.
      * @return string|null The path, or null on failure.
