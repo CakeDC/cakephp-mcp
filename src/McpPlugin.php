@@ -10,6 +10,7 @@ use Cake\Core\BasePlugin;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
 use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\Command\McpInspectorCommand;
 use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
@@ -60,14 +61,16 @@ class McpPlugin extends BasePlugin
     }
 
     /**
-     * Registers `bin/cake mcp server`, the stdio transport.
+     * Registers `bin/cake mcp server`, the stdio transport, and `bin/cake mcp inspector`.
      *
      * @param \Cake\Console\CommandCollection $commands The collection.
      * @return \Cake\Console\CommandCollection
      */
     public function console(CommandCollection $commands): CommandCollection
     {
-        return $commands->add('mcp server', McpServerCommand::class);
+        return $commands
+            ->add('mcp server', McpServerCommand::class)
+            ->add('mcp inspector', McpInspectorCommand::class);
     }
 
     /**

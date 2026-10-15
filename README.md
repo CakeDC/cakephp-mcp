@@ -5,7 +5,7 @@ any other [Model Context Protocol](https://modelcontextprotocol.io) client.
 Built on the official [`mcp/sdk`](https://github.com/modelcontextprotocol/php-sdk).
 
 - Remote MCP over Streamable HTTP, mounted as a regular Cake route (`/mcp`).
-- `bin/cake mcp server` for local stdio clients.
+- `bin/cake mcp server` for local stdio clients, and `bin/cake mcp inspector` to try the server by hand.
 - Tools are plain PHP classes with `#[McpTool]` attributes, with constructor injection.
 - Authentication stays in your app (`cakephp/authentication`); the plugin reads the identity.
 - Per-tool authorization, including `config/permissions.php` rules through `cakedc/auth`.

@@ -6,6 +6,7 @@ Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
 
 - Remote MCP over Streamable HTTP at a Cake route (`/mcp` by default), serving both protocol eras (handshake with sessions, and the stateless 2026-07-28 revision).
 - `bin/cake mcp server` for stdio.
+- `bin/cake mcp inspector` opens the MCP Inspector already configured for this server, over stdio or HTTP.
 - Tool discovery through `#[McpTool]`, `#[McpResource]` and `#[McpPrompt]` attributes in `src/Mcp/`, with constructor injection from Cake's container (autowired).
 - Sessions and the discovery cache stored in Cake cache configs.
 - Authentication delegated to the host: the identity set by `cakephp/authentication` becomes the SDK access token and the injectable `CurrentIdentity`.
