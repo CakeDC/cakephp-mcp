@@ -54,6 +54,10 @@ class McpServerCommand extends Command
      */
     public function execute(Arguments $args, ConsoleIo $io): int
     {
+        // The console framework mirrors info logs to STDOUT, which would corrupt the protocol.
+        // QUIET keeps only the stderr logger for errors and warnings.
+        $io->setLoggers(ConsoleIo::QUIET);
+
         $resolver = McpConfig::get('stdio.identity');
         $this->identity->set(is_callable($resolver) ? $resolver() : null);
 

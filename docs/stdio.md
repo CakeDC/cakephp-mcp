@@ -52,6 +52,8 @@ dependency injection, works as over HTTP.
 The protocol uses STDOUT, so anything else written there corrupts the
 conversation and the client disconnects.
 
+- The command removes Cake's default console loggers that mirror info logs to
+  STDOUT, keeping only the stderr one for errors and warnings.
 - Tools must never `echo`, `print` or `var_dump`.
 - No Log engine may write to `php://stdout`. Cake's `ConsoleLog` writes to
   stderr by default, which is fine. If you configured a console log with

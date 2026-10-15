@@ -11,6 +11,7 @@ use Cake\Console\TestSuite\StubConsoleInput;
 use Cake\Console\TestSuite\StubConsoleOutput;
 use Cake\Core\Configure;
 use Cake\Core\Container;
+use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Command\McpServerCommand;
@@ -32,6 +33,8 @@ class McpServerCommandTest extends TestCase
     protected function tearDown(): void
     {
         Cache::drop('mcp_sessions');
+        Log::drop('stdout');
+        Log::drop('stderr');
         parent::tearDown();
     }
 
@@ -88,6 +91,16 @@ class McpServerCommandTest extends TestCase
         $untrusted = $this->command();
         $this->runCommand($untrusted);
         $this->assertSame([], $untrusted->transport?->responseFor(2)['result']['tools'] ?? null);
+    }
+
+    public function testNothingButProtocolReachesStdout(): void
+    {
+        $out = new StubConsoleOutput();
+        $command = $this->command();
+
+        $command->run([], new ConsoleIo($out, new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame([], $out->messages());
     }
 
     /**
