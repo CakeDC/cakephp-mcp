@@ -29,6 +29,10 @@ Configure::write('Mcp.stdio.identity', function (): ArrayObject {
 });
 ```
 
+`Mcp.stdio.identity` must be a callable. A plain array or `ArrayObject` there is
+silently ignored (the command only calls it when it is callable), so tools
+would see no identity.
+
 Return whatever shape your tools and authorizer expect (see
 [Authentication](authentication.md)). The closure runs once when the command
 starts.

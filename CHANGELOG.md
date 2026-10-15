@@ -12,3 +12,4 @@ Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
 - Per-tool authorization with `ToolAuthorizerInterface`; `RbacToolAuthorizer` for `cakedc/auth` permission rules.
 - DNS-rebinding protection defaults to the `App.fullBaseUrl` host.
 - Removed `bin/mcp-server` and `CakeDC\Mcp\Server\CakeServer`.
+- Temporary: `mcp/sdk` is pinned to a fixed commit aliased as 0.9.0 until the SDK tags that release; host apps must add the same requirement and allow dev stability (see the install notes).

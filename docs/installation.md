@@ -6,6 +6,19 @@
 composer require cakedc/cakephp-mcp
 ```
 
+> **Beta note (temporary).** `mcp/sdk` 0.9.0 is not released yet, and this
+> plugin pins the SDK to a fixed commit. Composer only applies inline aliases and
+> `minimum-stability` from the root package, so until the SDK tags 0.9.0 your
+> application must declare the same requirement and allow dev stability:
+>
+> ```bash
+> composer config minimum-stability dev
+> composer config prefer-stable true
+> composer require "mcp/sdk:dev-main#82e19d114e95671e05e7df7909195f7ace03d90e as 0.9.0" cakedc/cakephp-mcp:dev-2.next-cake5
+> ```
+>
+> This note will go away once the SDK tags 0.9.0.
+
 The plugin needs PHP 8.2+ and CakePHP 5. It builds on the official `mcp/sdk`.
 The `php-http/discovery` Composer plugin is not needed: the plugin passes
 Cake's own PSR-17 factories to the SDK, so nothing has to be discovered.
