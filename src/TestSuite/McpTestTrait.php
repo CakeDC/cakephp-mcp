@@ -14,9 +14,11 @@ use Cake\Routing\RoutingApplicationInterface;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
+use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Server\Authorization\AccessToken;
 use PHPUnit\Framework\Assert;
 use stdClass;
 
@@ -37,6 +39,20 @@ trait McpTestTrait
      * The identity the next calls are made with. Null is an anonymous caller.
      */
     protected mixed $_mcpIdentity = null;
+
+    /**
+     * The scopes of the access token, null for 2.0 behaviour (the `identity.scopes` callable).
+     *
+     * @var list<string>|null
+     */
+    protected ?array $_mcpScopes = null;
+
+    /**
+     * Claims added to the access token.
+     *
+     * @var array<string, mixed>
+     */
+    protected array $_mcpClaims = [];
 
     /**
      * The JSON-RPC response to the last `mcpCallTool()`.
@@ -62,12 +78,20 @@ trait McpTestTrait
      * Makes the next calls as this identity, in the shape your authentication
      * produces (an entity, an `ArrayObject`, an array...). Null makes them anonymous.
      *
+     * With $scopes the access token carries them, and in the oauth and external modes the
+     * `Mcp.auth.scopes` policy is applied first, as the HTTP endpoint would: a call it refuses is
+     * checked with `assertMcpInsufficientScope()`.
+     *
      * @param mixed $identity The identity.
+     * @param list<string>|null $scopes The token's scopes; null keeps the `identity.scopes` callable.
+     * @param array<string, mixed> $claims Claims added to the token (they win over `sub`).
      * @return void
      */
-    public function mcpActingAs(mixed $identity): void
+    public function mcpActingAs(mixed $identity, ?array $scopes = null, array $claims = []): void
     {
         $this->_mcpIdentity = $identity;
+        $this->_mcpScopes = $scopes === null ? null : array_values(array_filter($scopes, 'is_string'));
+        $this->_mcpClaims = $claims;
     }
 
     /**
@@ -214,6 +238,32 @@ trait McpTestTrait
     }
 
     /**
+     * Asserts the last call was refused because the access token lacks scopes, as the HTTP endpoint
+     * answers with 403 `insufficient_scope` (only with scopes given to `mcpActingAs()`, in the oauth and
+     * external modes).
+     *
+     * @param list<string>|null $scopes The scopes the call needs, any when null.
+     * @param string $message Shown on failure.
+     * @return void
+     */
+    public function assertMcpInsufficientScope(?array $scopes = null, string $message = ''): void
+    {
+        $response = $this->mcpResponse();
+        $error = $response['error'] ?? null;
+        Assert::assertTrue(
+            is_array($error) && ($error['message'] ?? null) === 'insufficient_scope',
+            $message ?: 'Expected the call to be refused for missing scopes, got: ' . $this->mcpJson($response),
+        );
+        if ($scopes !== null) {
+            Assert::assertEqualsCanonicalizing(
+                $scopes,
+                $error['data']['scopes'] ?? null,
+                $message,
+            );
+        }
+    }
+
+    /**
      * Asserts that the text of the last result contains a string.
      *
      * @param string $text The expected text.
@@ -332,6 +382,44 @@ trait McpTestTrait
         $factory->identity()->set($this->_mcpIdentity);
 
         $scopes = McpConfig::get('identity.scopes');
+        $token = null;
+        if ($this->_mcpIdentity !== null) {
+            $token = IdentityMiddleware::accessTokenFor(
+                $this->_mcpIdentity,
+                is_callable($scopes) ? Closure::fromCallable($scopes) : null,
+            );
+            if ($this->_mcpScopes !== null || $this->_mcpClaims !== []) {
+                $token = new AccessToken(
+                    $this->_mcpScopes ?? $token->getScopes(),
+                    $this->_mcpClaims + $token->getClaims(),
+                );
+            }
+        }
+        if ($token !== null && $this->_mcpScopes !== null && !$trusted) {
+            $settings = AuthSettings::fromConfig();
+            $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
+            if ($policy !== null) {
+                $required = $policy->requiredFor($request);
+                $granted = $policy->expand($token->getScopes());
+                if (array_diff($required, $granted) !== []) {
+                    if ($method !== 'tools/call') {
+                        Assert::fail(sprintf(
+                            'The access token lacks scopes for `%s`: it needs %s.',
+                            $method,
+                            implode(' ', $required),
+                        ));
+                    }
+
+                    // What the endpoint answers with HTTP 403 and `insufficient_scope`.
+                    return ['jsonrpc' => '2.0', 'id' => 2, 'error' => [
+                        'code' => 403,
+                        'message' => 'insufficient_scope',
+                        'data' => ['scopes' => $required],
+                    ]];
+                }
+                $token = new AccessToken($granted, $token->getClaims());
+            }
+        }
         $transport = new RecordingTransport(
             [
                 (string)json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
@@ -342,10 +430,7 @@ trait McpTestTrait
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
                 (string)json_encode($request),
             ],
-            $this->_mcpIdentity === null ? null : IdentityMiddleware::accessTokenFor(
-                $this->_mcpIdentity,
-                is_callable($scopes) ? Closure::fromCallable($scopes) : null,
-            ),
+            $token,
         );
         // The real exception of a failing tool only reaches the log, rarely configured in tests.
         $logConfig = '_mcp_test_trait';
