@@ -35,6 +35,24 @@ final class McpConfig
         'http' => ['allowedHosts' => null, 'allowedOrigins' => []],
         'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
         'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => []],
+        'auth' => [
+            'mode' => 'host',
+            'resource' => null,
+            'resourceName' => null,
+            'resourceDocumentation' => null,
+            'scopes' => ['default' => [], 'methods' => [], 'tools' => [], 'implies' => []],
+            'identity' => null,
+            'external' => [
+                'issuer' => null,
+                'audience' => null,
+                'algorithms' => ['RS256'],
+                'scopeClaim' => 'scope',
+                'tokenType' => null,
+                'leeway' => 0,
+                'cache' => 'mcp_oauth',
+                'httpClient' => null,
+            ],
+        ],
         'stdio' => ['identity' => null, 'trusted' => true],
     ];
 
