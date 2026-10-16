@@ -328,6 +328,7 @@ token to one of its own users with `Mcp.auth.identity`:
 
 ```php
 use Authentication\Identity;
+use Cake\Core\Configure;
 use Cake\Datasource\FactoryLocator;
 use Mcp\Server\Authorization\AccessToken;
 
@@ -346,14 +347,16 @@ Configure::write('Mcp.auth.identity', function (AccessToken $token, mixed $ident
 
 The callable receives the access token and the default identity, and returns
 the identity to use: whatever your authentication normally produces (here an
-`Authentication\Identity` wrapping the user entity). Returning `null` rejects the token with `401 invalid_token`,
-so people unknown to your application cannot call tools.
+`Authentication\Identity` wrapping the user entity). Returning `null` rejects
+the token with `401 invalid_token`, so people unknown to your application
+cannot call tools.
 
 A JWT without a `sub` claim has no default identity, so in `external` mode it
 is rejected with `401 invalid_token` unless `Mcp.auth.identity` maps it (for
-example from an `email` claim, as above). The same setting works
-in `oauth` mode, where the default is the application identity of the token
-owner.
+example from an `email` claim, as above).
+
+`Mcp.auth.identity` also works in `oauth` mode, where the default identity is
+the application identity of the token owner.
 
 ## Scopes and tool authorization
 
