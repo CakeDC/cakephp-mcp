@@ -14,6 +14,8 @@ use Cake\Http\BaseApplication;
 use Cake\Http\Middleware\CsrfProtectionMiddleware;
 use Cake\Http\MiddlewareQueue;
 use Cake\Http\ServerRequest;
+use Cake\Routing\Exception\MissingRouteException;
+use Cake\Routing\Router;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
@@ -75,6 +77,7 @@ class McpCheckCommand extends Command
             'Endpoint' => fn(): array => $this->endpoint(),
             'Authentication' => fn(): array => $this->authentication(),
             'Resource' => fn(): array => $this->resource(),
+            'Metadata route' => fn(): array => $this->metadataRoute(),
             'Allowed hosts' => fn(): array => $this->hosts(),
             'CSRF' => fn(): array => $this->csrf(),
             'Authenticators' => fn(): array => $this->authenticators(),
@@ -124,13 +127,65 @@ class McpCheckCommand extends Command
         $metadata = $server->metadata();
         $server->validator(new CurrentIdentity());
         $scopes = $metadata->getScopesSupported() ?? [];
-
-        return ['pass', sprintf(
+        $message = sprintf(
             '%s, metadata at %s, scopes: %s',
             $metadata->getResource(),
             $metadata->getMetadataUrl(),
             $scopes === [] ? 'none declared' : implode(' ', $scopes),
-        )];
+        );
+        $audiences = $settings->external?->audiences;
+        if ($audiences === null) {
+            return ['pass', $message];
+        }
+        $message .= '; accepted audiences: ' . implode(', ', $audiences);
+        if (!in_array($settings->resource, $audiences, true)) {
+            return ['warn', $message
+                . '; the resource URL is not an accepted audience, so your identity provider must issue tokens '
+                . 'with one of those "aud" values (an API identifier is fine, as long as it matches)'];
+        }
+
+        return ['pass', $message];
+    }
+
+    /**
+     * Whether the RFC 9728 metadata route is connected and where the web server must serve it.
+     *
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function metadataRoute(): array
+    {
+        $settings = AuthSettings::fromConfig();
+        if ($settings->mode === AuthSettings::HOST) {
+            return ['pass', 'not used in host mode'];
+        }
+        $route = McpConfig::get('route');
+        if (!is_string($route) || $route === '') {
+            return ['fail', 'Mcp.route is disabled, so the metadata route is not connected'];
+        }
+        try {
+            $url = Router::url([
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => 'ProtectedResource',
+                'action' => 'metadata',
+                'prefix' => false,
+            ]);
+        } catch (MissingRouteException) {
+            return ['fail', 'the metadata route of the plugin is not connected: load the plugin routes'];
+        }
+        $advertised = (string)parse_url(
+            (new ResourceServer($settings))->metadata()->getMetadataUrl(),
+            PHP_URL_PATH,
+        );
+        if ($url !== $advertised) {
+            return ['warn', sprintf(
+                'the application serves the metadata at %s but the advertised URL path is %s; on a subdirectory '
+                . 'install the web server must rewrite the well-known path to the application',
+                $url,
+                $advertised,
+            )];
+        }
+
+        return ['pass', $url];
     }
 
     /**

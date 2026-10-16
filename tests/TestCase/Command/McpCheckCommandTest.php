@@ -3,8 +3,12 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Test\TestCase\Command;
 
+use Cake\Cache\Cache;
+use Cake\Cache\Engine\ArrayEngine;
 use Cake\Console\TestSuite\ConsoleIntegrationTestTrait;
 use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
+use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
@@ -98,5 +102,71 @@ class McpCheckCommandTest extends TestCase
         $this->assertExitError();
         $this->assertOutputContains('[FAIL] Authenticators');
         $this->assertOutputContains('McpConfig::isEndpoint()');
+    }
+
+    public function testOAuthModeConnectsTheMetadataRoute(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Metadata route: /.well-known/oauth-protected-resource/mcp');
+    }
+
+    public function testHostModeDoesNotUseTheMetadataRoute(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Metadata route: not used in host mode');
+    }
+
+    public function testSubdirectoryInstallWarnsAboutTheWellKnownRewrite(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'external', 'resource' => 'http://localhost/mcp', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'cache' => 'mcp_check_cache',
+        ]]);
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        Configure::write('App.base', '/app');
+        Router::reload();
+        Router::setRequest(new ServerRequest(['base' => '/app']));
+
+        $this->exec('mcp check');
+        Cache::drop('mcp_check_cache');
+
+        $this->assertOutputContains('[WARN] Metadata route');
+        $this->assertOutputContains('rewrite');
+    }
+
+    public function testExternalModeReportsTheAudiences(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'external', 'resource' => 'http://localhost/mcp', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'audience' => ['http://localhost/mcp', 'api://other'],
+            'cache' => 'mcp_check_cache',
+        ]]);
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+
+        $this->exec('mcp check');
+        Cache::drop('mcp_check_cache');
+
+        $this->assertOutputContains('[PASS] Resource: http://localhost/mcp');
+        $this->assertOutputContains('accepted audiences: http://localhost/mcp, api://other');
+    }
+
+    public function testAnAudienceThatIsNotTheResourceWarns(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'external', 'resource' => 'http://localhost/mcp', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'audience' => 'https://api.example.com',
+            'cache' => 'mcp_check_cache',
+        ]]);
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+
+        $this->exec('mcp check');
+        Cache::drop('mcp_check_cache');
+
+        $this->assertOutputContains('[WARN] Resource');
+        $this->assertOutputContains('must issue tokens');
     }
 }
