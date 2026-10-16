@@ -84,7 +84,10 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
         $service = new AuthenticationService();
         if (Configure::read('TestApp.oauthTokenAuthenticator') === true) {
             // A host that also protects an API with the oauth plugin's Token authenticator (mcp check test).
-            $service->loadAuthenticator('CakeDC/OAuthServer.Token', ['resource' => OAuthTestConfig::API]);
+            $service->loadAuthenticator('OAuthToken', [
+                'className' => 'CakeDC/OAuthServer.Token',
+                'resource' => OAuthTestConfig::API,
+            ]);
         }
         $service->loadAuthenticator('Authentication.Token', [
             'header' => 'Authorization',
