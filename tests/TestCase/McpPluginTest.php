@@ -72,8 +72,9 @@ class McpPluginTest extends TestCase
 
         (new McpPlugin())->routes(new RouteBuilder($collection, '/'));
 
-        $this->assertCount(1, $collection->routes());
+        $this->assertCount(2, $collection->routes());
         $this->assertSame('/ai/mcp', $collection->routes()[0]->template);
+        $this->assertSame('/.well-known/oauth-protected-resource/ai/mcp', $collection->routes()[1]->template);
     }
 
     public function testRoutesAreSkippedWhenDisabled(): void

@@ -44,7 +44,8 @@ class McpPlugin extends BasePlugin
     }
 
     /**
-     * Connects the MCP endpoint at `Mcp.route` (nothing when it is false).
+     * Connects the MCP endpoint at `Mcp.route` (nothing when it is false), and its protected resource
+     * metadata under `/.well-known/oauth-protected-resource`.
      *
      * @param \Cake\Routing\RouteBuilder $routes The route builder.
      * @return void
@@ -58,6 +59,13 @@ class McpPlugin extends BasePlugin
 
         $routes->connect($path, ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'])
             ->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
+
+        // Always connected: routes are cached, and a mode switch must not need a cache clear.
+        // In host mode the controller answers 404.
+        $routes->connect(
+            McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
+            ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'],
+        )->setMethods(['GET', 'OPTIONS']);
     }
 
     /**

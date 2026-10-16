@@ -18,6 +18,7 @@ use Cake\Http\MiddlewareQueue;
 use Cake\Http\ServerRequest;
 use Cake\Routing\Middleware\RoutingMiddleware;
 use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\McpPlugin;
 use CakeDC\OAuthServer\OAuthServer;
 use CakeDC\OAuthServer\OAuthServerPlugin;
@@ -51,7 +52,7 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function middleware(MiddlewareQueue $middlewareQueue): MiddlewareQueue
     {
         $csrf = new CsrfProtectionMiddleware();
-        $csrf->skipCheckCallback(fn(ServerRequest $request): bool => $request->getPath() === '/mcp'
+        $csrf->skipCheckCallback(fn(ServerRequest $request): bool => McpConfig::isEndpoint($request)
             || (Plugin::isLoaded('CakeDC/OAuthServer') && OAuthServer::csrfSkip($request)));
 
         return $middlewareQueue

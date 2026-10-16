@@ -12,20 +12,27 @@ use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
+use CakeDC\Mcp\OAuth\AuthSettings;
+use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
 use Mcp\Server\Transport\Http\Middleware\DnsRebindingProtectionMiddleware;
 use Mcp\Server\Transport\StreamableHttpTransport;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Server\MiddlewareInterface;
 use Throwable;
 
 /**
  * The MCP HTTP endpoint (`Mcp.route`, `/mcp` by default). Hands the request to
- * the SDK's Streamable HTTP transport and returns its response.
+ * the SDK's Streamable HTTP transport and returns its response. In host mode the identity comes from the
+ * host's authentication; in `oauth` and `external` modes from the access token (the host's identity
+ * attribute is ignored).
  */
 class McpController extends Controller
 {
+    use SkipsHostAuthorizationTrait;
+
     /**
      * @param \CakeDC\Mcp\Server\ServerFactory $factory Builds the server.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
@@ -34,12 +41,13 @@ class McpController extends Controller
     public function handle(ServerFactory $factory, CurrentIdentity $identity): Response
     {
         $this->skipHostAuthorization();
+        // A long-running worker reuses the container: no request starts with the previous one's identity.
+        $identity->set(null);
         $responseFactory = new ResponseFactory();
         $streamFactory = new StreamFactory();
 
         try {
             $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins'), 'is_string'));
-            $scopes = McpConfig::get('identity.scopes');
             $transport = new StreamableHttpTransport(
                 $this->request,
                 $responseFactory,
@@ -53,14 +61,7 @@ class McpController extends Controller
                         $responseFactory,
                         $streamFactory,
                     ),
-                    new IdentityMiddleware(
-                        $identity,
-                        $responseFactory,
-                        $streamFactory,
-                        McpConfig::get('identity.required') !== false,
-                        (string)McpConfig::get('identity.attribute'),
-                        is_callable($scopes) ? Closure::fromCallable($scopes) : null,
-                    ),
+                    $this->authentication($identity, $responseFactory, $streamFactory),
                 ],
             );
             $response = $factory->create()->run($transport);
@@ -74,17 +75,33 @@ class McpController extends Controller
     }
 
     /**
-     * cakephp/authorization (when the host uses it) would otherwise demand an
-     * authorization check for this action. Per-tool authorization is ours.
+     * The middleware that identifies the caller: the host's identity in host mode, an OAuth access
+     * token otherwise. Invalid settings throw, so the endpoint fails closed.
      *
-     * @return void
+     * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
+     * @param \Cake\Http\ResponseFactory $responseFactory For its responses.
+     * @param \Cake\Http\StreamFactory $streamFactory For their bodies.
+     * @return \Psr\Http\Server\MiddlewareInterface
      */
-    private function skipHostAuthorization(): void
-    {
-        $authorization = $this->request->getAttribute('authorization');
-        if (is_object($authorization) && method_exists($authorization, 'skipAuthorization')) {
-            $authorization->skipAuthorization();
+    private function authentication(
+        CurrentIdentity $identity,
+        ResponseFactory $responseFactory,
+        StreamFactory $streamFactory,
+    ): MiddlewareInterface {
+        $settings = AuthSettings::fromConfig();
+        if ($settings->mode !== AuthSettings::HOST) {
+            return (new ResourceServer($settings))->middleware($identity, $responseFactory, $streamFactory);
         }
+        $scopes = McpConfig::get('identity.scopes');
+
+        return new IdentityMiddleware(
+            $identity,
+            $responseFactory,
+            $streamFactory,
+            McpConfig::get('identity.required') !== false,
+            (string)McpConfig::get('identity.attribute'),
+            is_callable($scopes) ? Closure::fromCallable($scopes) : null,
+        );
     }
 
     /**

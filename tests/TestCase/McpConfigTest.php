@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase;
 
 use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\McpConfig;
@@ -82,5 +83,22 @@ class McpConfigTest extends TestCase
         Configure::write('Mcp.discovery.scanDirs', []);
 
         $this->assertSame([], McpConfig::get('discovery.scanDirs'));
+    }
+
+    public function testIsEndpointMatchesTheRouteAndItsMetadata(): void
+    {
+        foreach (['/mcp', '/mcp/', '/.well-known/oauth-protected-resource/mcp'] as $path) {
+            $this->assertTrue(McpConfig::isEndpoint(new ServerRequest(['url' => $path])), $path);
+        }
+        foreach (['/mcpx', '/api/mcp', '/', '/.well-known/oauth-protected-resource'] as $path) {
+            $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => $path])), $path);
+        }
+    }
+
+    public function testIsEndpointIsFalseWhenTheRouteIsDisabled(): void
+    {
+        Configure::write('Mcp.route', false);
+
+        $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => '/mcp'])));
     }
 }

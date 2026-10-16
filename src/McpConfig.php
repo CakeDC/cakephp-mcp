@@ -4,8 +4,10 @@ declare(strict_types=1);
 namespace CakeDC\Mcp;
 
 use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
 use Cake\Utility\Hash;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * Reads the plugin configuration (`Mcp` in Configure) merged over its defaults.
@@ -16,6 +18,11 @@ use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
  */
 final class McpConfig
 {
+    /**
+     * Path prefix of the protected resource metadata (RFC 9728), followed by the MCP route.
+     */
+    public const METADATA_PREFIX = '/.well-known/oauth-protected-resource';
+
     /**
      * @var array<string, mixed>
      */
@@ -135,5 +142,25 @@ final class McpConfig
         }
 
         return $base;
+    }
+
+    /**
+     * Whether $request is for the MCP endpoint or its protected resource metadata. Use it to skip
+     * Cake's CSRF check there, and to keep other bearer-token authenticators off these paths.
+     *
+     * @param \Psr\Http\Message\ServerRequestInterface $request The request.
+     * @return bool
+     */
+    public static function isEndpoint(ServerRequestInterface $request): bool
+    {
+        $route = self::get('route');
+        if (!is_string($route) || trim($route, '/') === '') {
+            return false;
+        }
+        $route = '/' . trim($route, '/');
+        $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
+        $path = '/' . trim($path, '/');
+
+        return $path === $route || $path === self::METADATA_PREFIX . $route;
     }
 }
