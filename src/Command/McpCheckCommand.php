@@ -160,7 +160,7 @@ class McpCheckCommand extends Command
         }
         $route = McpConfig::get('route');
         if (!is_string($route) || $route === '') {
-            return ['fail', 'Mcp.route is disabled, so the metadata route is not connected'];
+            return ['pass', 'no HTTP endpoint'];
         }
         try {
             $url = Router::url([

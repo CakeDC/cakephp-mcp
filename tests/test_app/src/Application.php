@@ -38,7 +38,8 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
      */
     public function bootstrap(): void
     {
-        $this->addPlugin(McpPlugin::class);
+        // `TestApp.mcpRoutes` false: a host that did not connect the plugin routes (mcp check test).
+        $this->addPlugin(McpPlugin::class, ['routes' => Configure::read('TestApp.mcpRoutes') !== false]);
         if (Configure::check('OAuthServer.resources')) {
             // The PHPUnit suite: the authorization server of the same application (Mcp.auth.mode oauth).
             $this->addPlugin(OAuthServerPlugin::class);

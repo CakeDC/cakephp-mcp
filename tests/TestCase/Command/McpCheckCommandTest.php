@@ -29,6 +29,8 @@ class McpCheckCommandTest extends TestCase
     protected function tearDown(): void
     {
         OAuthServer::reset();
+        Cache::drop('mcp_check_cache');
+        Router::reload();
         parent::tearDown();
     }
 
@@ -132,7 +134,6 @@ class McpCheckCommandTest extends TestCase
         Router::setRequest(new ServerRequest(['base' => '/app']));
 
         $this->exec('mcp check');
-        Cache::drop('mcp_check_cache');
 
         $this->assertOutputContains('[WARN] Metadata route');
         $this->assertOutputContains('rewrite');
@@ -148,7 +149,6 @@ class McpCheckCommandTest extends TestCase
         Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
 
         $this->exec('mcp check');
-        Cache::drop('mcp_check_cache');
 
         $this->assertOutputContains('[PASS] Resource: http://localhost/mcp');
         $this->assertOutputContains('accepted audiences: http://localhost/mcp, api://other');
@@ -164,9 +164,30 @@ class McpCheckCommandTest extends TestCase
         Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
 
         $this->exec('mcp check');
-        Cache::drop('mcp_check_cache');
 
         $this->assertOutputContains('[WARN] Resource');
         $this->assertOutputContains('must issue tokens');
+    }
+
+    public function testUnconnectedMetadataRouteFails(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        Configure::write('TestApp.mcpRoutes', false);
+        Router::reload();
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Metadata route');
+    }
+
+    public function testDisabledRouteSkipsTheMetadataRoute(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        Configure::write('Mcp.route', false);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Metadata route: no HTTP endpoint');
     }
 }
