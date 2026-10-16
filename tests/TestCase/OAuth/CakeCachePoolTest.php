@@ -7,6 +7,7 @@ use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\OAuth\CakeCachePool;
+use DateTimeImmutable;
 use Psr\Cache\InvalidArgumentException;
 use RuntimeException;
 
@@ -70,6 +71,19 @@ class CakeCachePoolTest extends TestCase
         $this->assertNull(Cache::read('later', 'mcp_pool_test'));
         $this->assertTrue($this->pool->commit());
         $this->assertTrue((new CakeCachePool('mcp_pool_test'))->getItem('later')->isHit());
+    }
+
+    public function testTtlReachesCake(): void
+    {
+        $this->pool->save($this->pool->getItem('after')->set('x')->expiresAfter(1));
+        $this->pool->save($this->pool->getItem('at')->set('y')->expiresAt(new DateTimeImmutable('+1 second')));
+        $this->assertTrue($this->pool->getItem('after')->isHit());
+        $this->assertTrue($this->pool->getItem('at')->isHit());
+
+        sleep(2);
+
+        $this->assertFalse($this->pool->getItem('after')->isHit());
+        $this->assertFalse($this->pool->getItem('at')->isHit());
     }
 
     public function testDeleteAndClear(): void

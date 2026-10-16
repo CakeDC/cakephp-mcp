@@ -40,6 +40,80 @@ final class TestJwt
     }
 
     /**
+     * A token signed by another RSA key under the same kid.
+     *
+     * @param array<string, mixed> $claims Claims.
+     * @return string
+     */
+    public static function forged(array $claims = []): string
+    {
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        if ($key === false) {
+            throw new RuntimeException('Cannot create the forging key.');
+        }
+        $pem = '';
+        openssl_pkey_export($key, $pem);
+
+        return JWT::encode(self::claims($claims), $pem, 'RS256', self::KID);
+    }
+
+    /**
+     * A token signed with $secret (HS256) under the test kid.
+     *
+     * @param string $secret The HMAC secret.
+     * @param array<string, mixed> $claims Claims.
+     * @return string
+     */
+    public static function hmac(string $secret, array $claims = []): string
+    {
+        return JWT::encode(self::claims($claims), $secret, 'HS256', self::KID);
+    }
+
+    /**
+     * An unsigned token with alg none.
+     *
+     * @param array<string, mixed> $claims Claims.
+     * @return string
+     */
+    public static function unsigned(array $claims = []): string
+    {
+        $header = ['typ' => 'JWT', 'alg' => 'none', 'kid' => self::KID];
+
+        return self::base64Url((string)json_encode($header)) . '.'
+            . self::base64Url((string)json_encode(self::claims($claims))) . '.';
+    }
+
+    /**
+     * A token signed by the test key under a kid the JWKS does not list.
+     *
+     * @param array<string, mixed> $claims Claims.
+     * @return string
+     */
+    public static function unknownKid(array $claims = []): string
+    {
+        $pem = '';
+        openssl_pkey_export(self::key(), $pem);
+
+        return JWT::encode(self::claims($claims), $pem, 'RS256', 'other-key');
+    }
+
+    /**
+     * @param array<string, mixed> $claims Overrides.
+     * @return array<string, mixed>
+     */
+    private static function claims(array $claims): array
+    {
+        return $claims + [
+            'iss' => self::ISSUER,
+            'aud' => OAuthTestConfig::MCP,
+            'sub' => 'user-1',
+            'iat' => time(),
+            'exp' => time() + 300,
+            'scope' => 'notes:read',
+        ];
+    }
+
+    /**
      * A client serving the issuer's RFC 8414 metadata and its JWKS.
      *
      * @return \CakeDC\Mcp\Test\Support\FakeHttpClient
