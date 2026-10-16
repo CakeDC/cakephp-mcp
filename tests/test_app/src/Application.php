@@ -8,6 +8,8 @@ use Authentication\AuthenticationService;
 use Authentication\AuthenticationServiceInterface;
 use Authentication\AuthenticationServiceProviderInterface;
 use Authentication\Middleware\AuthenticationMiddleware;
+use Cake\Core\Configure;
+use Cake\Core\Plugin;
 use Cake\Error\Middleware\ErrorHandlerMiddleware;
 use Cake\Http\BaseApplication;
 use Cake\Http\Middleware\BodyParserMiddleware;
@@ -17,12 +19,15 @@ use Cake\Http\ServerRequest;
 use Cake\Routing\Middleware\RoutingMiddleware;
 use Cake\Routing\RouteBuilder;
 use CakeDC\Mcp\McpPlugin;
+use CakeDC\OAuthServer\OAuthServer;
+use CakeDC\OAuthServer\OAuthServerPlugin;
 use Psr\Http\Message\ServerRequestInterface;
 use TestApp\Middleware\AuthorizationSpyMiddleware;
 
 /**
  * Minimal host app: the middleware queue a real Cake 5 app would have, plus a
- * Bearer token authenticator and catch-all fallback routes (to prove the MCP
+ * Bearer token authenticator, a session login, optionally the authorization
+ * server of the oauth plugin, and catch-all fallback routes (to prove the MCP
  * route still wins).
  */
 class Application extends BaseApplication implements AuthenticationServiceProviderInterface
@@ -33,6 +38,10 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function bootstrap(): void
     {
         $this->addPlugin(McpPlugin::class);
+        if (Configure::check('OAuthServer.resources')) {
+            // The PHPUnit suite: the authorization server of the same application (Mcp.auth.mode oauth).
+            $this->addPlugin(OAuthServerPlugin::class);
+        }
     }
 
     /**
@@ -42,7 +51,8 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function middleware(MiddlewareQueue $middlewareQueue): MiddlewareQueue
     {
         $csrf = new CsrfProtectionMiddleware();
-        $csrf->skipCheckCallback(fn(ServerRequest $request): bool => $request->getPath() === '/mcp');
+        $csrf->skipCheckCallback(fn(ServerRequest $request): bool => $request->getPath() === '/mcp'
+            || (Plugin::isLoaded('CakeDC/OAuthServer') && OAuthServer::csrfSkip($request)));
 
         return $middlewareQueue
             ->add(new ErrorHandlerMiddleware())
@@ -71,6 +81,10 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function getAuthenticationService(ServerRequestInterface $request): AuthenticationServiceInterface
     {
         $service = new AuthenticationService();
+        if (Configure::read('TestApp.oauthTokenAuthenticator') === true) {
+            // A host that also protects an API with the oauth plugin's Token authenticator (mcp check test).
+            $service->loadAuthenticator('CakeDC/OAuthServer.Token', ['resource' => OAuthTestConfig::API]);
+        }
         $service->loadAuthenticator('Authentication.Token', [
             'header' => 'Authorization',
             'tokenPrefix' => 'Bearer',
@@ -80,6 +94,8 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
                 ],
             ],
         ]);
+        // The browser login the oauth plugin's consent page needs.
+        $service->loadAuthenticator('Authentication.Session', ['sessionKey' => 'Auth']);
 
         return $service;
     }

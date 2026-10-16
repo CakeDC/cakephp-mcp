@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# The OAuth tests resolve cakedc/oauth-server and cakedc/cakephp-oauth-server from path repositories
+# (../oauth-server and ../cakephp-oauth-server), so every job checks them out next to this one. While
+# those repositories are private, the CAKEDC_PRIVATE_REPOS_TOKEN secret must hold a token that can
+# read them; once they are public the workflow token is enough.
+env:
+  OAUTH_SERVER_REF: '1.x'
+  OAUTH_PLUGIN_REF: '1.next-cake5'
+
 jobs:
   testsuite:
     runs-on: ubuntu-24.04
@@ -22,40 +30,91 @@ jobs:
     name: PHP ${{ matrix.php-version }} (${{ matrix.dependencies }})
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: cakephp-mcp
+      - uses: actions/checkout@v4
+        with:
+          repository: CakeDC/oauth-server
+          ref: ${{ env.OAUTH_SERVER_REF }}
+          path: oauth-server
+          token: ${{ secrets.CAKEDC_PRIVATE_REPOS_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: CakeDC/cakephp-oauth-server
+          ref: ${{ env.OAUTH_PLUGIN_REF }}
+          path: cakephp-oauth-server
+          token: ${{ secrets.CAKEDC_PRIVATE_REPOS_TOKEN || github.token }}
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-version }}
-          extensions: mbstring, intl
+          extensions: mbstring, intl, pdo_sqlite, openssl
           coverage: none
       - uses: ramsey/composer-install@v3
         with:
           dependency-versions: ${{ matrix.dependencies }}
+          working-directory: cakephp-mcp
       - run: vendor/bin/phpunit
+        working-directory: cakephp-mcp
 
   cs-stan:
     runs-on: ubuntu-24.04
     name: Coding standard and static analysis
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: cakephp-mcp
+      - uses: actions/checkout@v4
+        with:
+          repository: CakeDC/oauth-server
+          ref: ${{ env.OAUTH_SERVER_REF }}
+          path: oauth-server
+          token: ${{ secrets.CAKEDC_PRIVATE_REPOS_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: CakeDC/cakephp-oauth-server
+          ref: ${{ env.OAUTH_PLUGIN_REF }}
+          path: cakephp-oauth-server
+          token: ${{ secrets.CAKEDC_PRIVATE_REPOS_TOKEN || github.token }}
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
           coverage: none
       - uses: ramsey/composer-install@v3
+        with:
+          working-directory: cakephp-mcp
       - run: vendor/bin/phpcs
+        working-directory: cakephp-mcp
       - run: vendor/bin/phpstan analyse --no-progress
+        working-directory: cakephp-mcp
 
   conformance:
     runs-on: ubuntu-24.04
     name: MCP conformance
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: cakephp-mcp
+      - uses: actions/checkout@v4
+        with:
+          repository: CakeDC/oauth-server
+          ref: ${{ env.OAUTH_SERVER_REF }}
+          path: oauth-server
+          token: ${{ secrets.CAKEDC_PRIVATE_REPOS_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: CakeDC/cakephp-oauth-server
+          ref: ${{ env.OAUTH_PLUGIN_REF }}
+          path: cakephp-oauth-server
+          token: ${{ secrets.CAKEDC_PRIVATE_REPOS_TOKEN || github.token }}
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
           coverage: none
       - uses: ramsey/composer-install@v3
+        with:
+          working-directory: cakephp-mcp
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: tests/Conformance/run.sh
+        working-directory: cakephp-mcp

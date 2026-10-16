@@ -18,15 +18,35 @@
     },
     "require-dev": {
         "cakedc/auth": "^10.1 || ^11.0",
+        "cakedc/cakephp-oauth-server": "^1.0",
+        "cakedc/oauth-server": "^1.0",
         "cakephp/authentication": "^3.3",
         "cakephp/cakephp-codesniffer": "^5.1",
+        "cakephp/migrations": "^4.0 || ^5.0",
+        "firebase/php-jwt": "^6.10 || ^7.0",
         "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^10.5.5 || ^11.1.3 || ^12.1 || ^13.0"
+        "phpunit/phpunit": "^10.5.5 || ^11.1.3 || ^12.1 || ^13.0",
+        "psr/cache": "^2.0 || ^3.0"
     },
     "suggest": {
         "cakephp/authentication": "Identifies the caller of the MCP endpoint (for example with a Bearer token authenticator)",
-        "cakedc/auth": "Enables RbacToolAuthorizer, per-tool permissions in the config/permissions.php format"
+        "cakedc/auth": "Enables RbacToolAuthorizer, per-tool permissions in the config/permissions.php format",
+        "cakedc/cakephp-oauth-server": "OAuth 2.1 sign-in for remote MCP clients with the application's own login (Mcp.auth.mode oauth)",
+        "firebase/php-jwt": "Validates access tokens of an external authorization server (Mcp.auth.mode external)",
+        "psr/cache": "Required with firebase/php-jwt for Mcp.auth.mode external"
     },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../oauth-server",
+            "options": {"symlink": true, "versions": {"cakedc/oauth-server": "1.x-dev"}}
+        },
+        {
+            "type": "path",
+            "url": "../cakephp-oauth-server",
+            "options": {"symlink": true, "versions": {"cakedc/cakephp-oauth-server": "1.x-dev"}}
+        }
+    ],
     "autoload": {
         "psr-4": {
             "CakeDC\\Mcp\\": "src/"
