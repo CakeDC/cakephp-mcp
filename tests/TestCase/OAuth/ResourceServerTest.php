@@ -87,4 +87,21 @@ class ResourceServerTest extends TestCase
         $this->expectException(LogicException::class);
         $this->server()->validator(new CurrentIdentity());
     }
+
+    public function testOAuthModeGrantsWhatTheDeclaredResourceImplies(): void
+    {
+        $this->assertEqualsCanonicalizing(['notes:write', 'notes:read'], $this->server()->grantedScopes(['notes:write']));
+        $this->assertSame(['notes:read'], $this->server()->grantedScopes(['notes:read']));
+    }
+
+    public function testExternalModeGrantsTheScopesUnchanged(): void
+    {
+        Configure::write('Mcp.auth', [
+            'mode' => 'external',
+            'external' => ['issuer' => 'https://issuer.example'],
+            'scopes' => ['implies' => ['notes:write' => ['notes:read']]],
+        ]);
+
+        $this->assertSame(['notes:write'], $this->server()->grantedScopes(['notes:write']));
+    }
 }

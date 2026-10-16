@@ -23,6 +23,7 @@ use CakeDC\Mcp\McpPlugin;
 use CakeDC\OAuthServer\OAuthServer;
 use CakeDC\OAuthServer\OAuthServerPlugin;
 use Psr\Http\Message\ServerRequestInterface;
+use TestApp\Authenticator\ApiTokenAuthenticator;
 use TestApp\Middleware\AuthorizationSpyMiddleware;
 
 /**
@@ -83,10 +84,21 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function getAuthenticationService(ServerRequestInterface $request): AuthenticationServiceInterface
     {
         $service = new AuthenticationService();
-        if (Configure::read('TestApp.oauthTokenAuthenticator') === true) {
-            // A host that also protects an API with the oauth plugin's Token authenticator (mcp check test).
+        if (Configure::read('TestApp.sessionFirst') === true) {
+            // The wrong order, which `oauth check` fails (oauth check test).
+            $service->loadAuthenticator('Authentication.Session', ['sessionKey' => 'Auth']);
+        }
+        // docs/oauth.md, step 5: the oauth plugin's Token authenticator protects the application's other API,
+        // first in line and never on the MCP endpoint. `TestApp.oauthTokenAuthenticator`: `everywhere`, a host
+        // that left the guard out (mcp check test); `skipsMcp`, the authenticator of docs/oauth.md (cakedc/users)
+        // that leaves the MCP endpoint alone by itself, loaded for every request.
+        $variant = Configure::read('TestApp.oauthTokenAuthenticator');
+        if (
+            Plugin::isLoaded('CakeDC/OAuthServer')
+            && ($variant === 'everywhere' || $variant === 'skipsMcp' || !McpConfig::isEndpoint($request))
+        ) {
             $service->loadAuthenticator('OAuthToken', [
-                'className' => 'CakeDC/OAuthServer.Token',
+                'className' => $variant === 'skipsMcp' ? ApiTokenAuthenticator::class : 'CakeDC/OAuthServer.Token',
                 'resource' => OAuthTestConfig::API,
             ]);
         }
@@ -99,8 +111,10 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
                 ],
             ],
         ]);
-        // The browser login the oauth plugin's consent page needs.
-        $service->loadAuthenticator('Authentication.Session', ['sessionKey' => 'Auth']);
+        if (Configure::read('TestApp.sessionFirst') !== true) {
+            // The browser login the oauth plugin's consent page needs, after the Token authenticators.
+            $service->loadAuthenticator('Authentication.Session', ['sessionKey' => 'Auth']);
+        }
 
         return $service;
     }

@@ -11,6 +11,7 @@ use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
 use CakeDC\OAuthServer\TestSuite\OAuthTestTrait;
 use Mcp\Server\Authorization\AccessToken;
+use PHPUnit\Framework\Attributes\DataProvider;
 use TestApp\OAuthTestConfig;
 
 class OAuthServerTokenValidatorTest extends TestCase
@@ -121,5 +122,34 @@ class OAuthServerTokenValidatorTest extends TestCase
         $this->assertSame(401, $result->getStatusCode());
         $this->assertSame('invalid_token', $result->getError());
         $this->assertNull($this->current->get());
+    }
+
+    /**
+     * @return array<string, array{0: mixed}>
+     */
+    public static function notAnIdentity(): array
+    {
+        return [
+            'false' => [false],
+            'true' => [true],
+            'zero' => [0],
+            'integer' => [7],
+            'empty string' => [''],
+            'string' => ['user-1'],
+            'float' => [1.5],
+        ];
+    }
+
+    #[DataProvider('notAnIdentity')]
+    public function testIdentityResolverReturningAScalarRejectsTheToken(mixed $returned): void
+    {
+        $token = $this->oauthTokenFor(1, ['notes:read'], OAuthTestConfig::MCP);
+
+        $result = $this->validator(fn(): mixed => $returned)->validate($token);
+
+        $this->assertFalse($result->isAllowed());
+        $this->assertSame(401, $result->getStatusCode());
+        $this->assertSame('invalid_token', $result->getError());
+        $this->assertFalse($this->current->has());
     }
 }

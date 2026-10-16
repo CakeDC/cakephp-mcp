@@ -121,6 +121,46 @@ class McpOAuthTest extends TestCase
         $this->assertSame('invalid_token', $this->challenge()['error'] ?? null);
     }
 
+    public function testIdentityResolverReturningFalseIsChallenged(): void
+    {
+        Configure::write('Mcp.auth.identity', fn(): bool => false);
+        $token = $this->oauthTokenFor(1, ['notes:read', 'notes:write'], OAuthTestConfig::MCP);
+
+        $this->callTool('whoami', [], $token);
+        $this->assertResponseCode(401);
+        $this->assertSame('invalid_token', $this->challenge()['error'] ?? null);
+
+        $this->callTool('create_note', ['title' => 'Groceries'], $token);
+        $this->assertResponseCode(401);
+    }
+
+    public function testATokenAuthenticatorForAnotherResourceOnTheMcpRouteRefusesEveryCall(): void
+    {
+        // What docs/oauth.md (step 5, cakedc/users) warns about: the oauth plugin's Token authenticator for
+        // the API, run on every request, refuses MCP tokens outside its paths before the plugin sees them.
+        Configure::write('TestApp.oauthTokenAuthenticator', 'everywhere');
+        $token = $this->oauthTokenFor(1, ['notes:read'], OAuthTestConfig::MCP);
+
+        $this->callTool('whoami', [], $token);
+
+        $this->assertResponseCode(401);
+        $this->assertStringContainsString('not valid at this address', $this->challenge()['error_description'] ?? '');
+    }
+
+    public function testATokenAuthenticatorThatLeavesTheMcpEndpointAloneLetsMcpCallsThrough(): void
+    {
+        // The authenticator class docs/oauth.md (cakedc/users) shows, run on every request.
+        Configure::write('TestApp.oauthTokenAuthenticator', 'skipsMcp');
+        $token = $this->oauthTokenFor(1, ['notes:read'], OAuthTestConfig::MCP);
+
+        $this->callTool('whoami', [], $token);
+        $this->assertResponseOk();
+
+        $this->callTool('whoami', [], 'test_at_' . str_repeat('A', 43));
+        $this->assertResponseCode(401);
+        $this->assertSame(self::METADATA_URL, $this->challenge()['resource_metadata'] ?? null);
+    }
+
     public function testDeactivatedOwnerLosesAccessOnTheNextCall(): void
     {
         $token = $this->oauthTokenFor(2, ['notes:read'], OAuthTestConfig::MCP);

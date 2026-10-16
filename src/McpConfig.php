@@ -145,6 +145,27 @@ final class McpConfig
     }
 
     /**
+     * The RBAC rule (cakedc/auth, `config/permissions.php`) that lets every request reach the MCP endpoint and
+     * its protected resource metadata. cakedc/users authorizes the route before the controller runs, so without
+     * it an anonymous request is redirected to the login page instead of receiving the plugin's 401 and its
+     * metadata. The plugin decides access itself (authentication, scopes, then the tool authorizer).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function rbacPermissions(): array
+    {
+        return [
+            [
+                'role' => '*',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => ['Mcp', 'ProtectedResource'],
+                'action' => ['handle', 'metadata'],
+                'bypassAuth' => true,
+            ],
+        ];
+    }
+
+    /**
      * Whether $request is for the MCP endpoint or its protected resource metadata. Use it to skip
      * Cake's CSRF check there, and to keep other bearer-token authenticators off these paths.
      *

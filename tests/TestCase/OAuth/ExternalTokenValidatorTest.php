@@ -177,4 +177,33 @@ class ExternalTokenValidatorTest extends TestCase
         $this->assertSame(401, $second->getStatusCode());
         $this->assertCount($requests, $client->requested);
     }
+
+    /**
+     * @return array<string, array{0: mixed}>
+     */
+    public static function notAnIdentity(): array
+    {
+        return [
+            'false' => [false],
+            'true' => [true],
+            'zero' => [0],
+            'integer' => [7],
+            'empty string' => [''],
+            'string' => ['user-1'],
+            'float' => [1.5],
+        ];
+    }
+
+    #[DataProvider('notAnIdentity')]
+    public function testIdentityResolverReturningAScalarRejectsTheToken(mixed $returned): void
+    {
+        Configure::write('Mcp.auth.identity', fn(): mixed => $returned);
+
+        $result = $this->server()->validator($this->current)->validate(TestJwt::token());
+
+        $this->assertFalse($result->isAllowed());
+        $this->assertSame(401, $result->getStatusCode());
+        $this->assertSame('invalid_token', $result->getError());
+        $this->assertFalse($this->current->has());
+    }
 }

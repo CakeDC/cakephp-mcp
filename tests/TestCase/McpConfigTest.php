@@ -5,9 +5,12 @@ namespace CakeDC\Mcp\Test\TestCase;
 
 use Cake\Core\Configure;
 use Cake\Http\ServerRequest;
+use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
+use CakeDC\Auth\Rbac\Rbac;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\McpPlugin;
 
 class McpConfigTest extends TestCase
 {
@@ -100,5 +103,45 @@ class McpConfigTest extends TestCase
         Configure::write('Mcp.route', false);
 
         $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => '/mcp'])));
+    }
+
+    public function testRbacPermissionsBypassAuthForTheEndpointAndItsMetadata(): void
+    {
+        $this->assertSame([
+            [
+                'role' => '*',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => ['Mcp', 'ProtectedResource'],
+                'action' => ['handle', 'metadata'],
+                'bypassAuth' => true,
+            ],
+        ], McpConfig::rbacPermissions());
+    }
+
+    public function testRbacPermissionsLetAnonymousRequestsReachThePluginOnly(): void
+    {
+        Router::reload();
+        (new McpPlugin())->routes(Router::createRouteBuilder('/'));
+        $rbac = new Rbac(['permissions' => McpConfig::rbacPermissions(), 'log' => false]);
+        $routed = fn(string $url, string $method): ServerRequest => (new ServerRequest([
+            'url' => $url,
+            'environment' => ['REQUEST_METHOD' => $method],
+        ]))->withAttribute('params', Router::parseRequest(new ServerRequest([
+            'url' => $url,
+            'environment' => ['REQUEST_METHOD' => $method],
+        ])));
+
+        try {
+            $this->assertTrue($rbac->checkPermissions([], $routed('/mcp', 'POST')));
+            $this->assertTrue($rbac->checkPermissions([], $routed('/.well-known/oauth-protected-resource/mcp', 'GET')));
+            $other = (new ServerRequest(['url' => '/users/delete']))->withAttribute('params', [
+                'plugin' => null,
+                'controller' => 'Users',
+                'action' => 'delete',
+            ]);
+            $this->assertFalse($rbac->checkPermissions([], $other));
+        } finally {
+            Router::reload();
+        }
     }
 }

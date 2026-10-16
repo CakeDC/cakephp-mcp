@@ -21,7 +21,8 @@ final class OAuthServerTokenValidator implements AuthorizationTokenValidatorInte
      * @param \CakeDC\OAuth\Server\Token\TokenValidator $validator The authorization server's validator.
      * @param string $resource The MCP endpoint's resource identifier.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $current Receives the identity.
-     * @param \Closure|null $identity `fn(AccessToken $token, mixed $identity): mixed` (`Mcp.auth.identity`).
+     * @param \Closure|null $identity `fn(AccessToken $token, mixed $identity): mixed` (`Mcp.auth.identity`);
+     *   null, false or any other scalar rejects the token with 401 `invalid_token`.
      */
     public function __construct(
         private readonly TokenValidator $validator,
@@ -55,7 +56,8 @@ final class OAuthServerTokenValidator implements AuthorizationTokenValidatorInte
         if ($this->identity !== null) {
             $identity = ($this->identity)($token, $identity);
         }
-        if ($identity === null) {
+        // An identity is an array or an object: null, false or any other scalar never passes for one.
+        if (!is_array($identity) && !is_object($identity)) {
             return AuthorizationResult::unauthorized(
                 'invalid_token',
                 'The owner of this access token is not known to this application.',

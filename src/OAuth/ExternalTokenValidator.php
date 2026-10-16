@@ -20,7 +20,8 @@ final class ExternalTokenValidator implements AuthorizationTokenValidatorInterfa
     /**
      * @param \Mcp\Server\Transport\Http\OAuth\AuthorizationTokenValidatorInterface $validator Validates the JWT.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $current Receives the identity.
-     * @param \Closure|null $identity `fn(AccessToken $token, mixed $identity): mixed` (`Mcp.auth.identity`).
+     * @param \Closure|null $identity `fn(AccessToken $token, mixed $identity): mixed` (`Mcp.auth.identity`);
+     *   null, false or any other scalar rejects the token with 401 `invalid_token`.
      */
     public function __construct(
         private readonly AuthorizationTokenValidatorInterface $validator,
@@ -44,7 +45,8 @@ final class ExternalTokenValidator implements AuthorizationTokenValidatorInterfa
         if ($this->identity !== null) {
             $identity = ($this->identity)($token, $identity);
         }
-        if ($identity === null) {
+        // An identity is an array or an object: null, false or any other scalar never passes for one.
+        if (!is_array($identity) && !is_object($identity)) {
             return AuthorizationResult::unauthorized(
                 'invalid_token',
                 'The owner of this access token is not known to this application.',

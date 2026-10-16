@@ -5,9 +5,12 @@ namespace CakeDC\Mcp\Command;
 
 use Authentication\AuthenticationServiceProviderInterface;
 use Authentication\Authenticator\AuthenticationRequiredException;
+use Authentication\Authenticator\ResultInterface;
+use Authentication\Identifier\IdentifierCollection;
 use Cake\Command\Command;
 use Cake\Console\Arguments;
 use Cake\Console\ConsoleIo;
+use Cake\Core\App;
 use Cake\Core\Configure;
 use Cake\Core\Plugin;
 use Cake\Http\BaseApplication;
@@ -20,6 +23,7 @@ use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
+use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
 use ReflectionProperty;
 use Throwable;
@@ -253,16 +257,24 @@ class McpCheckCommand extends Command
         if ($settings->mode !== AuthSettings::OAUTH || !is_string($route) || $route === '') {
             return ['pass', 'nothing to check outside oauth mode'];
         }
+        if (!$this->oauthServerInstalled()) {
+            return ['fail', ResourceServer::OAUTH_INSTALL_HINT];
+        }
         $app = $this->application();
         if (is_string($app)) {
             return ['warn', $app . '; its authenticators were not inspected'];
         }
-        if (!$app instanceof AuthenticationServiceProviderInterface) {
-            return ['pass', 'the application provides no authentication service'];
-        }
         $prefix = OAuthServer::server()->config()->tokenPrefix;
         $probe = (new ServerRequest(['url' => $route, 'environment' => ['REQUEST_METHOD' => 'POST']]))
             ->withHeader('Authorization', 'Bearer ' . $prefix . '_at_' . str_repeat('A', 43));
+        if (!$app instanceof AuthenticationServiceProviderInterface) {
+            $configured = Configure::read('Auth.Authenticators');
+            if (Plugin::isLoaded('CakeDC/Users') && is_array($configured)) {
+                return $this->usersAuthenticators($configured, $settings, $probe);
+            }
+
+            return ['pass', 'the application provides no authentication service'];
+        }
         try {
             $app->getAuthenticationService($probe)->authenticate($probe);
         } catch (AuthenticationRequiredException) {
@@ -275,6 +287,103 @@ class McpCheckCommand extends Command
         }
 
         return ['pass', 'no authenticator answers access tokens at the MCP route first'];
+    }
+
+    /**
+     * cakedc/users builds the authentication service from `Auth.Authenticators` and runs it on every request,
+     * the MCP route included, and the oauth plugin's integration puts its Token authenticator there. That
+     * authenticator answers every token of the authorization server: below its paths it validates the token for
+     * its resource, anywhere else it refuses it with 401. MCP tokens therefore get through only when it
+     * validates the MCP resource at the MCP route, or when its class leaves the MCP endpoint alone.
+     *
+     * @param array<mixed> $configured `Auth.Authenticators`.
+     * @param \CakeDC\Mcp\OAuth\AuthSettings $settings The `Mcp.auth` settings.
+     * @param \Cake\Http\ServerRequest $probe A request with a token of this server at the MCP route.
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function usersAuthenticators(array $configured, AuthSettings $settings, ServerRequest $probe): array
+    {
+        $metadata = (new ResourceServer($settings))->metadata();
+        $resource = $metadata->getResource();
+        $path = (string)parse_url($resource, PHP_URL_PATH);
+        $warning = null;
+        foreach ($configured as $name => $options) {
+            $class = is_array($options) ? ($options['className'] ?? $name) : $name;
+            $class = is_string($class) ? App::className($class, 'Authenticator', 'Authenticator') : null;
+            if ($class === null || !is_a($class, TokenAuthenticator::class, true) || !is_array($options)) {
+                continue;
+            }
+            unset($options['className']);
+            $authenticator = new $class(new IdentifierCollection(), $options);
+            $setting = 'Auth.Authenticators.' . $name;
+            try {
+                ['resource' => $accepted, 'paths' => $paths] = $authenticator->resolve();
+            } catch (Throwable $e) {
+                return ['fail', sprintf(
+                    'the Token authenticator of cakedc/users (%s) refuses every access token it sees: %s',
+                    $setting,
+                    $e->getMessage(),
+                )];
+            }
+            $result = $authenticator->authenticate($probe);
+            if ($result->getStatus() === ResultInterface::FAILURE_CREDENTIALS_MISSING) {
+                // Its class leaves the MCP endpoint alone.
+                continue;
+            }
+            if ($accepted !== $resource || !self::within($path, $paths)) {
+                return ['fail', sprintf(
+                    'the Token authenticator of cakedc/users (%s) runs on every request and refuses MCP access '
+                    . 'tokens at %s: it accepts tokens for %s below %s only. See "cakedc/users" in the OAuth '
+                    . 'documentation of the plugin',
+                    $setting,
+                    $probe->getPath(),
+                    $accepted,
+                    implode(', ', $paths),
+                )];
+            }
+            if ($authenticator->getConfig('resourceMetadataUrl') !== $metadata->getMetadataUrl()) {
+                $warning = sprintf(
+                    'the Token authenticator of cakedc/users (%s) validates MCP access tokens at %s before the '
+                    . 'MCP plugin, for the same resource, but the 401 it answers for a refused token does not name '
+                    . 'the metadata; set its resourceMetadataUrl to %s',
+                    $setting,
+                    $probe->getPath(),
+                    $metadata->getMetadataUrl(),
+                );
+            }
+        }
+
+        return $warning === null
+            ? ['pass', 'no authenticator of cakedc/users refuses MCP access tokens at the MCP route']
+            : ['warn', $warning];
+    }
+
+    /**
+     * Whether $path is one of $prefixes or below one, on segment boundaries.
+     *
+     * @param string $path A normalized path.
+     * @param list<string> $prefixes Normalized path prefixes.
+     * @return bool
+     */
+    private static function within(string $path, array $prefixes): bool
+    {
+        foreach ($prefixes as $prefix) {
+            if ($prefix === '/' || $path === $prefix || str_starts_with($path, rtrim($prefix, '/') . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether cakedc/cakephp-oauth-server is installed.
+     *
+     * @return bool
+     */
+    protected function oauthServerInstalled(): bool
+    {
+        return class_exists(OAuthServer::class);
     }
 
     /**

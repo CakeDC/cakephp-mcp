@@ -5,13 +5,19 @@ namespace CakeDC\Mcp\Test\TestCase\Command;
 
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
+use Cake\Console\ConsoleIo;
 use Cake\Console\TestSuite\ConsoleIntegrationTestTrait;
+use Cake\Console\TestSuite\StubConsoleInput;
+use Cake\Console\TestSuite\StubConsoleOutput;
 use Cake\Core\Configure;
+use Cake\Core\Plugin;
 use Cake\Http\ServerRequest;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
+use TestApp\Authenticator\ApiTokenAuthenticator;
 use TestApp\OAuthTestConfig;
 
 class McpCheckCommandTest extends TestCase
@@ -31,7 +37,18 @@ class McpCheckCommandTest extends TestCase
         OAuthServer::reset();
         Cache::drop('mcp_check_cache');
         Router::reload();
+        // The stand-in for cakedc/users must not reach the next test.
+        Plugin::getCollection()->remove('CakeDC/Users');
         parent::tearDown();
+    }
+
+    /**
+     * The cakedc/users host of the test app, in oauth mode.
+     */
+    private function usersHost(): void
+    {
+        Configure::write('App.namespace', 'TestApp\\UsersHost');
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
     }
 
     public function testHostMode(): void
@@ -97,7 +114,7 @@ class McpCheckCommandTest extends TestCase
     public function testATokenAuthenticatorOnTheMcpRouteFails(): void
     {
         Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
-        Configure::write('TestApp.oauthTokenAuthenticator', true);
+        Configure::write('TestApp.oauthTokenAuthenticator', 'everywhere');
 
         $this->exec('mcp check');
 
@@ -189,5 +206,115 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
 
         $this->assertOutputContains('[PASS] Metadata route: no HTTP endpoint');
+    }
+
+    public function testTheOAuthPluginCheckPassesWithTheDocumentedSetup(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+
+        $this->exec('oauth check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputNotContains('[FAIL]');
+        $this->assertOutputContains('[PASS] Authenticators: Token comes before Session');
+    }
+
+    public function testTheOAuthPluginCheckFailsWhenTheSessionComesFirst(): void
+    {
+        // The order docs/oauth.md showed before: Session, then the Token authenticator.
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        Configure::write('TestApp.sessionFirst', true);
+
+        $this->exec('oauth check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Authenticators: the Session authenticator comes before the Token');
+    }
+
+    public function testAnAuthenticatorThatLeavesTheMcpEndpointAlonePasses(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        Configure::write('TestApp.oauthTokenAuthenticator', 'skipsMcp');
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[PASS] Authenticators');
+    }
+
+    public function testMissingOAuthPluginFailsWithTheInstallHint(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        $out = new StubConsoleOutput();
+        $command = new class extends McpCheckCommand {
+            protected function oauthServerInstalled(): bool
+            {
+                return false;
+            }
+        };
+
+        $code = $command->run([], new ConsoleIo($out, new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame(McpCheckCommand::CODE_ERROR, $code);
+        $this->assertStringContainsString(
+            '[FAIL] Authenticators: "Mcp.auth.mode" oauth needs cakedc/cakephp-oauth-server',
+            $out->output(),
+        );
+    }
+
+    public function testCakeDcUsersTokenAuthenticatorForTheMcpResourceWarnsWithoutTheMetadataUrl(): void
+    {
+        // The oauth plugin's integration registers its Token authenticator for the default resource, the MCP one.
+        $this->usersHost();
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[WARN] Authenticators: the Token authenticator of cakedc/users');
+        $this->assertOutputContains('Auth.Authenticators.OAuthServerToken');
+        $this->assertOutputContains('resourceMetadataUrl');
+        $this->assertOutputContains('http://localhost/.well-known/oauth-protected-resource/mcp');
+    }
+
+    public function testCakeDcUsersTokenAuthenticatorWithTheMetadataUrlPasses(): void
+    {
+        $this->usersHost();
+        Configure::write('Auth.Authenticators.OAuthServerToken', [
+            'className' => 'CakeDC/OAuthServer.OAuthServerToken',
+            'skipTwoFactorVerify' => true,
+            'resourceMetadataUrl' => 'http://localhost/.well-known/oauth-protected-resource/mcp',
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[PASS] Authenticators');
+    }
+
+    public function testCakeDcUsersTokenAuthenticatorForAnotherResourceFails(): void
+    {
+        $this->usersHost();
+        Configure::write('OAuthServer.users', ['resource' => OAuthTestConfig::API]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Authenticators: the Token authenticator of cakedc/users');
+        $this->assertOutputContains('refuses MCP access tokens at /mcp');
+    }
+
+    public function testCakeDcUsersTokenAuthenticatorThatLeavesTheMcpEndpointAlonePasses(): void
+    {
+        $this->usersHost();
+        Configure::write('OAuthServer.users', ['resource' => OAuthTestConfig::API]);
+        Configure::write('Auth.Authenticators.OAuthServerToken', [
+            'className' => ApiTokenAuthenticator::class,
+            'resource' => OAuthTestConfig::API,
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[PASS] Authenticators');
     }
 }

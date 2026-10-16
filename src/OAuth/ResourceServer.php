@@ -26,6 +26,12 @@ use RuntimeException;
  */
 final class ResourceServer
 {
+    /**
+     * What oauth mode needs when cakedc/cakephp-oauth-server is missing.
+     */
+    public const OAUTH_INSTALL_HINT = '"Mcp.auth.mode" oauth needs cakedc/cakephp-oauth-server: install it as '
+        . '"Install the oauth plugin" in docs/oauth.md describes and load the CakeDC/OAuthServer plugin.';
+
     private ?AuthorizationServer $authorizationServer = null;
 
     private ?ProtectedResource $declared = null;
@@ -99,6 +105,20 @@ final class ResourceServer
                 sprintf('The "%s" mode has no token validator.', $this->settings->mode),
             ),
         };
+    }
+
+    /**
+     * The scopes a token carrying $scopes holds when it reaches the scope policy: in oauth mode $scopes plus
+     * what they imply through the `implies` of the declared resource, the expansion the authorization server
+     * applies when it validates the token; unchanged in external mode. `Mcp.auth.scopes.implies` is applied
+     * afterwards by the policy, in both modes.
+     *
+     * @param list<string> $scopes The scopes of the token.
+     * @return list<string>
+     */
+    public function grantedScopes(array $scopes): array
+    {
+        return $this->settings->mode === AuthSettings::OAUTH ? $this->declared()->expand($scopes) : $scopes;
     }
 
     /**
@@ -179,10 +199,7 @@ final class ResourceServer
             return $this->authorizationServer;
         }
         if (!class_exists(OAuthServer::class)) {
-            throw new RuntimeException(
-                '"Mcp.auth.mode" oauth needs cakedc/cakephp-oauth-server: run '
-                . '`composer require cakedc/cakephp-oauth-server` and load the CakeDC/OAuthServer plugin.',
-            );
+            throw new RuntimeException(self::OAUTH_INSTALL_HINT);
         }
         $server = OAuthServer::server();
         $resources = $server->config()->resources;
