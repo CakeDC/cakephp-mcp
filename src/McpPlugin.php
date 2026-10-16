@@ -13,6 +13,7 @@ use Cake\Routing\RouteBuilder;
 use CakeDC\Mcp\Command\McpInspectorCommand;
 use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
+use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\Server\ServerFactory;
 
 /**
@@ -21,7 +22,8 @@ use CakeDC\Mcp\Server\ServerFactory;
 class McpPlugin extends BasePlugin
 {
     /**
-     * Defines the discovery and session cache configs when the host did not.
+     * Defines the discovery and session cache configs, and in external mode the authorization server's,
+     * when the host did not.
      *
      * @param \Cake\Core\PluginApplicationInterface $app The host application.
      * @return void
@@ -30,7 +32,12 @@ class McpPlugin extends BasePlugin
     {
         parent::bootstrap($app);
 
-        foreach ([McpConfig::get('discovery.cache'), McpConfig::get('session.cache')] as $name) {
+        $caches = [McpConfig::get('discovery.cache'), McpConfig::get('session.cache')];
+        if (McpConfig::get('auth.mode') === AuthSettings::EXTERNAL) {
+            // Discovery metadata and signing keys of the external authorization server.
+            $caches[] = McpConfig::get('auth.external.cache');
+        }
+        foreach ($caches as $name) {
             if (!is_string($name) || $name === '' || Cache::getConfig($name) !== null) {
                 continue;
             }

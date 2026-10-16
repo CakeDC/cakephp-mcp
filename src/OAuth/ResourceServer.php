@@ -3,14 +3,19 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\OAuth;
 
+use Cake\Http\Client;
+use Cake\Http\RequestFactory;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\OAuth\Server\AuthorizationServer;
 use CakeDC\OAuth\Server\Resource\ProtectedResource;
 use CakeDC\OAuthServer\OAuthServer;
+use Firebase\JWT\JWT;
 use LogicException;
 use Mcp\Server\Transport\Http\Middleware\AuthorizationMiddleware;
 use Mcp\Server\Transport\Http\OAuth\AuthorizationTokenValidatorInterface;
+use Mcp\Server\Transport\Http\OAuth\JwtTokenValidator;
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use RuntimeException;
@@ -85,6 +90,11 @@ final class ResourceServer
                 $identity,
                 $this->settings->identity,
             ),
+            AuthSettings::EXTERNAL => new ExternalTokenValidator(
+                $this->jwtValidator(),
+                $identity,
+                $this->settings->identity,
+            ),
             default => throw new LogicException(
                 sprintf('The "%s" mode has no token validator.', $this->settings->mode),
             ),
@@ -110,6 +120,10 @@ final class ResourceServer
             return $this->authorizationServer()->config()->issuer;
         }
 
+        if ($this->settings->external !== null) {
+            return $this->settings->external->issuer;
+        }
+
         throw new LogicException(sprintf('The "%s" mode has no authorization server.', $this->settings->mode));
     }
 
@@ -121,6 +135,37 @@ final class ResourceServer
         return $this->settings->mode === AuthSettings::OAUTH
             ? $this->declared()->scopeNames()
             : $this->settings->configuredScopes();
+    }
+
+    /**
+     * The SDK's JWT validator for the external issuer. Discovery and keys are fetched on first use.
+     *
+     * @return \Mcp\Server\Transport\Http\OAuth\JwtTokenValidator
+     */
+    private function jwtValidator(): JwtTokenValidator
+    {
+        $external = $this->settings->external;
+        if ($external === null) {
+            throw new LogicException('External mode without external settings.');
+        }
+        if (!class_exists(JWT::class) || !interface_exists(CacheItemPoolInterface::class)) {
+            throw new RuntimeException(
+                '"Mcp.auth.mode" external needs firebase/php-jwt and psr/cache: run '
+                . '`composer require firebase/php-jwt psr/cache`.',
+            );
+        }
+
+        return JwtTokenValidator::fromIssuer(
+            $external->issuer,
+            $external->audiences,
+            new CakeCachePool($external->cache),
+            $external->httpClient ?? new Client(['timeout' => 5]),
+            new RequestFactory(),
+            $external->algorithms,
+            $external->scopeClaim,
+            $external->tokenType,
+            $external->leeway,
+        );
     }
 
     /**

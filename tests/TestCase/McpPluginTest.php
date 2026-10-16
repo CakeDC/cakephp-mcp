@@ -65,6 +65,28 @@ class McpPluginTest extends TestCase
         $this->assertInstanceOf(ArrayEngine::class, Cache::pool('host_sessions'));
     }
 
+    public function testBootstrapDefinesTheExternalCacheOnlyInExternalMode(): void
+    {
+        try {
+            $app = new Application(CONFIG);
+            $app->bootstrap();
+            $app->pluginBootstrap();
+            $this->assertNull(Cache::getConfig('mcp_oauth_plugin_test'));
+
+            Configure::write('Mcp.auth', [
+                'mode' => 'external',
+                'external' => ['issuer' => 'https://issuer.example', 'cache' => 'mcp_oauth_plugin_test'],
+            ]);
+            $app = new Application(CONFIG);
+            $app->bootstrap();
+            $app->pluginBootstrap();
+
+            $this->assertInstanceOf(FileEngine::class, Cache::pool('mcp_oauth_plugin_test'));
+        } finally {
+            Cache::drop('mcp_oauth_plugin_test');
+        }
+    }
+
     public function testRoutesConnectTheEndpointAtTheConfiguredPath(): void
     {
         Configure::write('Mcp.route', '/ai/mcp');
