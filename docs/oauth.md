@@ -327,6 +327,8 @@ applies its `default_role`. A host that uses RBAC in external mode maps the
 token to one of its own users with `Mcp.auth.identity`:
 
 ```php
+use Authentication\Identity;
+use Cake\Datasource\FactoryLocator;
 use Mcp\Server\Authorization\AccessToken;
 
 Configure::write('Mcp.auth.identity', function (AccessToken $token, mixed $identity): mixed {
@@ -334,7 +336,7 @@ Configure::write('Mcp.auth.identity', function (AccessToken $token, mixed $ident
     if (!is_string($email)) {
         return null;
     }
-    $user = TableRegistry::getTableLocator()->get('Users')->find()
+    $user = FactoryLocator::get('Table')->get('Users')->find()
         ->where(['email' => $email, 'active' => true])
         ->first();
 
@@ -343,8 +345,13 @@ Configure::write('Mcp.auth.identity', function (AccessToken $token, mixed $ident
 ```
 
 The callable receives the access token and the default identity, and returns
-the identity to use. Returning `null` rejects the token with `401 invalid_token`,
-so people unknown to your application cannot call tools. The same setting works
+the identity to use: whatever your authentication normally produces (here an
+`Authentication\Identity` wrapping the user entity). Returning `null` rejects the token with `401 invalid_token`,
+so people unknown to your application cannot call tools.
+
+A JWT without a `sub` claim has no default identity, so in `external` mode it
+is rejected with `401 invalid_token` unless `Mcp.auth.identity` maps it (for
+example from an `email` claim, as above). The same setting works
 in `oauth` mode, where the default is the application identity of the token
 owner.
 
@@ -479,8 +486,8 @@ $this->assertMcpToolSucceeded();
 
 See [Testing your tools](testing.md#scopes). To test the HTTP endpoint with
 real tokens, use the oauth plugin's `OAuthTestTrait` (it issues personal
-tokens, so `OAuthServer.personalTokens` must be enabled in the test
-configuration) next to `IntegrationTestTrait`:
+tokens, which are enabled by default in `OAuthServer.personalTokens`, so
+this works unless you disabled them) next to `IntegrationTestTrait`:
 
 ```php
 use Cake\TestSuite\IntegrationTestTrait;
