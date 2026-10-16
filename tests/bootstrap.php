@@ -32,6 +32,8 @@ define('CAKE', CORE_PATH . 'src' . DS);
 
 require $pluginRoot . '/vendor/autoload.php';
 require CORE_PATH . 'config' . DS . 'bootstrap.php';
+// The global h() and friends, which the oauth plugin's templates use.
+require CAKE . 'functions.php';
 
 Configure::write('debug', true);
 Configure::write('App', [
