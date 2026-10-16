@@ -1,5 +1,12 @@
 # Troubleshooting
 
+## OAuth sign-in problems
+
+Clients that loop on sign-in, `401 invalid_token`, `403 insufficient_scope`, a
+well-known path blocked by the web server and a `500` after enabling OAuth are
+covered in [OAuth](oauth.md#troubleshooting). `bin/cake mcp check` finds most of
+them without a network call.
+
 ## The tool list is empty
 
 - A class in a scan directory fails to load (a syntax error, a missing

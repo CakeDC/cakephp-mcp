@@ -121,6 +121,18 @@ role, see [Authorization](authorization.md).
 
 ## OAuth
 
-OAuth 2.1 (what claude.ai connectors expect for remote servers with
-sign-in) is planned for 2.1. The identity middleware sits in the same slot the
-SDK's OAuth middleware will take, so your tools will not need to change.
+Remote clients such as claude.ai connectors sign people in with OAuth 2.1.
+`Mcp.auth.mode` chooses how the endpoint authenticates:
+
+- `host` (default): everything above. Your authentication puts the identity in
+  the request.
+- `oauth`: access tokens issued by `cakedc/cakephp-oauth-server` in the same
+  application, so people sign in with your own login.
+- `external`: JWT access tokens issued by Auth0, Keycloak, Microsoft Entra ID,
+  WorkOS or another OpenID Connect issuer.
+
+In `oauth` and `external` modes the identity comes from the access token and
+the identity attribute of your own authentication (`Mcp.identity.attribute`) is
+ignored on the MCP route, as are `Mcp.identity.required` and
+`Mcp.identity.scopes`. Tools still read the identity through `CurrentIdentity`.
+The full guide is in [OAuth](oauth.md).

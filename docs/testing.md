@@ -62,6 +62,28 @@ Tools see the identity through `CurrentIdentity`, and through the SDK access
 token built as the endpoint builds it (identifier as subject, scopes from
 `Mcp.identity.scopes`). Without `mcpActingAs()` the calls are anonymous.
 
+### Scopes
+
+`mcpActingAs($identity, $scopes = null, $claims = [])` also takes the scopes of
+the access token and extra claims for it (they win over `sub`). With `$scopes`
+given, and `Mcp.auth.mode` set to `oauth` or `external`, the `Mcp.auth.scopes`
+policy is applied first, as the HTTP endpoint would, and `Mcp.identity.scopes`
+is not used. A call the policy refuses is checked with
+`assertMcpInsufficientScope()`:
+
+```php
+Configure::write('Mcp.auth.scopes.tools.publish_post', ['content:publish']);
+
+$this->mcpActingAs($user, ['content:read']);
+$this->mcpCallTool('publish_post', ['id' => 1]);
+$this->assertMcpInsufficientScope(['content:publish']);
+```
+
+Pass the scopes the call needs to `assertMcpInsufficientScope()`, or nothing to
+accept any. It is only meaningful with scopes given to `mcpActingAs()`; without
+them, the policy is not applied. For the HTTP endpoint with real tokens see
+[OAuth](oauth.md#testing).
+
 The trait does not go through your HTTP authentication, so it does not check
 tokens or `Mcp.identity.required`. Cover that with an integration test of the
 endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
@@ -84,6 +106,7 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 | `assertMcpToolError(?$contains)` | returned a tool error, the kind the model reads (`ToolCallException`, `ToolError::invalid()`). |
 | `assertMcpJsonRpcError(?$code, ?$contains)` | was answered with a JSON-RPC error: `-32602` for arguments that do not match the input schema, `-32603` for an unexpected exception. |
 | `assertMcpToolDenied()` | was rejected by your authorizer. It also checks that the tool exists, because a denied tool is answered like an unknown one and a typo would pass otherwise. |
+| `assertMcpInsufficientScope(?$scopes)` | was refused because the token lacks scopes, the way the endpoint answers `403 insufficient_scope`. With `$scopes` it also checks the scopes the call needs (any order). |
 | `assertMcpResultContains($text)` | returned text containing `$text`. |
 | `assertMcpStructuredContent($expected)` | returned this `structuredContent`. Key order does not matter, value types do. |
 

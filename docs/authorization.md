@@ -132,6 +132,23 @@ anything. Write MCP rules with `'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools
 and review the host-wide wildcard rules whenever the MCP rules share a
 permissions file with the rest of your application.
 
+## Token scopes
+
+In `oauth` and `external` modes (see [OAuth](oauth.md)) a second check runs
+before the tool authorizer: the scope policy in `Mcp.auth.scopes`. A call whose
+token lacks the scopes of its method or tool is refused with `403
+insufficient_scope` and the list of scopes it needs, so clients can ask the
+person for more. The tool authorizer still runs for calls that pass, so a call
+needs both the scope and the permission. A tool the token has no scope for is
+still listed by `tools/list`; the authorizer decides what is hidden.
+
+In `oauth` mode the identity the authorizer sees is the application identity of
+the token owner, so `RbacToolAuthorizer` rules keep working. In `external` mode
+the default identity is an `ArrayObject` with `id` and `claims` and no role, so
+`cakedc/auth` applies its `default_role`; map the token to one of your users with
+`Mcp.auth.identity` to use roles. See
+[Identity in external mode](oauth.md#identity-in-external-mode).
+
 ## stdio
 
 Per-tool authorization is skipped for stdio by default (`Mcp.stdio.trusted`).
