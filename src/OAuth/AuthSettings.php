@@ -55,20 +55,30 @@ final class AuthSettings
     public static function fromConfig(): self
     {
         $auth = McpConfig::get('auth');
-        $auth = is_array($auth) ? $auth : [];
+        // A non-array (null included) is a typo, never a request for the defaults: fail closed.
+        if (!is_array($auth)) {
+            throw new InvalidArgumentException('"Mcp.auth" must be an array.');
+        }
         $defaults = McpConfig::DEFAULTS['auth'];
         self::assertKeys($auth, $defaults, 'Mcp.auth');
 
-        $mode = $auth['mode'] ?? self::HOST;
+        // The merged defaults always provide every key, so null here is an explicit value and fails the check.
+        $mode = $auth['mode'];
         if (!in_array($mode, [self::HOST, self::OAUTH, self::EXTERNAL], true)) {
             throw new InvalidArgumentException(sprintf(
                 '"Mcp.auth.mode" must be "host", "oauth" or "external", got %s.',
                 is_scalar($mode) ? '"' . $mode . '"' : get_debug_type($mode),
             ));
         }
-        $scopes = is_array($auth['scopes'] ?? null) ? $auth['scopes'] : [];
+        $scopes = $auth['scopes'];
+        if (!is_array($scopes)) {
+            throw new InvalidArgumentException('"Mcp.auth.scopes" must be an array.');
+        }
         self::assertKeys($scopes, $defaults['scopes'], 'Mcp.auth.scopes');
-        $external = is_array($auth['external'] ?? null) ? $auth['external'] : [];
+        $external = $auth['external'];
+        if (!is_array($external)) {
+            throw new InvalidArgumentException('"Mcp.auth.external" must be an array.');
+        }
         self::assertKeys($external, $defaults['external'], 'Mcp.auth.external');
 
         $identity = $auth['identity'] ?? null;
@@ -82,10 +92,10 @@ final class AuthSettings
             $resource,
             self::optionalString($auth['resourceName'] ?? null, 'Mcp.auth.resourceName'),
             self::optionalString($auth['resourceDocumentation'] ?? null, 'Mcp.auth.resourceDocumentation'),
-            self::scopeList($scopes['default'] ?? [], 'Mcp.auth.scopes.default'),
-            self::scopeMap($scopes['methods'] ?? [], 'Mcp.auth.scopes.methods'),
-            self::scopeMap($scopes['tools'] ?? [], 'Mcp.auth.scopes.tools'),
-            self::scopeMap($scopes['implies'] ?? [], 'Mcp.auth.scopes.implies'),
+            self::scopeList($scopes['default'], 'Mcp.auth.scopes.default'),
+            self::scopeMap($scopes['methods'], 'Mcp.auth.scopes.methods'),
+            self::scopeMap($scopes['tools'], 'Mcp.auth.scopes.tools'),
+            self::scopeMap($scopes['implies'], 'Mcp.auth.scopes.implies'),
             $identity === null ? null : Closure::fromCallable($identity),
             $mode === self::EXTERNAL ? ExternalSettings::fromArray($external, $resource) : null,
         );

@@ -236,4 +236,67 @@ class AuthSettingsTest extends TestCase
         Configure::write('Mcp.auth.external.httpClient', new Client());
         $this->assertInstanceOf(Client::class, AuthSettings::fromConfig()->external?->httpClient);
     }
+
+    public function testEmptyAuthArrayKeepsHostMode(): void
+    {
+        Configure::write('Mcp.auth', []);
+
+        $this->assertSame(AuthSettings::HOST, AuthSettings::fromConfig()->mode);
+    }
+
+    public function testNonArrayAuthFailsClosed(): void
+    {
+        foreach (['oauth', null] as $auth) {
+            Configure::write('Mcp.auth', $auth);
+            try {
+                AuthSettings::fromConfig();
+                $this->fail('Accepted ' . var_export($auth, true));
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('"Mcp.auth"', $e->getMessage());
+            }
+        }
+    }
+
+    public function testNonArrayScopesOrExternalFailClosed(): void
+    {
+        $cases = [
+            ['scopes' => 'notes:read', 'named' => '"Mcp.auth.scopes"'],
+            ['scopes' => null, 'named' => '"Mcp.auth.scopes"'],
+            ['external' => 'x', 'named' => '"Mcp.auth.external"'],
+            ['external' => null, 'named' => '"Mcp.auth.external"'],
+        ];
+        foreach ($cases as $case) {
+            $named = $case['named'];
+            unset($case['named']);
+            Configure::write('Mcp.auth', ['mode' => 'oauth'] + $case);
+            try {
+                AuthSettings::fromConfig();
+                $this->fail('Accepted ' . json_encode($case));
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString($named, $e->getMessage());
+            }
+        }
+    }
+
+    public function testNullScopeMapFailsClosed(): void
+    {
+        foreach (['default', 'methods', 'tools', 'implies'] as $key) {
+            Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => [$key => null]]);
+            try {
+                AuthSettings::fromConfig();
+                $this->fail('Accepted a null ' . $key);
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('"Mcp.auth.scopes.' . $key . '"', $e->getMessage());
+            }
+        }
+    }
+
+    public function testNullModeIsRejected(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => null]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.auth.mode"');
+        AuthSettings::fromConfig();
+    }
 }
