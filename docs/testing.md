@@ -68,7 +68,10 @@ token built as the endpoint builds it (identifier as subject, scopes from
 the access token and extra claims for it (they win over `sub`). With `$scopes`
 given, and `Mcp.auth.mode` set to `oauth` or `external`, the `Mcp.auth.scopes`
 policy is applied first, as the HTTP endpoint would, and `Mcp.identity.scopes`
-is not used. A call the policy refuses is checked with
+is not used. In `oauth` mode the scopes are first expanded with the `implies`
+of the resource in `OAuthServer.resources`, as the authorization server does
+for the endpoint, so a token with `content:publish` also holds what that
+scope implies there. A call the policy refuses is checked with
 `assertMcpInsufficientScope()`:
 
 ```php
@@ -83,6 +86,11 @@ Pass the scopes the call needs to `assertMcpInsufficientScope()`, or nothing to
 accept any. It is only meaningful with scopes given to `mcpActingAs()`; without
 them, the policy is not applied. For the HTTP endpoint with real tokens see
 [OAuth](oauth.md#testing).
+
+Only tool calls get the `insufficient_scope` answer. When the policy refuses
+any other request, such as the `tools/list` behind `mcpListTools()`,
+`assertMcpToolListed()` and `assertMcpToolNotListed()`, the test fails with
+`The access token lacks scopes for ...` instead of returning the `403` shape.
 
 The trait does not go through your HTTP authentication, so it does not check
 tokens or `Mcp.identity.required`. Cover that with an integration test of the

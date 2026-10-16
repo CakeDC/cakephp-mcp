@@ -34,8 +34,9 @@ Configure::write('Mcp.http.allowedHosts', ['example.com', 'localhost']);
 
 On a `cakedc/users` host, `RequestAuthorizationMiddleware` authorizes the
 route before the plugin runs, so an anonymous or unlisted request gets a 403 or
-a redirect to the login page instead of the plugin's 401. Add a `bypassAuth`
-permission rule for `CakeDC/Mcp` `Mcp::handle`; see
+a redirect to the login page instead of the plugin's 401. Add the `bypassAuth`
+permission rule for `CakeDC/Mcp` `Mcp::handle` and `ProtectedResource::metadata`
+that `McpConfig::rbacPermissions()` returns; see
 [Authentication](authentication.md#cakedcauth-and-cakedcusers). If tokens are
 sent but ignored, the default `Token` authenticator reads `api_key` from the
 query string, not the header.

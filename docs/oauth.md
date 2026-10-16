@@ -50,26 +50,30 @@ runs an MCP call.
 
 ### 1. Install the oauth plugin
 
-The two CakeDC OAuth packages are private repositories for now. Until they are
-on Packagist, a root application with the default `stable` minimum stability
-declares them as `vcs` repositories (Composer needs read access to both, for
-example a GitHub token) and asks for the beta:
+`oauth` mode needs CakePHP 5.1.10 or newer and `cakephp/authentication` 3.3.6
+or newer, the floors of the oauth plugin.
+
+The two CakeDC OAuth packages are public but not on Packagist yet. Until they
+are, declare them as `vcs` repositories in your application's `composer.json`:
 
 ```json
 {
     "repositories": [
-        {"type": "vcs", "url": "git@github.com:CakeDC/oauth-server.git"},
-        {"type": "vcs", "url": "git@github.com:CakeDC/cakephp-oauth-server.git"}
+        {"type": "vcs", "url": "https://github.com/CakeDC/oauth-server"},
+        {"type": "vcs", "url": "https://github.com/CakeDC/cakephp-oauth-server"}
     ]
 }
 ```
 
+and require both of them, with the beta flag on each (stability flags only
+apply to the packages you require yourself, so an application with the
+default `stable` minimum stability cannot require the plugin alone):
+
 ```bash
-composer require "cakedc/cakephp-oauth-server:^1.0@beta"
+composer require cakedc/cakephp-oauth-server:^1.0@beta cakedc/oauth-server:^1.0@beta
 ```
 
-When they are public they will be on Packagist and the `repositories` block
-goes away.
+Once they are on Packagist the `repositories` block goes away.
 
 Load the plugin in `Application::bootstrap()`:
 
@@ -91,8 +95,9 @@ describe. Do not run both.
 ### 2. Declare the MCP endpoint as a resource
 
 In the `OAuthServer` configuration the resource is keyed by the exact URL of
-your endpoint: `App.fullBaseUrl`, the base path of the application and
-`Mcp.route`. It must be the same string everywhere, because a token is issued
+your endpoint: `App.fullBaseUrl`, the base path of the application
+(`App.base`, see [Subdirectory installs](#subdirectory-installs-and-proxies))
+and `Mcp.route`. It must be the same string everywhere, because a token is issued
 for one resource and refused anywhere else.
 
 ```php
@@ -164,13 +169,13 @@ and follows `Mcp.route`, so you do not hard code `/mcp`.
 The oauth plugin ships an authenticator, `CakeDC/OAuthServer.Token`, for the
 other APIs of your application. On the MCP route it must not run: it answers a
 token it does not accept for that path with its own `401` before this plugin
-sees the request, and every MCP call fails. Load it only for other requests:
+sees the request, and every MCP call fails. Load it only for other requests,
+and before the session authenticator:
 
 ```php
 public function getAuthenticationService(ServerRequestInterface $request): AuthenticationServiceInterface
 {
     $service = new AuthenticationService();
-    $service->loadAuthenticator('Authentication.Session', ['sessionKey' => 'Auth']);
 
     if (!McpConfig::isEndpoint($request)) {
         $service->loadAuthenticator('OAuthToken', [
@@ -178,10 +183,17 @@ public function getAuthenticationService(ServerRequestInterface $request): Authe
             'resource' => 'https://example.com/api',
         ]);
     }
+    $service->loadAuthenticator('Authentication.Session', ['sessionKey' => 'Auth']);
 
     return $service;
 }
 ```
+
+The order matters: the first authenticator that succeeds wins. With the
+session first, a request that carries a session cookie and a revoked or
+foreign bearer token would run as the signed in person, and the token would
+never be checked. `bin/cake oauth check` fails when a session, cookie or form
+authenticator comes before the Token authenticator.
 
 If the application protects no other API with the oauth plugin, do not load
 the authenticator at all.
@@ -189,6 +201,9 @@ the authenticator at all.
 The example gives the authenticator its own alias, `OAuthToken`. Both
 `Authentication.Token` and `CakeDC/OAuthServer.Token` default to the alias
 `Token`, so a host that loads both must rename one of them.
+
+On a `cakedc/users` application the oauth plugin loads its authenticator for
+you, on every request; see [cakedc/users](#cakedcusers).
 
 `bin/cake mcp check` reports this mistake (see below).
 
@@ -200,8 +215,12 @@ bin/cake mcp check
 ```
 
 `bin/cake oauth check` is the oauth plugin's own check of its configuration,
-tables and routes. `bin/cake mcp check` makes no network call and checks the
-MCP side:
+tables and routes. When the MCP endpoint is the only resource, so that you did
+not load the Token authenticator in step 5, it warns `no Token authenticator
+(CakeDC/OAuthServer.Token) in the authentication service ...`. That warning is
+expected: this plugin validates the MCP tokens itself.
+
+`bin/cake mcp check` makes no network call and checks the MCP side:
 
 | Check | What it looks at |
 | --- | --- |
@@ -211,7 +230,7 @@ MCP side:
 | Metadata route | That the plugin routes are connected, and warns when the path the application serves differs from the advertised one (subdirectory installs need a rewrite, see below). |
 | Allowed hosts | That the host of the resource is in `Mcp.http.allowedHosts`. |
 | CSRF | That the CSRF middleware skips POST requests to the MCP route. |
-| Authenticators | In `oauth` mode, that no authenticator of the application answers access tokens on the MCP route before the plugin. |
+| Authenticators | In `oauth` mode, that no authenticator of the application answers access tokens on the MCP route before the plugin. On a `cakedc/users` application it reads `Auth.Authenticators` (see [cakedc/users](#cakedcusers)). Fails with an install hint when `cakedc/cakephp-oauth-server` is missing. |
 
 Sample output:
 
@@ -244,6 +263,119 @@ location ^~ /.well-known/oauth- {
 ```
 
 Apache with Cake's `.htaccess` needs nothing.
+
+### cakedc/users
+
+On an application built on `cakedc/users`, two more things matter.
+
+**RBAC.** `cakedc/users` authorizes the route before the controller runs, so
+without a rule an anonymous MCP call and the metadata are sent to the login
+page instead of the `401` and the JSON that clients need. Add the plugin's rule
+to `config/permissions.php`:
+
+```php
+// config/permissions.php
+use CakeDC\Mcp\McpConfig;
+
+return [
+    'CakeDC/Auth.permissions' => array_merge(McpConfig::rbacPermissions(), [
+        // ... your rules
+    ]),
+];
+```
+
+`McpConfig::rbacPermissions()` returns one rule: role `*`, plugin
+`CakeDC/Mcp`, controllers `Mcp` and `ProtectedResource`, actions `handle` and
+`metadata`, `bypassAuth` `true`. The plugin decides access itself. The oauth
+plugin adds the rule for its own endpoints, see its
+[cakedc/users page](https://github.com/CakeDC/cakephp-oauth-server/blob/1.next-cake5/docs/cakedc-users.md).
+
+**The Token authenticator.** With `cakedc/users` loaded, the oauth plugin
+registers its Token authenticator itself (`Auth.Authenticators.OAuthServerToken`)
+and `cakedc/users` runs it on every request, the MCP route included, so
+[step 5](#5-keep-the-oauth-token-authenticator-off-the-mcp-route) cannot be
+followed as written. That authenticator answers every access token of the
+authorization server: below its paths it validates the token for its resource,
+anywhere else it refuses it with `401` ("not valid at this address"). Its
+resource decides whether MCP calls get through:
+
+- **The MCP endpoint is the only resource, or the default one** (the first in
+  `OAuthServer.resources`, unless `OAuthServer.defaultResource` names another). Leave `OAuthServer.users.resource` and
+  `OAuthServer.users.paths` unset, or set `users.resource` to the URL of the
+  endpoint. The authenticator then validates MCP tokens on `/mcp` for the MCP
+  resource, the same check this plugin makes, and calls work. A token it
+  refuses (expired, revoked) gets its own `401`, which names the metadata URL
+  only when its `resourceMetadataUrl` option is set. Declare the authenticator
+  yourself to set it, as the oauth plugin's cakedc/users page describes under
+  "When you override the authenticators" (the plugin then leaves it alone):
+
+  ```php
+  // config/users.php
+  'Auth.Authenticators' => [
+      'OAuthServerToken' => [
+          'className' => 'CakeDC/OAuthServer.OAuthServerToken',
+          'skipTwoFactorVerify' => true,
+          'resourceMetadataUrl' => 'https://example.com/.well-known/oauth-protected-resource/mcp',
+      ],
+      // ... your other authenticators (Session, Form, ...) follow
+  ],
+  ```
+
+- **The authenticator is for another resource**, because
+  `OAuthServer.users.resource` names your API or the API is the default
+  resource. It then refuses every MCP token on `/mcp` and every MCP call fails
+  with `401`. `OAuthServer.users.paths` does not help: outside its paths the
+  authenticator refuses the token, inside them it checks it against its own
+  resource. Give it a class that leaves the MCP endpoint to this plugin:
+
+  ```php
+  // src/Authenticator/ApiTokenAuthenticator.php
+  namespace App\Authenticator;
+
+  use Authentication\Authenticator\Result;
+  use Authentication\Authenticator\ResultInterface;
+  use CakeDC\Mcp\McpConfig;
+  use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
+  use Psr\Http\Message\ServerRequestInterface;
+
+  class ApiTokenAuthenticator extends TokenAuthenticator
+  {
+      public function authenticate(ServerRequestInterface $request): ResultInterface
+      {
+          if (McpConfig::isEndpoint($request)) {
+              return new Result(null, Result::FAILURE_CREDENTIALS_MISSING);
+          }
+
+          return parent::authenticate($request);
+      }
+
+      public function unauthorizedChallenge(ServerRequestInterface $request): void
+      {
+          if (!McpConfig::isEndpoint($request)) {
+              parent::unauthorizedChallenge($request);
+          }
+      }
+  }
+  ```
+
+  ```php
+  // config/users.php (the use statement goes at the top of the file)
+  use App\Authenticator\ApiTokenAuthenticator;
+
+  'Auth.Authenticators' => [
+      'OAuthServerToken' => [
+          'className' => ApiTokenAuthenticator::class,
+          'skipTwoFactorVerify' => true,
+          'resource' => 'https://example.com/api',
+      ],
+      // ... your other authenticators (Session, Form, ...) follow
+  ],
+  ```
+
+`bin/cake mcp check` reads `Auth.Authenticators` when `CakeDC/Users` is loaded
+and reports these cases on its `Authenticators` line: `FAIL` when the Token
+authenticator refuses MCP tokens on the MCP route, `WARN` when it validates
+them without `resourceMetadataUrl`, `PASS` otherwise.
 
 ## external mode
 
@@ -347,9 +479,10 @@ Configure::write('Mcp.auth.identity', function (AccessToken $token, mixed $ident
 
 The callable receives the access token and the default identity, and returns
 the identity to use: whatever your authentication normally produces (here an
-`Authentication\Identity` wrapping the user entity). Returning `null` rejects
-the token with `401 invalid_token`, so people unknown to your application
-cannot call tools.
+`Authentication\Identity` wrapping the user entity). An identity is an array
+or an object: returning `null`, `false` or any other scalar rejects the token
+with `401 invalid_token`, so people unknown to your application cannot call
+tools.
 
 A JWT without a `sub` claim has no default identity, so in `external` mode it
 is rejected with `401 invalid_token` unless `Mcp.auth.identity` maps it (for
@@ -433,13 +566,15 @@ Use the OAuth sign-in the Inspector offers when the server answers `401`.
 
 ### Consent on every connection
 
-Redirect URIs that are loopback addresses or private schemes (the kind native
-tools use, such as Claude Code or the MCP Inspector) are asked for consent on
-every new connection. Refresh tokens keep an existing connection alive without
-asking again. A client with an https redirect URI (claude.ai) is approved
-silently once the person has consented. Redirect URIs with a private scheme are
-refused unless the oauth server's `allowPrivateSchemes` is enabled; see the
-oauth plugin's configuration.
+A public client (one without a client secret) whose redirect URI is a
+loopback address or a private scheme, the kind native tools use such as
+Claude Code or the MCP Inspector, is asked for consent on every new
+connection: any program on the computer could pose as it. Refresh tokens keep
+an existing connection alive without asking again. A client with an https
+redirect URI (claude.ai) and a confidential client, whatever its redirect URI,
+are approved silently once the person has consented. Redirect URIs with a
+private scheme are refused unless `OAuthServer.registration.allowPrivateSchemes`
+is `true` (it is `false` by default); see the oauth plugin's configuration.
 
 ## Subdirectory installs and proxies
 
@@ -459,6 +594,12 @@ location = /.well-known/oauth-protected-resource/app/mcp {
 path the application serves and the advertised one differ, as they do on a
 subdirectory install. The warning is the reminder to add the rewrite.
 
+The base path is read from `App.base`. When Cake detects the base path itself
+(`App.base` left at `false`, the skeleton default), the derived resource has
+no base path (`https://example.com/mcp` instead of
+`https://example.com/app/mcp`), so on a subdirectory install set `App.base`
+(`'/app'`) or `Mcp.auth.resource` explicitly.
+
 Behind a proxy that terminates TLS, set `App.fullBaseUrl` to the public https
 URL, or set `Mcp.auth.resource` explicitly. The resource must be the URL the
 client types, not the internal one.
@@ -475,7 +616,8 @@ well-known path.
 
 ## Testing
 
-In a Cake test case, `McpTestTrait` acts as a token with scopes without HTTP:
+In a Cake test case, `McpTestTrait` acts as a token with scopes without HTTP.
+With the resource and the `Mcp.auth` of the steps above:
 
 ```php
 $this->mcpActingAs($user, ['content:read']);
@@ -487,14 +629,25 @@ $this->mcpCallTool('publish_post', ['id' => 1]);
 $this->assertMcpToolSucceeded();
 ```
 
+The second call passes because the trait expands the scopes with the
+`implies` of the resource, as the authorization server does:
+`content:publish` also grants `content:write` and `content:read`.
+
 See [Testing your tools](testing.md#scopes). To test the HTTP endpoint with
 real tokens, use the oauth plugin's `OAuthTestTrait` (it issues personal
 tokens, which are enabled by default in `OAuthServer.personalTokens`, so
-this works unless you disabled them) next to `IntegrationTestTrait`:
+this works unless you disabled them) next to `IntegrationTestTrait`. Send the
+request the way an MCP client of the 2026-07-28 revision does, without a
+session: the protocol version in `params._meta` and in the
+`MCP-Protocol-Version` header, and the method in the `Mcp-Method` header.
+Without them the endpoint expects the older handshake and answers `400`
+("A valid session id is REQUIRED").
 
 ```php
 use Cake\TestSuite\IntegrationTestTrait;
+use Cake\TestSuite\TestCase;
 use CakeDC\OAuthServer\TestSuite\OAuthTestTrait;
+use stdClass;
 
 class McpEndpointTest extends TestCase
 {
@@ -509,15 +662,29 @@ class McpEndpointTest extends TestCase
                 'Authorization' => 'Bearer ' . $token,
                 'Accept' => 'application/json, text/event-stream',
                 'Content-Type' => 'application/json',
+                'MCP-Protocol-Version' => '2026-07-28',
+                'Mcp-Method' => 'tools/list',
             ],
         ]);
 
-        $this->post('/mcp', json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list']));
+        $this->post('/mcp', (string)json_encode([
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'method' => 'tools/list',
+            'params' => ['_meta' => [
+                'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+                'io.modelcontextprotocol/clientCapabilities' => new stdClass(),
+            ]],
+        ]));
 
         $this->assertResponseOk();
+        $tools = json_decode((string)$this->_response?->getBody(), true)['result']['tools'] ?? [];
+        $this->assertContains('publish_post', array_column($tools, 'name'));
     }
 }
 ```
+
+A `tools/call` also sends the tool name in an `Mcp-Name` header.
 
 ## Troubleshooting
 
@@ -550,7 +717,8 @@ the person for more; otherwise reconnect and approve the scopes.
 **Every token is rejected with "not valid at this address".** The oauth
 plugin's `Token` authenticator is running on the MCP route and answers before
 this plugin. Load it only when `!McpConfig::isEndpoint($request)`; see
-[step 5](#5-keep-the-oauth-token-authenticator-off-the-mcp-route).
+[step 5](#5-keep-the-oauth-token-authenticator-off-the-mcp-route), or
+[cakedc/users](#cakedcusers) when `cakedc/users` loads it for you.
 `bin/cake mcp check` fails the `Authenticators` check in this case.
 
 **500 on `/mcp` after enabling OAuth.** The configuration is invalid (an unknown

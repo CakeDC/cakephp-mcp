@@ -8,9 +8,11 @@ OAuth 2.1 for remote MCP clients. Existing applications keep working: `host` mod
 - Protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource` plus the MCP route, and the `401` challenge that points MCP clients to it.
 - Scope policy per method and per tool (`Mcp.auth.scopes`), with `implies` and step-up through `403 insufficient_scope`.
 - `McpConfig::isEndpoint()` recognises the MCP route and its metadata path, for the CSRF skip callback and to keep other bearer-token authenticators off them.
-- `bin/cake mcp check` inspects the endpoint configuration (authentication, resource, metadata route, allowed hosts, CSRF, authenticators) without network calls.
-- `McpTestTrait::mcpActingAs()` takes scopes and claims, and `assertMcpInsufficientScope()` asserts a refused call.
-- Contributors: the PHPUnit suite now runs on SQLite with the oauth packages. It needs the sibling clones `../oauth-server` and `../cakephp-oauth-server` (path repositories); CI checks them out with the `CAKEDC_PRIVATE_REPOS_TOKEN` secret while they are private.
+- `bin/cake mcp check` inspects the endpoint configuration (authentication, resource, metadata route, allowed hosts, CSRF, authenticators, including the `Auth.Authenticators` of `cakedc/users`) without network calls.
+- `McpTestTrait::mcpActingAs()` takes scopes and claims, and `assertMcpInsufficientScope()` asserts a refused call. In `oauth` mode the scopes are expanded with the `implies` of the declared resource, as the authorization server does.
+- `McpConfig::rbacPermissions()` returns the `bypassAuth` rule `cakedc/users` hosts need for the endpoint and its metadata.
+- oauth mode needs `cakedc/cakephp-oauth-server` and `cakedc/oauth-server` 1.0 (beta, public, not on Packagist yet: see the install notes), CakePHP 5.1.10+ and `cakephp/authentication` 3.3.6+.
+- Contributors: the PHPUnit suite now runs on SQLite with the oauth packages. It needs the sibling clones `../oauth-server` and `../cakephp-oauth-server` (path repositories); both are public repositories, and CI checks them out at their `1.0.0-beta1` tags.
 
 ## 2.0.0-beta1 (unreleased)
 

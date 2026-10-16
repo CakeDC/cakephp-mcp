@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 # The OAuth tests resolve cakedc/oauth-server and cakedc/cakephp-oauth-server from path repositories
-# (../oauth-server and ../cakephp-oauth-server), so every job checks them out next to this one. While
-# those repositories are private, the CAKEDC_PRIVATE_REPOS_TOKEN secret must hold a token that can
-# read them; once they are public the workflow token is enough.
+# (../oauth-server and ../cakephp-oauth-server), so every job checks them out next to this one, at a
+# released tag so CI does not drift with their branches. Both repositories are public, so the workflow
+# token is enough; a CAKEDC_PRIVATE_REPOS_TOKEN secret is used instead when the organisation defines one.
 env:
-  OAUTH_SERVER_REF: '1.x'
-  OAUTH_PLUGIN_REF: '1.next-cake5'
+  OAUTH_SERVER_REF: '1.0.0-beta1'
+  OAUTH_PLUGIN_REF: '1.0.0-beta1'
 
 jobs:
   testsuite:

@@ -55,15 +55,19 @@ If you change `Mcp.route`, change the path here too.
 ## OAuth
 
 Remote clients that sign people in (claude.ai connectors, Claude Code, the MCP
-Inspector) need `Mcp.auth` set to `oauth` or `external`. That also needs the
-skip callback to cover the metadata path, so prefer this form, which follows
-`Mcp.route`:
+Inspector) need `Mcp.auth` set to `oauth` or `external`. Prefer this form of the
+skip callback, which follows `Mcp.route`:
 
 ```php
 use CakeDC\Mcp\McpConfig;
 
 $csrf->skipCheckCallback(fn (ServerRequest $request): bool => McpConfig::isEndpoint($request));
 ```
+
+`McpConfig::isEndpoint()` is also true for the protected resource metadata
+path. That path is only routed for GET and OPTIONS, which the CSRF middleware
+never checks (it does not consult the callback for them), so the callback is
+not what lets the metadata through; it is the MCP route's POST that needs it.
 
 The setup, the optional packages and `bin/cake mcp check` are described in
 [OAuth](oauth.md).

@@ -94,19 +94,36 @@ in the `identity` attribute, so the plugin reads it unchanged. Two defaults of
    authorizes the route before the controller runs. The plugin's
    `skipAuthorization()` call never gets a chance, and an anonymous request is
    redirected to the login page instead of receiving the plugin's 401. Add a
-   permission rule for the endpoint in your `config/permissions.php`, with
-   `bypassAuth` so the request reaches the plugin, which then does its own 401
-   and per-tool authorization:
+   permission rule for the endpoint and its protected resource metadata (used
+   by [OAuth](oauth.md)) in your `config/permissions.php`, with `bypassAuth` so
+   the request reaches the plugin, which then does its own 401 and per-tool
+   authorization. `McpConfig::rbacPermissions()` returns that rule:
+
+   ```php
+   // config/permissions.php
+   use CakeDC\Mcp\McpConfig;
+
+   return [
+       'CakeDC/Auth.permissions' => array_merge(McpConfig::rbacPermissions(), [
+           // ... your rules
+       ]),
+   ];
+   ```
+
+   It is this rule, which you can also write by hand:
 
    ```php
    [
        'role' => '*',
        'plugin' => 'CakeDC/Mcp',
-       'controller' => 'Mcp',
-       'action' => 'handle',
+       'controller' => ['Mcp', 'ProtectedResource'],
+       'action' => ['handle', 'metadata'],
        'bypassAuth' => true,
    ],
    ```
+
+   With the oauth plugin, merge `OAuthServer::rbacPermissions()` as well (see
+   [OAuth](oauth.md#cakedcusers)).
 
 2. The default `Token` authenticator of `cakedc/users` reads the `api_key` query
    parameter (`'header' => null`, `'queryParam' => 'api_key'`), not the

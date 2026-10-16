@@ -78,7 +78,7 @@ Tools stay unreachable until it is fixed; a typo in a security setting never
 opens anything.
 
 - `auth.mode`: `host` (default, the 2.0 behaviour: your authentication puts the identity in the request), `oauth` (tokens of `cakedc/cakephp-oauth-server` in the same application) or `external` (JWT access tokens of a third-party authorization server).
-- `auth.resource`: the canonical URL of the MCP endpoint, which is the audience of its tokens. `null` derives it from `App.fullBaseUrl`, the base path of the application and `Mcp.route`. Set it when the application sits behind a proxy. Only `https` is accepted (plain `http` only for localhost), without fragment or credentials. Not used in `host` mode.
+- `auth.resource`: the canonical URL of the MCP endpoint, which is the audience of its tokens. `null` derives it from `App.fullBaseUrl`, `App.base` and `Mcp.route`; on a subdirectory install set `App.base` or this key, because a base path Cake detects by itself (`App.base` `false`) is not seen. Set it when the application sits behind a proxy. Only `https` is accepted (plain `http` only for localhost), without fragment or credentials. Not used in `host` mode.
 - `auth.resourceName`: optional name shown in the protected resource metadata.
 - `auth.resourceDocumentation`: optional documentation URL shown in the protected resource metadata.
 - `auth.scopes`: the scope policy, as below. Every scope named here must be declared by the resource in `oauth` mode.
@@ -86,7 +86,7 @@ opens anything.
 - `auth.scopes.methods`: JSON-RPC method to list of scopes, for example `['tools/call' => ['content:read']]`.
 - `auth.scopes.tools`: tool name to list of scopes, added to the ones of the method for that tool.
 - `auth.scopes.implies`: scope to list of scopes it also grants, for example `['content:write' => ['content:read']]`.
-- `auth.identity`: optional `fn (Mcp\Server\Authorization\AccessToken $token, mixed $identity): mixed` that replaces the identity tools and the authorizer see. Return `null` to reject the token with 401 `invalid_token`. See [OAuth](oauth.md#identity-in-external-mode).
+- `auth.identity`: optional `fn (Mcp\Server\Authorization\AccessToken $token, mixed $identity): mixed` that replaces the identity tools and the authorizer see. Return an array or an object; `null`, `false` or any other scalar rejects the token with 401 `invalid_token`. See [OAuth](oauth.md#identity-in-external-mode).
 - `auth.external`: the settings of `external` mode, as below. Ignored in the other modes.
 - `auth.external.issuer`: required in `external` mode. The issuer URL, compared verbatim with the `iss` claim (a trailing slash counts).
 - `auth.external.audience`: accepted `aud` value, a list of them, or `null` for the resource URL.
