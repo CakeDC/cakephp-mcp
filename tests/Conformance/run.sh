@@ -11,7 +11,9 @@ set -uo pipefail
 
 cd "$(dirname "$0")"
 
-PACKAGE="${CONFORMANCE_PACKAGE:-@modelcontextprotocol/conformance@0.2.0-alpha.11}"
+# The newest published alpha of the official suite: a new release that adds failing
+# scenarios or checks turns this run red on purpose.
+PACKAGE="${CONFORMANCE_PACKAGE:-@modelcontextprotocol/conformance@alpha}"
 export CONFORMANCE_PORT="${CONFORMANCE_PORT:-8000}"
 # The container runs the vendor/ installed by this PHP, so it uses the same version.
 export CONFORMANCE_PHP="${CONFORMANCE_PHP:-$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')}"

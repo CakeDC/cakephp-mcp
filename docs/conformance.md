@@ -21,8 +21,11 @@ tests/Conformance/run.sh 2026-07-28   # one revision
 ```
 
 `CONFORMANCE_PORT` changes the local port (8000 by default) and
-`CONFORMANCE_PACKAGE` the suite version. The suite version is pinned, so a new
-release cannot break the build on its own; raise it on purpose.
+`CONFORMANCE_PACKAGE` the suite version. By default the script runs the newest
+published alpha of the suite (`@modelcontextprotocol/conformance@alpha`), so the
+plugin is always checked against the latest scenarios: a new release that adds a
+scenario the plugin fails turns the build red on purpose. Set
+`CONFORMANCE_PACKAGE` to a fixed version to reproduce an older run.
 
 The CI workflow runs the suite on pushes to the main branches and on every
 pull request.

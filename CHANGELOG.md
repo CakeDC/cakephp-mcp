@@ -16,6 +16,8 @@ OAuth 2.1 for remote MCP clients. Existing applications keep working: `host` mod
 - `Mcp.http.maxBodyBytes` (default 4 MiB, the SDK's own limit) bounds the request body. The same value is passed to the SDK transport and to its `AuthorizationMiddleware`.
 - A POST over that limit is answered with `413` and a JSON-RPC error (code `-32600`) whose message and `data.maxBodyBytes` name the limit and suggest a smaller payload, before authentication. Before, `oauth` and `external` modes answered it with a `400` Bearer `invalid_request` challenge.
 
+- Contributors: `tests/Conformance/run.sh` (and so CI) runs the newest published alpha of the official conformance suite instead of a pinned version; `CONFORMANCE_PACKAGE` still pins one for a reproducible run.
+
 ## 2.0.0-beta1 (unreleased)
 
 Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
