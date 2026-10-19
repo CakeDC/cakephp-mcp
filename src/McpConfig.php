@@ -7,6 +7,7 @@ use Cake\Core\Configure;
 use Cake\Http\ServerRequest;
 use Cake\Utility\Hash;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use InvalidArgumentException;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -39,7 +40,7 @@ final class McpConfig
         ],
         'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
         'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
-        'http' => ['allowedHosts' => null, 'allowedOrigins' => []],
+        'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4 * 1024 * 1024],
         'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
         'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => []],
         'auth' => [
@@ -88,6 +89,24 @@ final class McpConfig
         }
 
         return $name;
+    }
+
+    /**
+     * The largest request body the endpoint reads, in bytes (`http.maxBodyBytes`, 4 MiB by default, the
+     * SDK's own limit). The same value goes to the SDK transport and to its AuthorizationMiddleware, and
+     * BodyLimitMiddleware answers a larger body with 413 before either reads it.
+     *
+     * @return int
+     * @throws \InvalidArgumentException When the setting is not a positive integer, so the endpoint fails closed.
+     */
+    public static function maxBodyBytes(): int
+    {
+        $value = self::get('http.maxBodyBytes');
+        if (!is_int($value) || $value < 1) {
+            throw new InvalidArgumentException('`Mcp.http.maxBodyBytes` must be a positive integer (bytes).');
+        }
+
+        return $value;
     }
 
     /**

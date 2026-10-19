@@ -11,6 +11,8 @@ use CakeDC\Auth\Rbac\Rbac;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\McpPlugin;
+use InvalidArgumentException;
+use Mcp\Server\Transport\StreamableHttpTransport;
 
 class McpConfigTest extends TestCase
 {
@@ -142,6 +144,30 @@ class McpConfigTest extends TestCase
             $this->assertFalse($rbac->checkPermissions([], $other));
         } finally {
             Router::reload();
+        }
+    }
+
+    public function testTheBodyLimitDefaultsToTheSdkLimit(): void
+    {
+        Configure::delete('Mcp');
+
+        $this->assertSame(StreamableHttpTransport::DEFAULT_MAX_BODY_BYTES, McpConfig::maxBodyBytes());
+        $this->assertSame(4194304, McpConfig::get('http.maxBodyBytes'));
+    }
+
+    public function testTheBodyLimitMustBeAPositiveInteger(): void
+    {
+        Configure::write('Mcp.http.maxBodyBytes', 1024);
+        $this->assertSame(1024, McpConfig::maxBodyBytes());
+
+        foreach ([0, -1, '1024', 1.5, null] as $invalid) {
+            Configure::write('Mcp.http.maxBodyBytes', $invalid);
+            try {
+                McpConfig::maxBodyBytes();
+                $this->fail('Accepted ' . var_export($invalid, true));
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('Mcp.http.maxBodyBytes', $e->getMessage());
+            }
         }
     }
 }

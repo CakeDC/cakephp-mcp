@@ -11,6 +11,7 @@ use Cake\Log\Log;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
@@ -47,6 +48,7 @@ class McpController extends Controller
         $streamFactory = new StreamFactory();
 
         try {
+            $maxBodyBytes = McpConfig::maxBodyBytes();
             $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins'), 'is_string'));
             $transport = new StreamableHttpTransport(
                 $this->request,
@@ -61,8 +63,12 @@ class McpController extends Controller
                         $responseFactory,
                         $streamFactory,
                     ),
-                    $this->authentication($identity, $responseFactory, $streamFactory),
+                    // Before authentication: an oversized body gets a 413 that names the limit, never a
+                    // Bearer challenge.
+                    new BodyLimitMiddleware($maxBodyBytes, $responseFactory, $streamFactory),
+                    $this->authentication($identity, $responseFactory, $streamFactory, $maxBodyBytes),
                 ],
+                $maxBodyBytes,
             );
             $response = $factory->create()->run($transport);
         } catch (Throwable $exception) {
@@ -81,16 +87,23 @@ class McpController extends Controller
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
      * @param \Cake\Http\ResponseFactory $responseFactory For its responses.
      * @param \Cake\Http\StreamFactory $streamFactory For their bodies.
+     * @param int $maxBodyBytes The body limit, for the token middleware's scope policy.
      * @return \Psr\Http\Server\MiddlewareInterface
      */
     private function authentication(
         CurrentIdentity $identity,
         ResponseFactory $responseFactory,
         StreamFactory $streamFactory,
+        int $maxBodyBytes,
     ): MiddlewareInterface {
         $settings = AuthSettings::fromConfig();
         if ($settings->mode !== AuthSettings::HOST) {
-            return (new ResourceServer($settings))->middleware($identity, $responseFactory, $streamFactory);
+            return (new ResourceServer($settings))->middleware(
+                $identity,
+                $responseFactory,
+                $streamFactory,
+                $maxBodyBytes,
+            );
         }
         $scopes = McpConfig::get('identity.scopes');
 

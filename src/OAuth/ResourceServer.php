@@ -15,6 +15,7 @@ use Mcp\Server\Transport\Http\Middleware\AuthorizationMiddleware;
 use Mcp\Server\Transport\Http\OAuth\AuthorizationTokenValidatorInterface;
 use Mcp\Server\Transport\Http\OAuth\JwtTokenValidator;
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
+use Mcp\Server\Transport\StreamableHttpTransport;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
@@ -65,12 +66,14 @@ final class ResourceServer
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Receives the token owner.
      * @param \Psr\Http\Message\ResponseFactoryInterface $responseFactory For its responses.
      * @param \Psr\Http\Message\StreamFactoryInterface $streamFactory For its bodies.
+     * @param int $maxBodyBytes The largest body it reads when the scope policy inspects it (`Mcp.http.maxBodyBytes`).
      * @return \Mcp\Server\Transport\Http\Middleware\AuthorizationMiddleware
      */
     public function middleware(
         CurrentIdentity $identity,
         ResponseFactoryInterface $responseFactory,
         StreamFactoryInterface $streamFactory,
+        int $maxBodyBytes = StreamableHttpTransport::DEFAULT_MAX_BODY_BYTES,
     ): AuthorizationMiddleware {
         return new AuthorizationMiddleware(
             $this->validator($identity),
@@ -78,6 +81,7 @@ final class ResourceServer
             $this->settings->scopePolicy(),
             $responseFactory,
             $streamFactory,
+            $maxBodyBytes,
         );
     }
 

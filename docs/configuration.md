@@ -18,7 +18,7 @@ want to change; everything else keeps its default. These are the defaults
     ],
     'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
     'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
-    'http' => ['allowedHosts' => null, 'allowedOrigins' => []],
+    'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4194304],
     'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
     'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => []],
     'auth' => [
@@ -57,6 +57,7 @@ want to change; everything else keeps its default. These are the defaults
 - `session.ttl`: session lifetime in seconds.
 - `http.allowedHosts`: hosts accepted in the `Host` header (DNS-rebinding protection). `null` means the host of `App.fullBaseUrl` plus `localhost`, `127.0.0.1` and `[::1]`, which only protects when `App.fullBaseUrl` is set explicitly (the Cake 5 skeleton derives it from the request `Host` otherwise, and then every host is accepted). A list replaces that. Set it explicitly in production; it is required for servers with `identity.required` set to `false`.
 - `http.allowedOrigins`: origins accepted for browser clients, also used for CORS. Empty by default.
+- `http.maxBodyBytes`: the largest request body the endpoint reads, in bytes. Default `4194304` (4 MiB, the SDK's own limit). It is passed to the SDK transport and to its `AuthorizationMiddleware`, and a larger POST is answered with `413` and a JSON-RPC error (code `-32600`, `data.maxBodyBytes`) that names the limit, before authentication. Raise it when your tools take large arguments, such as base64 uploads. A value that is not a positive integer makes the endpoint answer `500 Internal error`.
 - `identity.required`: answer 401 when the request has no identity.
 - `identity.attribute`: request attribute that holds the identity.
 - `identity.scopes`: optional `fn (mixed $identity): array` returning scope strings for the SDK access token.

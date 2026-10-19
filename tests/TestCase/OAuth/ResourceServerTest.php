@@ -15,6 +15,7 @@ use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
 use LogicException;
 use Mcp\Server\Transport\Http\Middleware\AuthorizationMiddleware;
+use ReflectionProperty;
 use RuntimeException;
 use TestApp\OAuthTestConfig;
 
@@ -103,5 +104,18 @@ class ResourceServerTest extends TestCase
         ]);
 
         $this->assertSame(['notes:write'], $this->server()->grantedScopes(['notes:write']));
+    }
+
+    public function testTheAuthorizationMiddlewareReadsBodiesUpToTheGivenLimit(): void
+    {
+        $middleware = $this->server()->middleware(
+            new CurrentIdentity(),
+            new ResponseFactory(),
+            new StreamFactory(),
+            2048,
+        );
+
+        $limit = new ReflectionProperty(AuthorizationMiddleware::class, 'maxBodyBytes');
+        $this->assertSame(2048, $limit->getValue($middleware));
     }
 }

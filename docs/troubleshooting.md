@@ -30,6 +30,21 @@ not set, and then every host is accepted. Set `Mcp.http.allowedHosts` yourself
 Configure::write('Mcp.http.allowedHosts', ['example.com', 'localhost']);
 ```
 
+## 413 Request body too large
+
+The request body was larger than `Mcp.http.maxBodyBytes` (4 MiB by default).
+The endpoint answers before authentication, with a JSON-RPC error whose
+message and `data.maxBodyBytes` name the limit. Send less per call (a smaller
+file, fewer items), or raise the limit:
+
+```php
+Configure::write('Mcp.http.maxBodyBytes', 8 * 1024 * 1024);
+```
+
+Before 2.1 the `oauth` and `external` modes answered the same request with a
+`400` Bearer `invalid_request` challenge, which clients read as a token
+problem.
+
 ## 403 or a redirect to the login page (cakedc/users)
 
 On a `cakedc/users` host, `RequestAuthorizationMiddleware` authorizes the

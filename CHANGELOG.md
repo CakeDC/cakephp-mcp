@@ -13,6 +13,8 @@ OAuth 2.1 for remote MCP clients. Existing applications keep working: `host` mod
 - `McpConfig::rbacPermissions()` returns the `bypassAuth` rule `cakedc/users` hosts need for the endpoint and its metadata.
 - oauth mode needs `cakedc/cakephp-oauth-server` and `cakedc/oauth-server` 1.0 (beta, public, not on Packagist yet: see the install notes), CakePHP 5.1.10+ and `cakephp/authentication` 3.3.6+.
 - Contributors: the PHPUnit suite now runs on SQLite with the oauth packages. It needs the sibling clones `../oauth-server` and `../cakephp-oauth-server` (path repositories); both are public repositories, and CI checks them out at their `1.0.0-beta1` tags.
+- `Mcp.http.maxBodyBytes` (default 4 MiB, the SDK's own limit) bounds the request body. The same value is passed to the SDK transport and to its `AuthorizationMiddleware`.
+- A POST over that limit is answered with `413` and a JSON-RPC error (code `-32600`) whose message and `data.maxBodyBytes` name the limit and suggest a smaller payload, before authentication. Before, `oauth` and `external` modes answered it with a `400` Bearer `invalid_request` challenge.
 
 ## 2.0.0-beta1 (unreleased)
 
