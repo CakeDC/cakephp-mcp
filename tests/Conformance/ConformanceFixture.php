@@ -31,7 +31,7 @@ use stdClass;
 /**
  * Registers, through `Mcp.server.configure`, the elements the conformance suite
  * calls. They are the ones of the SDK's own conformance server
- * (modelcontextprotocol/php-sdk tests/Conformance/server.php at 82e19d1), so a
+ * (modelcontextprotocol/php-sdk tests/Conformance/server.php at v0.9.0), so a
  * scenario that passes there and fails here points at the plugin.
  */
 final class ConformanceFixture

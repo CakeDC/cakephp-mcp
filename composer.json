@@ -13,7 +13,7 @@
     "require": {
         "php": ">=8.2",
         "cakephp/cakephp": "^5.0",
-        "mcp/sdk": "dev-main#82e19d114e95671e05e7df7909195f7ace03d90e as 0.9.0",
+        "mcp/sdk": "^0.9",
         "symfony/finder": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {

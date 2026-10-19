@@ -8,7 +8,7 @@
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  *
- * Copied unchanged from modelcontextprotocol/php-sdk at commit 82e19d1
+ * Copied unchanged from modelcontextprotocol/php-sdk at v0.9.0
  * (tests/Conformance), except for the namespace. The SDK LICENSE is in this
  * directory.
  */

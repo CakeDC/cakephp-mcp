@@ -32,4 +32,4 @@ Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
 - Checked against the official MCP conformance suite for both protocol revisions, behind nginx and php-fpm (`tests/Conformance/run.sh`, also in CI).
 - DNS-rebinding protection defaults to the `App.fullBaseUrl` host. That only protects when `App.fullBaseUrl` is set explicitly (the Cake 5 skeleton derives it from the request `Host` otherwise); set `Mcp.http.allowedHosts`, which is required for servers with `identity.required` set to `false`.
 - Removed `bin/mcp-server` and `CakeDC\Mcp\Server\CakeServer`.
-- Temporary: `mcp/sdk` is pinned to a fixed commit aliased as 0.9.0 until the SDK tags that release; host apps must add the same requirement and allow dev stability (see the install notes).
+- Requires `mcp/sdk` ^0.9.
