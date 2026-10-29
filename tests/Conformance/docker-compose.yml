@@ -1,0 +1,22 @@
+# nginx in front of php-fpm, like a production deployment, so the suite also
+# covers SSE responses going through nginx.
+services:
+  nginx:
+    image: mirror.gcr.io/library/nginx:1.26-alpine
+    ports:
+      - "${CONFORMANCE_PORT:-8000}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../..:/app:ro
+    depends_on:
+      - php-fpm
+
+  php-fpm:
+    build:
+      context: .
+      args:
+        PHP_VERSION: "${CONFORMANCE_PHP:-8.4}"
+    volumes:
+      - ../..:/app:ro
+      - ./tmp:/app/tests/Conformance/tmp
+    working_dir: /app

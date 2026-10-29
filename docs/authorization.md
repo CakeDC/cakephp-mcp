@@ -1,0 +1,155 @@
+# Authorization
+
+Authentication says who is calling. Authorization says which tools that caller
+may use. The plugin checks it on every `tools/list` and `tools/call`.
+
+## The interface
+
+```php
+namespace CakeDC\Mcp\Authorization;
+
+interface ToolAuthorizerInterface
+{
+    public function canCall(mixed $identity, string $tool): bool;
+}
+```
+
+`$identity` is the host identity as your authentication produced it (or `null`
+when identity is not required and the caller is anonymous). `$tool` is the MCP
+tool name.
+
+The default is `AllowAllToolAuthorizer`: every authenticated caller may use
+every tool.
+
+## A custom authorizer
+
+```php
+namespace App\Mcp;
+
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+
+class StaffOnlyAuthorizer implements ToolAuthorizerInterface
+{
+    public function canCall(mixed $identity, string $tool): bool
+    {
+        if (str_starts_with($tool, 'admin_')) {
+            return ($identity['role'] ?? null) === 'admin';
+        }
+
+        return $identity !== null;
+    }
+}
+```
+
+Configure it by class name (built through the container, so it can have
+injected dependencies) or by instance. The authorizer is chosen only through
+`Mcp.authorization.authorizer`; binding `ToolAuthorizerInterface` in the
+container is not consulted:
+
+```php
+Configure::write('Mcp.authorization.authorizer', \App\Mcp\StaffOnlyAuthorizer::class);
+// or
+Configure::write('Mcp.authorization.authorizer', new StaffOnlyAuthorizer());
+```
+
+## What a denied caller sees
+
+- A denied tool is hidden from `tools/list`.
+- Calling it anyway gets the same answer as calling a tool that does not
+  exist: JSON-RPC error `-32602` with the message `Tool not found: "<name>".`
+
+So callers generally cannot discover which protected tools exist. One
+exception: tools whose input schema uses `x-mcp-header` annotations can be told
+apart on the stateless (2026-07-28) era, because header validation runs before
+the guard.
+
+Resources and prompts are not covered by the tool authorizer: any identified
+caller can list and read them.
+
+## RbacToolAuthorizer (cakedc/auth)
+
+If your app uses `cakedc/auth` permissions, install it and select
+`RbacToolAuthorizer`:
+
+```bash
+composer require cakedc/auth
+```
+
+```php
+use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+
+Configure::write('Mcp.authorization', [
+    'authorizer' => RbacToolAuthorizer::class,
+    'rbac' => [
+        'permissions' => [
+            // editors may use two tools
+            [
+                'role' => 'editor',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => 'Tools',
+                'action' => ['find_order', 'whoami'],
+            ],
+            // admins may use all of them
+            [
+                'role' => 'admin',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => 'Tools',
+                'action' => '*',
+            ],
+            // any role, but only for the user whose id is 1
+            [
+                'role' => '*',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => 'Tools',
+                'action' => 'own_profile',
+                'allowed' => fn ($user, $role, $request): bool => ($user['id'] ?? null) === 1,
+            ],
+        ],
+    ],
+]);
+```
+
+Tool `X` is checked as plugin `CakeDC/Mcp`, controller `Tools`, action `X`.
+Rules are the same format as `config/permissions.php`, and `Mcp.authorization.rbac`
+accepts the same options as the cakedc/auth `Rbac` class (`permissions`,
+`permissions_provider_class`, `role_field`, `default_role`, `log`, and so on).
+You can also pass a prepared `Rbac` instance to `new RbacToolAuthorizer($rbac)`
+and configure the authorizer by instance.
+
+Identities that are not arrays or `ArrayAccess` objects are denied.
+
+### Warning: host rules without a plugin key
+
+cakedc/auth rules only constrain the keys they list. A host rule that has no
+`plugin` key, for example:
+
+```php
+['role' => 'admin', 'controller' => '*', 'action' => '*']
+```
+
+also grants every MCP tool to admins, because the missing `plugin` matches
+anything. Write MCP rules with `'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools'`,
+and review the host-wide wildcard rules whenever the MCP rules share a
+permissions file with the rest of your application.
+
+## Token scopes
+
+In `oauth` and `external` modes (see [OAuth](oauth.md)) a second check runs
+before the tool authorizer: the scope policy in `Mcp.auth.scopes`. A call whose
+token lacks the scopes of its method or tool is refused with `403
+insufficient_scope` and the list of scopes it needs, so clients can ask the
+person for more. The tool authorizer still runs for calls that pass, so a call
+needs both the scope and the permission. A tool the token has no scope for is
+still listed by `tools/list`; the authorizer decides what is hidden.
+
+In `oauth` mode the identity the authorizer sees is the application identity of
+the token owner, so `RbacToolAuthorizer` rules keep working. In `external` mode
+the default identity is an `ArrayObject` with `id` and `claims` and no role, so
+`cakedc/auth` applies its `default_role`; map the token to one of your users with
+`Mcp.auth.identity` to use roles. See
+[Identity in external mode](oauth.md#identity-in-external-mode).
+
+## stdio
+
+Per-tool authorization is skipped for stdio by default (`Mcp.stdio.trusted`).
+See [stdio](stdio.md).
