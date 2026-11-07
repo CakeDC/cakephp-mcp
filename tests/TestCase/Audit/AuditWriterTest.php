@@ -65,13 +65,13 @@ class AuditWriterTest extends TestCase
     {
         $fields = $overrides + [
             'method' => 'tools/call',
-            'name' => 'find_courses',
+            'name' => 'find_order',
             'outcome' => AuditRecord::OK,
             'identity' => 12,
             'client' => '62938fb0',
             'session' => 's-1',
             'request' => 2,
-            'arguments' => ['start_date' => '2026-11-09'],
+            'arguments' => ['number' => 'A-1042'],
             'error' => null,
             'durationMs' => 34,
         ];
@@ -95,7 +95,7 @@ class AuditWriterTest extends TestCase
         $this->writer()->write($this->record());
 
         $this->assertSame(
-            ['info: MCP tools/call find_courses ok 34ms identity=12 client=62938fb0 session=s-1 request=2 args={"start_date":"2026-11-09"}'],
+            ['info: MCP tools/call find_order ok 34ms identity=12 client=62938fb0 session=s-1 request=2 args={"number":"A-1042"}'],
             $this->lines(),
         );
     }

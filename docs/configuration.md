@@ -294,7 +294,7 @@ Limits:
 ### The log line
 
 ```
-MCP tools/call find_courses ok 34ms identity=12 client=62938fb0 session=0f3c... request=2 args={"start_date":"2026-11-09"}
+MCP tools/call find_order ok 34ms identity=12 client=62938fb0 session=0f3c... request=2 args={"number":"A-1042"}
 ```
 
 Send it to a file of its own with a scoped log config:
