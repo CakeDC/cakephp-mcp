@@ -28,8 +28,12 @@ use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
 use Psr\Container\ContainerInterface;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
 use RuntimeException;
 use stdClass;
+use Stringable;
 
 /**
  * Builds the MCP server from the `Mcp` config: attribute discovery, Cake cache
@@ -62,6 +66,16 @@ final class ServerFactory
      */
     public function create(bool $trusted = false): Server
     {
+        return $this->build($trusted, new McpLogger());
+    }
+
+    /**
+     * @param bool $trusted Skip per-tool authorization.
+     * @param \Psr\Log\LoggerInterface $logger What the SDK logs.
+     * @return \Mcp\Server
+     */
+    private function build(bool $trusted, LoggerInterface $logger): Server
+    {
         $gate = new ToolGate($this->authorizer(), $this->identity, $trusted);
         $events = new EventDispatcher();
         $events->listen(ResponseEvent::class, new ToolListFilter($gate));
@@ -72,7 +86,7 @@ final class ServerFactory
             // The audit needs to know which tools exist, to tell a denied tool from an unknown one: it keeps
             // the registry. Set before the host hook, which may still replace it (the audit then falls back
             // to asking the gate only).
-            $registry = new Registry($events, new McpLogger());
+            $registry = new Registry($events, $logger);
             $builder->setRegistry($registry);
             $listener = new AuditListener(
                 $audit,
@@ -96,7 +110,7 @@ final class ServerFactory
                 title: $this->optionalString('server.title'),
             )
             ->setContainer(new ContainerBridge($this->container))
-            ->setLogger(new McpLogger())
+            ->setLogger($logger)
             ->setEventDispatcher($events)
             ->setSession(new Psr16SessionStore(
                 Cache::pool((string)McpConfig::get('session.cache')),
@@ -201,7 +215,18 @@ final class ServerFactory
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
                 (string)json_encode($list),
             ]);
-            $this->create(true)->run($transport);
+            // Only warnings and worse: the SDK's info lines would land among the output of `mcp check`.
+            $this->build(true, new class extends AbstractLogger {
+                /**
+                 * @inheritDoc
+                 */
+                public function log(mixed $level, string|Stringable $message, array $context = []): void
+                {
+                    if (!in_array($level, [LogLevel::INFO, LogLevel::DEBUG, LogLevel::NOTICE], true)) {
+                        (new McpLogger())->log($level, $message, $context);
+                    }
+                }
+            })->run($transport);
             $result = $transport->responseFor(2)['result'] ?? null;
             if (!is_array($result) || !is_array($result['tools'] ?? null)) {
                 throw new RuntimeException(

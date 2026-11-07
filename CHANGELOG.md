@@ -7,6 +7,7 @@
 - `bin/cake mcp check` warns, in `oauth` and `external` modes, about tools that need no scope and about names in `Mcp.auth.scopes.tools` that are not tools.
 - `bin/cake mcp check` warns when no Log engine takes the errors of the `mcp` scope (the skeleton's `debug` and `error` engines do not), so a failing tool would leave no trace.
 - `bin/cake mcp check` decides whether the audit lines reach a Log engine as `Log::write()` does: an engine of the `mcp` scope, or one given as an object, now counts.
+- `bin/cake mcp check` prints only its results: listing the tools no longer writes the SDK's info lines to the console (warnings and errors still go to the `mcp` log).
 - Docs: testing the endpoint with `OAuthTestTrait` links to the oauth plugin's note on the migrations the test database needs.
 
 ## 2.1.0 (2026-11-07)

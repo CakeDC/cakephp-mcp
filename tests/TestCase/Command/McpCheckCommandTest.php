@@ -188,6 +188,15 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[FAIL] Audit: "Mcp.audit.maxLength"');
     }
 
+    public function testListingTheToolsPrintsNoServerLogLines(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('Running server');
+        $this->assertOutputNotContains('Handling request');
+        $this->assertOutputNotContains('Attribute discovery finished');
+    }
+
     public function testToolsAreListed(): void
     {
         $this->exec('mcp check');
