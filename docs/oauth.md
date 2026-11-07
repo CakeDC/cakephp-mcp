@@ -539,7 +539,7 @@ the client is a hosted service.
 
 ### claude.ai
 
-Add a custom connector (Settings, Connectors) with the URL of your endpoint,
+Add a custom connector (Customize > Connectors > Add custom connector) with the URL of your endpoint,
 for example `https://example.com/mcp`. The client has to reach it from the
 internet. How a client registers with your authorization server (a client
 metadata document or dynamic registration) is handled by the oauth plugin,

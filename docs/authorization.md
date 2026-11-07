@@ -63,6 +63,10 @@ exception: tools whose input schema uses `x-mcp-header` annotations can be told
 apart on the stateless (2026-07-28) era, because header validation runs before
 the guard.
 
+With the [audit log](configuration.md#audit-log) on, the record of a denied
+call says `denied`, so you can tell it from an unknown tool even though the
+caller cannot.
+
 Resources and prompts are not covered by the tool authorizer: any identified
 caller can list and read them.
 

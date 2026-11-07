@@ -42,6 +42,15 @@ class DocsTest extends TestCase
         }
     }
 
+    public function testEveryAuditSettingIsDocumented(): void
+    {
+        $configuration = (string)file_get_contents(self::ROOT . 'docs/configuration.md');
+        foreach (array_keys(McpConfig::DEFAULTS['audit']) as $key) {
+            $this->assertStringContainsString('`audit.' . $key . '`', $configuration, 'audit.' . $key . ' is not documented');
+        }
+        $this->assertStringContainsString('Mcp.audit', $configuration);
+    }
+
     public function testRelativeLinksResolve(): void
     {
         foreach ($this->markdownFiles() as $file) {

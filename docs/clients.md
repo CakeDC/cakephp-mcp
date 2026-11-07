@@ -28,7 +28,7 @@ See [stdio](stdio.md).
 
 ## claude.ai
 
-In claude.ai go to Settings, Connectors, Add custom connector, and enter the
+In claude.ai go to Customize > Connectors > Add custom connector, and enter the
 URL of your endpoint. Where your account allows custom request headers you can
 send the Bearer token there. To have the connector sign people in instead, use
 `Mcp.auth.mode` `oauth` or `external`; see [OAuth](oauth.md#connecting-clients).

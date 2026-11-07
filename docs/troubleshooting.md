@@ -105,3 +105,16 @@ because the configuration is invalid. The response is always the JSON body
 `{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}`,
 never an HTML page, even in debug mode. The full error is in your log under the
 `mcp` scope.
+
+## A missing scope answers 401 instead of 403
+
+PHP sets the status to `401` whenever a `WWW-Authenticate` header is sent,
+unless the status is set again afterwards, and Cake's `ResponseEmitter` sends
+the status line before the headers. So a `403 insufficient_scope` with its
+Bearer challenge used to reach clients as `401`, and clients asked people to
+sign in again instead of asking for more scopes. Since 2.1.0 the MCP endpoint
+sets the status once more right before PHP sends the headers
+(`header_register_callback()`). PHP allows one such callback per request, so
+the endpoint replaces one your application registered earlier in the same
+request.
+

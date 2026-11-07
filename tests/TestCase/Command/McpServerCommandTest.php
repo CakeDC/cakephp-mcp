@@ -11,6 +11,8 @@ use Cake\Console\TestSuite\StubConsoleInput;
 use Cake\Console\TestSuite\StubConsoleOutput;
 use Cake\Core\Configure;
 use Cake\Core\Container;
+use Cake\Event\EventInterface;
+use Cake\Event\EventManager;
 use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
@@ -100,6 +102,33 @@ class McpServerCommandTest extends TestCase
         $untrusted = $this->command();
         $this->runCommand($untrusted);
         $this->assertSame([], $untrusted->transport?->responseFor(2)['result']['tools'] ?? null);
+    }
+
+    public function testAuditRecordsStdioCallsWithTheStdioIdentity(): void
+    {
+        Configure::write('Mcp.audit.enabled', true);
+        Configure::write('Mcp.stdio.identity', fn(): array => ['id' => 42]);
+        $records = [];
+        $listener = function (EventInterface $event) use (&$records): void {
+            $records[] = (array)$event->getData();
+        };
+        EventManager::instance()->on('Mcp.audit', $listener);
+        $out = new StubConsoleOutput();
+        $command = $this->command([(string)json_encode(['jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call', 'params' => [
+            'name' => 'echo',
+            'arguments' => ['text' => 'hi'],
+        ]])]);
+
+        try {
+            $command->run([], new ConsoleIo($out, new StubConsoleOutput(), new StubConsoleInput([])));
+        } finally {
+            EventManager::instance()->off('Mcp.audit', $listener);
+        }
+
+        $this->assertCount(1, $records);
+        $this->assertSame('ok', $records[0]['outcome']);
+        $this->assertSame(42, $records[0]['identity']);
+        $this->assertSame([], $out->messages());
     }
 
     public function testNothingButProtocolReachesStdout(): void

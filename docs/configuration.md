@@ -66,6 +66,7 @@ want to change; everything else keeps its default. These are the defaults
 - `auth`: how the endpoint authenticates remote clients. See [Mcp.auth](#mcpauth).
 - `stdio.identity`: closure returning the identity for `bin/cake mcp server`.
 - `stdio.trusted`: skip per-tool authorization for stdio.
+- `audit`: the audit log of MCP calls, off by default. See [Audit log](#audit-log).
 
 ## Mcp.auth
 
@@ -178,3 +179,234 @@ Engines without `scopes` (the default `[]`) catch every scope, so the default
 `debug` and `error` engines of the skeleton also receive the `mcp` messages. To
 keep them out, give those engines `'scopes' => null`: an engine with `null`
 scopes only handles messages that have no scope.
+
+## Rate limiting
+
+The plugin does not limit how often a client calls the endpoint. CakePHP 5.3
+and newer have `RateLimitMiddleware`: add it to your application's middleware
+queue, after `ErrorHandlerMiddleware` (it throws a
+`TooManyRequestsException`, which the error handler turns into a `429` with
+`Retry-After`), and keep it to the MCP route with `skipCheck`:
+
+```php
+use Cake\Http\Middleware\RateLimitMiddleware;
+use CakeDC\Mcp\McpConfig;
+use Psr\Http\Message\ServerRequestInterface;
+
+$middlewareQueue->add(new RateLimitMiddleware([
+    'identifier' => RateLimitMiddleware::IDENTIFIER_TOKEN,
+    'limit' => 60,
+    'window' => 60,
+    'cache' => 'rate_limit',
+    'skipCheck' => fn(ServerRequestInterface $request): bool => !McpConfig::isEndpoint($request),
+]));
+```
+
+Who the limit counts:
+
+- In `oauth` and `external` modes the plugin checks the access token inside
+  the endpoint, so the middleware cannot see the user: count per token
+  (`IDENTIFIER_TOKEN`, a hash of the `Authorization` header). An access token
+  changes at every refresh, so the limit applies per token lifetime, not per
+  person.
+- In `host` mode your authentication sets the identity: add the middleware
+  after `AuthenticationMiddleware` and count per user (`IDENTIFIER_USER`).
+- A second instance with `IDENTIFIER_IP` and a higher limit, before
+  authentication, slows down floods of requests without a token.
+
+`McpConfig::isEndpoint()` matches the MCP route and its protected resource
+metadata route. Use a cache shared by every PHP worker (Redis, for example):
+with a per-process cache every worker counts on its own. A request refused
+with `429` never reaches the endpoint, so the [audit log](#audit-log) does not
+record it.
+
+## Audit log
+
+`Mcp.audit` records who called what: every audited call, allowed, denied or
+failed, and the calls that authentication refuses. It is off by default.
+
+```php
+'Mcp' => [
+    'audit' => [
+        'enabled' => true,
+    ],
+],
+```
+
+- `audit.enabled`: record the calls. Default `false`.
+- `audit.methods`: the methods recorded, among `tools/call`, `prompts/get` and `resources/read`. Default `['tools/call']`. Listing tools, `initialize`, `ping` and notifications are never recorded.
+- `audit.log`: write one log line per call under the `mcp_audit` scope. Default `true`. With `false` only the `Mcp.audit` event is dispatched, for applications that store the records themselves.
+- `audit.arguments`: record the call arguments. Default `true`. Arguments can hold personal data, depending on your tools: turn this off, or list the sensitive ones in `audit.redact`.
+- `audit.redact`: argument names whose value becomes `"[redacted]"`, at any depth, ignoring case. Default `['password', 'token', 'secret']`. Like every list, yours replaces the default.
+- `audit.maxLength`: longest string value kept, in characters; longer ones are cut and end with `...`. Default `200`. The arguments of a record are also capped at 2 KB of JSON, and replaced by `{"truncated": true}` above that.
+
+An invalid setting stops the endpoint (`500 Internal error`, with the setting
+named in the `mcp` log) and makes `bin/cake mcp check` fail.
+
+### What a record holds
+
+| Field | Value |
+|---|---|
+| `method` | `tools/call`, `prompts/get` or `resources/read` |
+| `name` | the tool or prompt, or the resource URI, cut to 255 characters |
+| `outcome` | see below |
+| `identity` | the identifier of the caller, `null` without one |
+| `client` | the OAuth client of the access token (`client_id`, `azp`, or a single `aud`), `null` in host mode |
+| `session` | the MCP session id |
+| `request` | the JSON-RPC request id, cut to 255 characters |
+| `arguments` | the arguments, redacted and cut |
+| `error` | the error message, for an outcome that is not `ok`; for `tool_error`, the first text the tool returned (kept even with `audit.arguments` off: a tool may repeat its input there) |
+| `durationMs` | how long the call took, `null` when it is not known |
+
+| Outcome | When | Log level |
+|---|---|---|
+| `ok` | the call worked | `info` |
+| `tool_error` | the tool answered with an error (`ToolCallException`, `ToolError::invalid()`) | `notice` |
+| `invalid` | an unknown tool or invalid arguments | `notice` |
+| `denied` | the authorizer denied the tool | `warning` |
+| `error` | the tool threw, or another JSON-RPC error | `warning` |
+| `unauthorized` | `401` from authentication, before the server runs | `warning` |
+| `insufficient_scope` | `403`: the access token lacks a scope | `warning` |
+
+A denied tool still gets the same answer as an unknown one (see
+[Authorization](authorization.md#what-a-denied-caller-sees)); only the record
+tells them apart.
+
+Limits:
+
+- A refused call (`unauthorized`, `insufficient_scope`) has no client and no
+  session, and only a `403` names the caller.
+- A tool that waits for an answer from the client (elicitation, sampling):
+  over HTTP it finishes in a later request, so its `durationMs` is `null`;
+  over stdio it finishes in the same process, and `durationMs` includes the
+  time the person took to answer. In the stateless revision every round that
+  still waits for input is skipped, and the call is recorded once, when it
+  finishes.
+- To tell a denied tool from an unknown one, the audit hands the SDK the
+  tool registry it keeps (tools are then loaded when the server is built).
+  If `server.configure` sets a registry of its own, an unknown tool that the
+  authorizer refuses is recorded as `denied`.
+- The access token never appears in a record.
+- Over stdio the identity is `stdio.identity`, and a trusted server
+  (`stdio.trusted`) denies nothing.
+
+### The log line
+
+```
+MCP tools/call find_courses ok 34ms identity=12 client=62938fb0 session=0f3c... request=2 args={"start_date":"2026-11-09"}
+```
+
+Send it to a file of its own with a scoped log config:
+
+```php
+use Cake\Log\Engine\FileLog;
+
+'Log' => [
+    'mcp_audit' => [
+        'className' => FileLog::class,
+        'path' => LOGS,
+        'file' => 'mcp_audit',
+        'scopes' => ['mcp_audit'],
+        'levels' => ['info', 'notice', 'warning'],
+    ],
+],
+```
+
+The line also carries the `mcp` scope, so an `mcp` engine receives it too.
+`bin/cake mcp check` warns when the audit is on and no engine lists
+`mcp_audit`.
+
+### The Mcp.audit event
+
+Each record is dispatched as the `Mcp.audit` event on the global event
+manager, with the record as the event data. The event has no subject: read it
+with `getData()` (Cake throws when you ask for the subject of an event that
+has none). A listener that throws is logged under `mcp` and the call goes on.
+
+```php
+use Cake\Event\EventInterface;
+use Cake\Event\EventManager;
+
+EventManager::instance()->on('Mcp.audit', function (EventInterface $event): void {
+    $record = $event->getData(); // method, name, outcome, identity, client, ...
+});
+```
+
+### Storing records in the database
+
+Cake has no log engine that writes to a table, so store the records from the
+event. A migration for the table (`Migrations\BaseMigration` is the base class
+of cakephp/migrations 5.x and 4.5+; older 4.x versions use
+`Migrations\AbstractMigration`):
+
+```php
+use Migrations\BaseMigration;
+
+class CreateMcpAuditLogs extends BaseMigration
+{
+    public function change(): void
+    {
+        $this->table('mcp_audit_logs')
+            ->addColumn('method', 'string', ['limit' => 50])
+            ->addColumn('name', 'string', ['limit' => 255, 'null' => true])
+            ->addColumn('outcome', 'string', ['limit' => 20])
+            ->addColumn('identity', 'string', ['limit' => 255, 'null' => true])
+            ->addColumn('client', 'string', ['limit' => 255, 'null' => true])
+            ->addColumn('session', 'string', ['limit' => 36, 'null' => true])
+            ->addColumn('request', 'string', ['limit' => 255, 'null' => true])
+            ->addColumn('arguments', 'text', ['null' => true])
+            ->addColumn('error', 'string', ['limit' => 255, 'null' => true])
+            ->addColumn('duration_ms', 'integer', ['null' => true])
+            ->addColumn('created', 'datetime')
+            ->addIndex(['identity', 'created'])
+            ->addIndex(['created'])
+            ->create();
+    }
+}
+```
+
+A table class with the `Timestamp` behavior (it fills `created`):
+
+```php
+namespace App\Model\Table;
+
+use Cake\ORM\Table;
+
+class McpAuditLogsTable extends Table
+{
+    public function initialize(array $config): void
+    {
+        parent::initialize($config);
+        $this->addBehavior('Timestamp');
+    }
+}
+```
+
+And a listener, registered in `Application::bootstrap()`:
+
+```php
+use Cake\Event\EventInterface;
+use Cake\Event\EventManager;
+use Cake\ORM\TableRegistry;
+
+EventManager::instance()->on('Mcp.audit', function (EventInterface $event): void {
+    $record = (array)$event->getData();
+    $logs = TableRegistry::getTableLocator()->get('McpAuditLogs');
+    $logs->save($logs->newEntity([
+        'method' => $record['method'],
+        'name' => $record['name'],
+        'outcome' => $record['outcome'],
+        'identity' => $record['identity'] === null ? null : (string)$record['identity'],
+        'client' => $record['client'],
+        'session' => $record['session'],
+        'request' => $record['request'] === null ? null : (string)$record['request'],
+        'arguments' => json_encode($record['arguments']),
+        'error' => $record['error'] === null ? null : mb_substr($record['error'], 0, 255),
+        'duration_ms' => $record['durationMs'],
+    ], ['accessibleFields' => ['*' => true]]));
+});
+```
+
+Set `audit.log` to `false` if the table is the only record you want. The save
+runs in the request that served the call; on a busy server, a queue job or a
+log shipper keeps it out of the way.

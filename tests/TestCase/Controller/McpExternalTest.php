@@ -8,6 +8,7 @@ use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Http\ChallengeStatus;
 use CakeDC\Mcp\Test\Support\McpHttpTrait;
 use CakeDC\Mcp\Test\Support\TestJwt;
 
@@ -48,6 +49,25 @@ class McpExternalTest extends TestCase
 
         $this->assertResponseCode(403);
         $this->assertSame('insufficient_scope', $this->challenge()['error'] ?? null);
+    }
+
+    public function testThe403KeepsItsStatusWhenPhpSendsTheHeaders(): void
+    {
+        $registered = [];
+        ChallengeStatus::$register = function (callable $callback) use (&$registered): void {
+            $registered[] = $callback;
+        };
+        try {
+            $this->callTool('create_note', ['title' => 'Groceries'], TestJwt::token());
+            $this->assertResponseCode(403);
+            $this->assertCount(1, $registered);
+
+            $this->listTools();
+            $this->assertResponseCode(401);
+            $this->assertCount(1, $registered);
+        } finally {
+            ChallengeStatus::$register = null;
+        }
     }
 
     public function testChallengePointsAtTheMetadataNamingTheIssuer(): void

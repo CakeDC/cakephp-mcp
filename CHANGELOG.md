@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 (2026-11-07)
+
+- Audit log of MCP calls (`Mcp.audit`), off by default: allowed, denied, failed and refused calls with the identity, client, tool, arguments and duration, to the `mcp_audit` log scope and the `Mcp.audit` event. See the Audit log section of `docs/configuration.md`, which also shows how to store the records in a table.
+- `bin/cake mcp check` reports the audit log, and warns when it is on and no Log engine lists the `mcp_audit` scope.
+- Fix: a `403 insufficient_scope` reached clients as `401`, because PHP turns any response with a `WWW-Authenticate` header into a 401 when, as in Cake's `ResponseEmitter`, the status line is sent first. The endpoint now keeps the 403 (see the troubleshooting guide).
+- Docs: rate limiting the MCP route with CakePHP's `RateLimitMiddleware` (per token, per user or per address).
+- Docs: claude.ai custom connectors are now under Customize > Connectors > Add custom connector.
+
 ## 2.0.0 (2026-11-07)
 
 Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`, with OAuth 2.1 for remote MCP clients. Version

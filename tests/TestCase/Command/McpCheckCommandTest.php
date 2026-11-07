@@ -12,6 +12,8 @@ use Cake\Console\TestSuite\StubConsoleOutput;
 use Cake\Core\Configure;
 use Cake\Core\Plugin;
 use Cake\Http\ServerRequest;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Command\McpCheckCommand;
@@ -59,6 +61,45 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp');
         $this->assertOutputContains('[PASS] Authentication: host mode');
         $this->assertOutputContains('[PASS] CSRF');
+    }
+
+    public function testAuditOff(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Audit: off');
+    }
+
+    public function testAuditOnWithItsLogScope(): void
+    {
+        Configure::write('Mcp.audit.enabled', true);
+        Log::setConfig('audit_check', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
+        try {
+            $this->exec('mcp check');
+        } finally {
+            Log::drop('audit_check');
+        }
+
+        $this->assertOutputContains('[PASS] Audit: tools/call to the mcp_audit log scope');
+    }
+
+    public function testAuditOnWithoutAnEngineForItsScope(): void
+    {
+        Configure::write('Mcp.audit.enabled', true);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Audit: on, but no Log engine lists the mcp_audit scope');
+    }
+
+    public function testInvalidAuditSettingFails(): void
+    {
+        Configure::write('Mcp.audit.maxLength', 0);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Audit: "Mcp.audit.maxLength"');
     }
 
     public function testOAuthModeReportsTheResourceAndItsMetadata(): void

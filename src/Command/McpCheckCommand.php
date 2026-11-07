@@ -17,8 +17,11 @@ use Cake\Http\BaseApplication;
 use Cake\Http\Middleware\CsrfProtectionMiddleware;
 use Cake\Http\MiddlewareQueue;
 use Cake\Http\ServerRequest;
+use Cake\Log\Log;
 use Cake\Routing\Exception\MissingRouteException;
 use Cake\Routing\Router;
+use CakeDC\Mcp\Audit\AuditSettings;
+use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
@@ -85,7 +88,32 @@ class McpCheckCommand extends Command
             'Allowed hosts' => fn(): array => $this->hosts(),
             'CSRF' => fn(): array => $this->csrf(),
             'Authenticators' => fn(): array => $this->authenticators(),
+            'Audit' => fn(): array => $this->audit(),
         ];
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function audit(): array
+    {
+        $settings = AuditSettings::fromConfig();
+        if (!$settings->enabled) {
+            return ['pass', 'off'];
+        }
+        foreach (Log::configured() as $name) {
+            $scopes = Log::getConfig($name)['scopes'] ?? null;
+            if (is_array($scopes) && in_array(AuditWriter::SCOPE, $scopes, true)) {
+                $methods = implode(', ', $settings->methods);
+
+                return ['pass', sprintf('%s to the %s log scope', $methods, AuditWriter::SCOPE)];
+            }
+        }
+
+        return ['warn', sprintf(
+            'on, but no Log engine lists the %s scope: records only reach the engines without scopes',
+            AuditWriter::SCOPE,
+        )];
     }
 
     /**

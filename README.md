@@ -12,6 +12,7 @@ Built on the official [`mcp/sdk`](https://github.com/modelcontextprotocol/php-sd
 - `bin/cake mcp check` finds what keeps remote clients from connecting, without network calls.
 - Per-tool authorization, including `config/permissions.php` rules through `cakedc/auth`.
 - `McpTestTrait` to test your tools, and who may call them, from a regular Cake test case.
+- An audit log of MCP calls (`Mcp.audit`, off by default): who called which tool, with which arguments, and how it ended, to a log scope or your own table.
 
 ## Requirements
 
@@ -89,7 +90,7 @@ $service->loadAuthenticator('Authentication.Token', [
 ## Connect Claude
 
 - Claude Code: `claude mcp add --transport http my-app https://example.com/mcp --header "Authorization: Bearer <token>"`
-- claude.ai: Settings, Connectors, Add custom connector, with the URL and (where available) a request header. To have people sign in instead, see [OAuth](docs/oauth.md).
+- claude.ai: Customize > Connectors > Add custom connector, with the URL and (where available) a request header. To have people sign in instead, see [OAuth](docs/oauth.md).
 
 ## Documentation
 

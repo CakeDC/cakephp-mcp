@@ -4,17 +4,23 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Server;
 
 use Cake\Cache\Cache;
+use CakeDC\Mcp\Audit\AuditSettings;
+use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
 use CakeDC\Mcp\Authorization\ToolGate;
 use CakeDC\Mcp\Container\ContainerBridge;
+use CakeDC\Mcp\Event\AuditListener;
 use CakeDC\Mcp\Event\EventDispatcher;
 use CakeDC\Mcp\Event\ToolListFilter;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use InvalidArgumentException;
+use Mcp\Capability\Registry;
+use Mcp\Event\ErrorEvent;
+use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
 use Mcp\Server;
 use Mcp\Server\Builder;
@@ -55,9 +61,26 @@ final class ServerFactory
         $gate = new ToolGate($this->authorizer(), $this->identity, $trusted);
         $events = new EventDispatcher();
         $events->listen(ResponseEvent::class, new ToolListFilter($gate));
-
         // The guard goes first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
+        $audit = AuditSettings::fromConfig();
+        if ($audit->enabled) {
+            // The audit needs to know which tools exist, to tell a denied tool from an unknown one: it keeps
+            // the registry. Set before the host hook, which may still replace it (the audit then falls back
+            // to asking the gate only).
+            $registry = new Registry($events, new McpLogger());
+            $builder->setRegistry($registry);
+            $listener = new AuditListener(
+                $audit,
+                new AuditWriter($audit),
+                $gate,
+                $this->identity,
+                toolExists: fn(string $name): ?bool => $registry->hasTools() ? $registry->hasTool($name) : null,
+            );
+            $events->listen(RequestEvent::class, $listener->onRequest(...));
+            $events->listen(ResponseEvent::class, $listener->onResponse(...));
+            $events->listen(ErrorEvent::class, $listener->onError(...));
+        }
         $this->configure($builder);
         // Set after the host hook, so the hook cannot drop the tool list filter or replace these.
         $builder

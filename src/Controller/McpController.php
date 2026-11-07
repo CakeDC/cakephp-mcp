@@ -8,9 +8,13 @@ use Cake\Http\Response;
 use Cake\Http\ResponseFactory;
 use Cake\Http\StreamFactory;
 use Cake\Log\Log;
+use CakeDC\Mcp\Audit\AuditSettings;
+use CakeDC\Mcp\Audit\AuditWriter;
+use CakeDC\Mcp\Http\ChallengeStatus;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\Middleware\AuditRefusalMiddleware;
 use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\OAuth\AuthSettings;
@@ -50,24 +54,30 @@ class McpController extends Controller
         try {
             $maxBodyBytes = McpConfig::maxBodyBytes();
             $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins'), 'is_string'));
+            $middleware = [
+                new CorsMiddleware($origins),
+                new DnsRebindingProtectionMiddleware(
+                    McpConfig::allowedHosts(),
+                    $origins,
+                    $responseFactory,
+                    $streamFactory,
+                ),
+                // Before authentication: an oversized body gets a 413 that names the limit, never a
+                // Bearer challenge.
+                new BodyLimitMiddleware($maxBodyBytes, $responseFactory, $streamFactory),
+            ];
+            $audit = AuditSettings::fromConfig();
+            if ($audit->enabled) {
+                // Right before authentication, to record the calls it refuses.
+                $middleware[] = new AuditRefusalMiddleware($audit, new AuditWriter($audit), $identity);
+            }
+            $middleware[] = $this->authentication($identity, $responseFactory, $streamFactory, $maxBodyBytes);
             $transport = new StreamableHttpTransport(
                 $this->request,
                 $responseFactory,
                 $streamFactory,
                 new McpLogger(),
-                [
-                    new CorsMiddleware($origins),
-                    new DnsRebindingProtectionMiddleware(
-                        McpConfig::allowedHosts(),
-                        $origins,
-                        $responseFactory,
-                        $streamFactory,
-                    ),
-                    // Before authentication: an oversized body gets a 413 that names the limit, never a
-                    // Bearer challenge.
-                    new BodyLimitMiddleware($maxBodyBytes, $responseFactory, $streamFactory),
-                    $this->authentication($identity, $responseFactory, $streamFactory, $maxBodyBytes),
-                ],
+                $middleware,
                 $maxBodyBytes,
             );
             $response = $factory->create()->run($transport);
@@ -138,6 +148,8 @@ class McpController extends Controller
         if (str_starts_with($response->getHeaderLine('Content-Type'), 'text/event-stream')) {
             $response = $response->withHeader('X-Accel-Buffering', 'no');
         }
+        // A 403 insufficient_scope carries a Bearer challenge, which PHP would turn into a 401.
+        ChallengeStatus::keep($response);
 
         return $response;
     }

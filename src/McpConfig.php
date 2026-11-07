@@ -62,6 +62,14 @@ final class McpConfig
             ],
         ],
         'stdio' => ['identity' => null, 'trusted' => true],
+        'audit' => [
+            'enabled' => false,
+            'methods' => ['tools/call'],
+            'log' => true,
+            'arguments' => true,
+            'redact' => ['password', 'token', 'secret'],
+            'maxLength' => 200,
+        ],
     ];
 
     /**
