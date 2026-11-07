@@ -33,6 +33,17 @@ final class RbacToolAuthorizer implements ToolAuthorizerInterface
     }
 
     /**
+     * The rules the Rbac loaded (from `permissions`, or from config/permissions.php when it has none).
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return array<mixed>
+     */
+    public function permissions(): array
+    {
+        return $this->rbac->getPermissions();
+    }
+
+    /**
      * @inheritDoc
      */
     public function canCall(mixed $identity, string $tool): bool

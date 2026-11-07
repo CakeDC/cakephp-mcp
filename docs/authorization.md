@@ -136,6 +136,10 @@ anything. Write MCP rules with `'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools
 and review the host-wide wildcard rules whenever the MCP rules share a
 permissions file with the rest of your application.
 
+`bin/cake mcp check` warns when the rules it loads are empty, or when none of
+them can allow plugin `CakeDC/Mcp` and controller `Tools`: then no one can
+call a tool.
+
 ## Token scopes
 
 In `oauth` and `external` modes (see [OAuth](oauth.md)) a second check runs

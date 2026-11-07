@@ -314,8 +314,8 @@ use Cake\Log\Engine\FileLog;
 ```
 
 The line also carries the `mcp` scope, so an `mcp` engine receives it too.
-`bin/cake mcp check` warns when the audit is on and no engine lists
-`mcp_audit`.
+`bin/cake mcp check` warns when the audit is on and no engine takes its
+lines.
 
 ### The Mcp.audit event
 

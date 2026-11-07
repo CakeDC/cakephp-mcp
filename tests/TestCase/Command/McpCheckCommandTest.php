@@ -16,9 +16,12 @@ use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Log\NullLogger;
 use TestApp\Authenticator\ApiTokenAuthenticator;
 use TestApp\OAuthTestConfig;
 
@@ -41,6 +44,11 @@ class McpCheckCommandTest extends TestCase
         Router::reload();
         // The stand-in for cakedc/users must not reach the next test.
         Plugin::getCollection()->remove('CakeDC/Users');
+        foreach (['skeleton_debug', 'skeleton_error', 'mcp_test', 'audit_check', 'object_log', 'psr_log'] as $name) {
+            if (in_array($name, Log::configured(), true)) {
+                Log::drop($name);
+            }
+        }
         parent::tearDown();
     }
 
@@ -83,13 +91,91 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Audit: tools/call to the mcp_audit log scope');
     }
 
+    /**
+     * The debug and error engines of the current cakephp/app skeleton.
+     */
+    private function skeletonLogs(): void
+    {
+        Log::setConfig('skeleton_debug', ['className' => ArrayLog::class, 'scopes' => null, 'levels' => ['notice', 'info', 'debug']]);
+        Log::setConfig('skeleton_error', ['className' => ArrayLog::class, 'scopes' => null, 'levels' => ['warning', 'error', 'critical', 'alert', 'emergency']]);
+    }
+
+    public function testLoggingWarnsWhenNoEngineTakesTheMcpScope(): void
+    {
+        $this->skeletonLogs();
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[WARN] Logging: no Log engine takes the errors of the mcp scope');
+        $this->assertOutputContains("'scopes' => ['mcp']");
+        $this->assertOutputContains('docs/configuration.md#logging');
+    }
+
+    public function testLoggingPassesWithAnEngineForTheMcpScope(): void
+    {
+        $this->skeletonLogs();
+        Log::setConfig('mcp_test', ['className' => ArrayLog::class, 'scopes' => ['mcp']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Logging: the mcp scope goes to mcp_test');
+    }
+
+    public function testAnEngineWithEmptyScopesTakesEverything(): void
+    {
+        Log::setConfig('mcp_test', ['className' => ArrayLog::class, 'scopes' => []]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Logging: the mcp scope goes to mcp_test');
+    }
+
+    public function testAnEngineWithoutTheErrorLevelDoesNotCount(): void
+    {
+        Log::setConfig('mcp_test', ['className' => ArrayLog::class, 'scopes' => ['mcp'], 'levels' => ['info']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Logging');
+    }
+
+    public function testEnginesGivenAsObjectsCount(): void
+    {
+        Log::setConfig('object_log', new ArrayLog(['scopes' => ['mcp']]));
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Logging: the mcp scope goes to object_log');
+    }
+
+    public function testAPlainPsrLoggerTakesEverything(): void
+    {
+        Log::setConfig('psr_log', new NullLogger());
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Logging: the mcp scope goes to psr_log');
+    }
+
+    public function testAuditLinesReachAnEngineOfTheMcpScope(): void
+    {
+        Configure::write('Mcp.audit.enabled', true);
+        Log::setConfig('mcp_test', ['className' => ArrayLog::class, 'scopes' => ['mcp']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Audit: tools/call to the mcp_audit log scope');
+    }
+
     public function testAuditOnWithoutAnEngineForItsScope(): void
     {
         Configure::write('Mcp.audit.enabled', true);
 
         $this->exec('mcp check');
 
-        $this->assertOutputContains('[WARN] Audit: on, but no Log engine lists the mcp_audit scope');
+        $this->assertOutputContains('[WARN] Audit: on, but no Log engine takes its lines');
+        $this->assertOutputContains("'scopes' => ['mcp_audit']");
     }
 
     public function testInvalidAuditSettingFails(): void
@@ -100,6 +186,118 @@ class McpCheckCommandTest extends TestCase
 
         $this->assertExitError();
         $this->assertOutputContains('[FAIL] Audit: "Mcp.audit.maxLength"');
+    }
+
+    public function testToolsAreListed(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputRegExp('/\\[PASS\\] Tools: \\d+ tools: .*echo/');
+    }
+
+    public function testNoToolFoundWarns(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/NoTools']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[WARN] Tools: no tool found in src/NoTools');
+        $this->assertOutputContains('namespace');
+    }
+
+    public function testTheDefaultAuthorizerPasses(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Authorizer: AllowAllToolAuthorizer');
+    }
+
+    /**
+     * @param list<array<string, mixed>> $permissions
+     */
+    private function rbac(array $permissions): void
+    {
+        Configure::write('Mcp.authorization', [
+            'authorizer' => RbacToolAuthorizer::class,
+            'rbac' => ['log' => false, 'permissions' => $permissions],
+        ]);
+    }
+
+    public function testRbacWithoutRulesWarns(): void
+    {
+        $this->rbac([]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Authorizer: RbacToolAuthorizer has no rules, so no one can call a tool');
+    }
+
+    public function testRbacWithoutRulesForTheToolsWarns(): void
+    {
+        $this->rbac([
+            ['role' => 'admin', 'plugin' => null, 'controller' => 'Articles', 'action' => '*'],
+            ['role' => 'admin', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*', 'allowed' => false],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains("[WARN] Authorizer: none of the 2 rules of RbacToolAuthorizer allows plugin 'CakeDC/Mcp', controller 'Tools'");
+    }
+
+    /**
+     * @return array<string, array{0: array<string, mixed>}>
+     */
+    public static function toolRules(): array
+    {
+        return [
+            'exact' => [['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => ['echo']]],
+            'wildcards' => [['role' => 'admin', 'plugin' => '*', 'controller' => '*', 'action' => '*']],
+            'no plugin key' => [['role' => 'admin', 'controller' => ['Tools', 'Articles'], 'action' => '*']],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $rule
+     */
+    #[DataProvider('toolRules')]
+    public function testRbacWithARuleForTheToolsPasses(array $rule): void
+    {
+        $this->rbac([$rule]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Authorizer: RbacToolAuthorizer, 1 of 1 rules for the tools');
+    }
+
+    public function testToolScopesPassWhenEveryToolNeedsOne(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Tool scopes: every tool needs a scope');
+    }
+
+    public function testToolScopesWarnAboutFreeToolsAndUnknownNames(): void
+    {
+        Configure::write('Mcp.auth', [
+            'mode' => 'oauth',
+            'scopes' => ['tools' => ['create_note' => ['notes:write'], 'creat_note' => ['notes:write']]],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Tool scopes: ');
+        $this->assertOutputRegExp('/tools that need no scope, so any valid token may call them: [^.]*echo/');
+        $this->assertOutputContains('Mcp.auth.scopes.tools names tools that do not exist: creat_note');
+    }
+
+    public function testToolScopesDoNotApplyInHostMode(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Tool scopes: host mode, access tokens and their scopes do not apply');
     }
 
     public function testOAuthModeReportsTheResourceAndItsMetadata(): void

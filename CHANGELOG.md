@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.1 (2026-11-07)
+
+- `bin/cake mcp check` lists the tools the server offers and warns when there is none.
+- `bin/cake mcp check` checks the authorizer: with `RbacToolAuthorizer`, it warns when there are no rules, or none for plugin `CakeDC/Mcp` and controller `Tools`, because then no one can call a tool.
+- `bin/cake mcp check` warns, in `oauth` and `external` modes, about tools that need no scope and about names in `Mcp.auth.scopes.tools` that are not tools.
+- `bin/cake mcp check` warns when no Log engine takes the errors of the `mcp` scope (the skeleton's `debug` and `error` engines do not), so a failing tool would leave no trace.
+- `bin/cake mcp check` decides whether the audit lines reach a Log engine as `Log::write()` does: an engine of the `mcp` scope, or one given as an object, now counts.
+- Docs: testing the endpoint with `OAuthTestTrait` links to the oauth plugin's note on the migrations the test database needs.
+
 ## 2.1.0 (2026-11-07)
 
 - Audit log of MCP calls (`Mcp.audit`), off by default: allowed, denied, failed and refused calls with the identity, client, tool, arguments and duration, to the `mcp_audit` log scope and the `Mcp.audit` event. See the Audit log section of `docs/configuration.md`, which also shows how to store the records in a table.

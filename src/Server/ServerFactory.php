@@ -17,15 +17,19 @@ use CakeDC\Mcp\Event\ToolListFilter;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
+use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
 use Psr\Container\ContainerInterface;
+use RuntimeException;
+use stdClass;
 
 /**
  * Builds the MCP server from the `Mcp` config: attribute discovery, Cake cache
@@ -172,9 +176,59 @@ final class ServerFactory
     }
 
     /**
+     * The names of the tools the server offers, as a trusted client lists them (no authorizer, every page).
+     * Builds the server the same way the endpoint does, without network calls.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<string>
+     * @throws \RuntimeException When the server cannot list its tools.
+     */
+    public function toolNames(): array
+    {
+        $names = [];
+        $cursor = null;
+        for ($page = 0; $page < 100; $page++) {
+            $list = ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'];
+            if ($cursor !== null) {
+                $list['params'] = ['cursor' => $cursor];
+            }
+            $transport = new RecordingTransport([
+                (string)json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
+                    'protocolVersion' => ProtocolVersion::latestHandshake()->value,
+                    'capabilities' => new stdClass(),
+                    'clientInfo' => ['name' => 'cakephp-mcp', 'version' => '1.0'],
+                ]]),
+                (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
+                (string)json_encode($list),
+            ]);
+            $this->create(true)->run($transport);
+            $result = $transport->responseFor(2)['result'] ?? null;
+            if (!is_array($result) || !is_array($result['tools'] ?? null)) {
+                throw new RuntimeException(
+                    'The server could not list its tools: ' . json_encode($transport->responseFor(2)),
+                );
+            }
+            foreach ($result['tools'] as $tool) {
+                if (is_array($tool) && is_string($tool['name'] ?? null)) {
+                    $names[] = $tool['name'];
+                }
+            }
+            $cursor = $result['nextCursor'] ?? null;
+            if (!is_string($cursor)) {
+                break;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * The configured tool authorizer (`Mcp.authorization.authorizer`), built as the server builds it.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
      * @return \CakeDC\Mcp\Authorization\ToolAuthorizerInterface
      */
-    private function authorizer(): ToolAuthorizerInterface
+    public function authorizer(): ToolAuthorizerInterface
     {
         $authorizer = McpConfig::get('authorization.authorizer');
         if ($authorizer instanceof ToolAuthorizerInterface) {

@@ -103,5 +103,7 @@ class McpPlugin extends BasePlugin
         $container->add(McpServerCommand::class)
             ->addArgument(ServerFactory::class)
             ->addArgument(CurrentIdentity::class);
+        $container->add(McpCheckCommand::class)
+            ->addArgument(ServerFactory::class);
     }
 }

@@ -215,6 +215,11 @@ expected: this plugin validates the MCP tokens itself.
 | Allowed hosts | That the host of the resource is in `Mcp.http.allowedHosts`. |
 | CSRF | That the CSRF middleware skips POST requests to the MCP route. |
 | Authenticators | In `oauth` mode, that no authenticator of the application answers access tokens on the MCP route before the plugin. On a `cakedc/users` application it reads `Auth.Authenticators` (see [cakedc/users](#cakedcusers)). Fails with an install hint when `cakedc/cakephp-oauth-server` is missing. |
+| Tools | The tools the server offers, built as the endpoint builds it. Warns when there is none (a class outside `Mcp.discovery.scanDirs`, or without a namespace, is skipped without an error). |
+| Authorizer | The configured authorizer. With `RbacToolAuthorizer` it warns when there are no rules, or no rule for plugin `CakeDC/Mcp` and controller `Tools` (wildcards count), because then no one can call a tool. |
+| Tool scopes | In `oauth` and `external` modes, warns about tools that need no scope (no line in `Mcp.auth.scopes.tools`, and no `default` or `tools/call` scope), which any valid token may call, and about names in `Mcp.auth.scopes.tools` that are not tools. |
+| Logging | That a Log engine takes the errors of the `mcp` scope. Without one, a failing tool only answers "Error while executing tool" and its error is lost (the `debug` and `error` engines of the skeleton have `'scopes' => null`). See [Logging](configuration.md#logging). |
+| Audit | When the [audit log](configuration.md#audit-log) is on, that a Log engine takes its lines. |
 
 Sample output:
 
@@ -226,6 +231,11 @@ Sample output:
 [PASS] Allowed hosts: example.com, localhost, 127.0.0.1, [::1]
 [PASS] CSRF: the MCP route is skipped
 [PASS] Authenticators: no authenticator answers access tokens at the MCP route first
+[PASS] Tools: 3 tools: find_posts, create_post, publish_post
+[PASS] Authorizer: RbacToolAuthorizer, 2 of 14 rules for the tools
+[PASS] Tool scopes: every tool needs a scope
+[PASS] Logging: the mcp scope goes to mcp
+[PASS] Audit: off
 ```
 
 A failing check looks like this, and the command exits with an error code:
@@ -633,7 +643,11 @@ The second call passes because the trait expands the scopes with the
 See [Testing your tools](testing.md#scopes). To test the HTTP endpoint with
 real tokens, use the oauth plugin's `OAuthTestTrait` (it issues personal
 tokens, which are enabled by default in `OAuthServer.personalTokens`, so
-this works unless you disabled them) next to `IntegrationTestTrait`. Send the
+this works unless you disabled them) next to `IntegrationTestTrait`. Its tokens
+live in the oauth plugin's tables, so the test database needs that plugin's
+migrations: see
+[The test database](https://github.com/CakeDC/cakephp-oauth-server/blob/1.next-cake5/docs/testing.md#the-test-database).
+Send the
 request the way an MCP client of the 2026-07-28 revision does, without a
 session: the protocol version in `params._meta` and in the
 `MCP-Protocol-Version` header, and the method in the `Mcp-Method` header.
