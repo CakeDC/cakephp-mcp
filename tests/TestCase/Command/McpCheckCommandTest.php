@@ -303,6 +303,26 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('refuses MCP access tokens at /mcp');
     }
 
+    /**
+     * With cakedc/cakephp-oauth-server 1.0.0 one Token authenticator can protect the API and the MCP endpoint.
+     */
+    public function testCakeDcUsersTokenAuthenticatorForSeveralResourcesIncludingTheMcpOnePasses(): void
+    {
+        $this->usersHost();
+        Configure::write('OAuthServer.users', ['resource' => [OAuthTestConfig::API, 'http://localhost/mcp']]);
+        Configure::write('Auth.Authenticators.OAuthServerToken', [
+            'className' => 'CakeDC/OAuthServer.OAuthServerToken',
+            'skipTwoFactorVerify' => true,
+            'resource' => [OAuthTestConfig::API, OAuthTestConfig::MCP],
+            'resourceMetadataUrl' => 'http://localhost/.well-known/oauth-protected-resource/mcp',
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[PASS] Authenticators');
+    }
+
     public function testCakeDcUsersTokenAuthenticatorThatLeavesTheMcpEndpointAlonePasses(): void
     {
         $this->usersHost();

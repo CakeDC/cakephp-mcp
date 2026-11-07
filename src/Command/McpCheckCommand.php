@@ -290,6 +290,29 @@ class McpCheckCommand extends Command
     }
 
     /**
+     * The resources and paths a Token authenticator of cakedc/cakephp-oauth-server accepts, from its resolve():
+     * a list of them since 1.0.0, a single one before.
+     *
+     * @param array<mixed> $resolved What resolve() returned.
+     * @return list<array{resource: string, paths: list<string>}>
+     */
+    private static function targets(array $resolved): array
+    {
+        $list = array_is_list($resolved) ? $resolved : [$resolved];
+        $targets = [];
+        foreach ($list as $target) {
+            if (is_array($target) && is_string($target['resource'] ?? null) && is_array($target['paths'] ?? null)) {
+                $targets[] = [
+                    'resource' => $target['resource'],
+                    'paths' => array_values(array_filter($target['paths'], 'is_string')),
+                ];
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
      * cakedc/users builds the authentication service from `Auth.Authenticators` and runs it on every request,
      * the MCP route included, and the oauth plugin's integration puts its Token authenticator there. That
      * authenticator answers every token of the authorization server: below its paths it validates the token for
@@ -317,7 +340,7 @@ class McpCheckCommand extends Command
             $authenticator = new $class(new IdentifierCollection(), $options);
             $setting = 'Auth.Authenticators.' . $name;
             try {
-                ['resource' => $accepted, 'paths' => $paths] = $authenticator->resolve();
+                $targets = self::targets($authenticator->resolve());
             } catch (Throwable $e) {
                 return ['fail', sprintf(
                     'the Token authenticator of cakedc/users (%s) refuses every access token it sees: %s',
@@ -330,15 +353,21 @@ class McpCheckCommand extends Command
                 // Its class leaves the MCP endpoint alone.
                 continue;
             }
-            if ($accepted !== $resource || !self::within($path, $paths)) {
+            $covers = array_filter(
+                $targets,
+                fn(array $target): bool => $target['resource'] === $resource && self::within($path, $target['paths']),
+            );
+            if ($covers === []) {
                 return ['fail', sprintf(
                     'the Token authenticator of cakedc/users (%s) runs on every request and refuses MCP access '
-                    . 'tokens at %s: it accepts tokens for %s below %s only. See "cakedc/users" in the OAuth '
+                    . 'tokens at %s: it accepts tokens for %s only. See "cakedc/users" in the OAuth '
                     . 'documentation of the plugin',
                     $setting,
                     $probe->getPath(),
-                    $accepted,
-                    implode(', ', $paths),
+                    implode('; ', array_map(
+                        fn(array $target): string => $target['resource'] . ' below ' . implode(', ', $target['paths']),
+                        $targets,
+                    )),
                 )];
             }
             if ($authenticator->getConfig('resourceMetadataUrl') !== $metadata->getMetadataUrl()) {

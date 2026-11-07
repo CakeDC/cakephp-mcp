@@ -53,27 +53,11 @@ runs an MCP call.
 `oauth` mode needs CakePHP 5.1.10 or newer and `cakephp/authentication` 3.3.6
 or newer, the floors of the oauth plugin.
 
-The two CakeDC OAuth packages are public but not on Packagist yet. Until they
-are, declare them as `vcs` repositories in your application's `composer.json`:
-
-```json
-{
-    "repositories": [
-        {"type": "vcs", "url": "https://github.com/CakeDC/oauth-server"},
-        {"type": "vcs", "url": "https://github.com/CakeDC/cakephp-oauth-server"}
-    ]
-}
-```
-
-and require both of them, with the beta flag on each (stability flags only
-apply to the packages you require yourself, so an application with the
-default `stable` minimum stability cannot require the plugin alone):
-
 ```bash
-composer require cakedc/cakephp-oauth-server:^1.0@beta cakedc/oauth-server:^1.0@beta
+composer require cakedc/cakephp-oauth-server
 ```
 
-Once they are on Packagist the `repositories` block goes away.
+It brings the framework independent core, `cakedc/oauth-server`, along.
 
 Load the plugin in `Application::bootstrap()`:
 
@@ -300,9 +284,8 @@ anywhere else it refuses it with `401` ("not valid at this address"). Its
 resource decides whether MCP calls get through:
 
 - **The MCP endpoint is the only resource, or the default one** (the first in
-  `OAuthServer.resources`, unless `OAuthServer.defaultResource` names another). Leave `OAuthServer.users.resource` and
-  `OAuthServer.users.paths` unset, or set `users.resource` to the URL of the
-  endpoint. The authenticator then validates MCP tokens on `/mcp` for the MCP
+  `OAuthServer.resources`, unless `OAuthServer.defaultResource` names another). Leave `OAuthServer.users.resource`
+  unset, or set it to the URL of the endpoint. The authenticator then validates MCP tokens on `/mcp` for the MCP
   resource, the same check this plugin makes, and calls work. A token it
   refuses (expired, revoked) gets its own `401`, which names the metadata URL
   only when its `resourceMetadataUrl` option is set. Declare the authenticator
@@ -321,12 +304,26 @@ resource decides whether MCP calls get through:
   ],
   ```
 
-- **The authenticator is for another resource**, because
-  `OAuthServer.users.resource` names your API or the API is the default
+- **Your API and the MCP endpoint are both resources.** List both in
+  `OAuthServer.users.resource` (cakedc/cakephp-oauth-server 1.0.0 or newer). The
+  authenticator then checks each request against the resource whose token
+  paths (`OAuthServer.tokenPaths`, by default the path of each resource) cover
+  it, so MCP tokens are validated on `/mcp` for the MCP resource and API tokens
+  below `/api`. Set `resourceMetadataUrl` as above so a refused MCP token names
+  the metadata:
+
+  ```php
+  // config/app_local.php
+  'OAuthServer' => [
+      'users' => ['resource' => ['https://example.com/api', 'https://example.com/mcp']],
+  ],
+  ```
+
+- **The authenticator is for another resource only**, because
+  `OAuthServer.users.resource` names just your API or the API is the default
   resource. It then refuses every MCP token on `/mcp` and every MCP call fails
-  with `401`. `OAuthServer.users.paths` does not help: outside its paths the
-  authenticator refuses the token, inside them it checks it against its own
-  resource. Give it a class that leaves the MCP endpoint to this plugin:
+  with `401`. Either list the MCP endpoint as well (above), or give it a class
+  that leaves the MCP endpoint to this plugin:
 
   ```php
   // src/Authenticator/ApiTokenAuthenticator.php

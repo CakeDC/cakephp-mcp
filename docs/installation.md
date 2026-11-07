@@ -6,15 +6,8 @@
 composer require cakedc/cakephp-mcp
 ```
 
-> **Before the first 2.x tag.** 2.x is not tagged yet, so require the
-> development branch:
->
-> ```bash
-> composer require cakedc/cakephp-mcp:dev-2.next-cake5
-> ```
->
-> It needs `mcp/sdk` ^0.9, a stable release, so no dev stability settings are
-> needed for the SDK.
+It installs `mcp/sdk` ^0.9, the official PHP SDK. Version 1.0.0 on Packagist
+was this same code tagged by mistake: require `^2.0`.
 
 The plugin needs PHP 8.2+ and CakePHP 5. It builds on the official `mcp/sdk`.
 The `php-http/discovery` Composer plugin is not needed: the plugin passes

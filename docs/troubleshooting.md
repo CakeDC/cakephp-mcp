@@ -41,9 +41,9 @@ file, fewer items), or raise the limit:
 Configure::write('Mcp.http.maxBodyBytes', 8 * 1024 * 1024);
 ```
 
-Before 2.1 the `oauth` and `external` modes answered the same request with a
-`400` Bearer `invalid_request` challenge, which clients read as a token
-problem.
+Before 2.0.0 (in the 2.x betas) the `oauth` and `external` modes answered the
+same request with a `400` Bearer `invalid_request` challenge, which clients
+read as a token problem.
 
 ## 403 or a redirect to the login page (cakedc/users)
 

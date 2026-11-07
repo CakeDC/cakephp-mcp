@@ -1,26 +1,12 @@
 # Changelog
 
-## 2.1.0-beta1 (unreleased)
+## 2.0.0 (2026-11-07)
 
-OAuth 2.1 for remote MCP clients. Existing applications keep working: `host` mode behaves as 2.0.
+Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`, with OAuth 2.1 for remote MCP clients. Version
+1.0.0 on Packagist was this same code tagged by mistake: require `^2.0`. The 1.x line (`1.next-cake4`) is the
+CakePHP 4 plugin.
 
-- `Mcp.auth` with three modes: `host` (default, as 2.0), `oauth` (access tokens of `cakedc/cakephp-oauth-server` in the same application) and `external` (JWT access tokens of Auth0, Keycloak, Microsoft Entra ID, WorkOS or any OpenID Connect issuer, through `firebase/php-jwt` and `psr/cache`). The `Mcp.auth` section is validated strictly and fails closed.
-- Protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource` plus the MCP route, and the `401` challenge that points MCP clients to it.
-- Scope policy per method and per tool (`Mcp.auth.scopes`), with `implies` and step-up through `403 insufficient_scope`.
-- `McpConfig::isEndpoint()` recognises the MCP route and its metadata path, for the CSRF skip callback and to keep other bearer-token authenticators off them.
-- `bin/cake mcp check` inspects the endpoint configuration (authentication, resource, metadata route, allowed hosts, CSRF, authenticators, including the `Auth.Authenticators` of `cakedc/users`) without network calls.
-- `McpTestTrait::mcpActingAs()` takes scopes and claims, and `assertMcpInsufficientScope()` asserts a refused call. In `oauth` mode the scopes are expanded with the `implies` of the declared resource, as the authorization server does.
-- `McpConfig::rbacPermissions()` returns the `bypassAuth` rule `cakedc/users` hosts need for the endpoint and its metadata.
-- oauth mode needs `cakedc/cakephp-oauth-server` and `cakedc/oauth-server` 1.0 (beta, public, not on Packagist yet: see the install notes), CakePHP 5.1.10+ and `cakephp/authentication` 3.3.6+.
-- Contributors: the PHPUnit suite now runs on SQLite with the oauth packages. It needs the sibling clones `../oauth-server` and `../cakephp-oauth-server` (path repositories); both are public repositories, and CI checks them out at their `1.0.0-beta1` tags.
-- `Mcp.http.maxBodyBytes` (default 4 MiB, the SDK's own limit) bounds the request body. The same value is passed to the SDK transport and to its `AuthorizationMiddleware`.
-- A POST over that limit is answered with `413` and a JSON-RPC error (code `-32600`) whose message and `data.maxBodyBytes` name the limit and suggest a smaller payload, before authentication. Before, `oauth` and `external` modes answered it with a `400` Bearer `invalid_request` challenge.
-
-- Contributors: `tests/Conformance/run.sh` (and so CI) runs the newest published alpha of the official conformance suite instead of a pinned version; `CONFORMANCE_PACKAGE` still pins one for a reproducible run.
-
-## 2.0.0-beta1 (unreleased)
-
-Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
+### Server
 
 - Remote MCP over Streamable HTTP at a Cake route (`/mcp` by default), serving both protocol eras (handshake with sessions, and the stateless 2026-07-28 revision).
 - `bin/cake mcp server` for stdio.
@@ -37,3 +23,22 @@ Complete rewrite for CakePHP 5 on top of the official `mcp/sdk`.
 - DNS-rebinding protection defaults to the `App.fullBaseUrl` host. That only protects when `App.fullBaseUrl` is set explicitly (the Cake 5 skeleton derives it from the request `Host` otherwise); set `Mcp.http.allowedHosts`, which is required for servers with `identity.required` set to `false`.
 - Removed `bin/mcp-server` and `CakeDC\Mcp\Server\CakeServer`.
 - Requires `mcp/sdk` ^0.9.
+
+### OAuth 2.1 for remote clients
+
+- `Mcp.auth` with three modes: `host` (default, as 2.0), `oauth` (access tokens of `cakedc/cakephp-oauth-server` in the same application) and `external` (JWT access tokens of Auth0, Keycloak, Microsoft Entra ID, WorkOS or any OpenID Connect issuer, through `firebase/php-jwt` and `psr/cache`). The `Mcp.auth` section is validated strictly and fails closed.
+- Protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource` plus the MCP route, and the `401` challenge that points MCP clients to it.
+- Scope policy per method and per tool (`Mcp.auth.scopes`), with `implies` and step-up through `403 insufficient_scope`.
+- `McpConfig::isEndpoint()` recognises the MCP route and its metadata path, for the CSRF skip callback and to keep other bearer-token authenticators off them.
+- `bin/cake mcp check` inspects the endpoint configuration (authentication, resource, metadata route, allowed hosts, CSRF, authenticators, including the `Auth.Authenticators` of `cakedc/users`) without network calls.
+- `McpTestTrait::mcpActingAs()` takes scopes and claims, and `assertMcpInsufficientScope()` asserts a refused call. In `oauth` mode the scopes are expanded with the `implies` of the declared resource, as the authorization server does.
+- `McpConfig::rbacPermissions()` returns the `bypassAuth` rule `cakedc/users` hosts need for the endpoint and its metadata.
+- oauth mode needs `cakedc/cakephp-oauth-server` 1.0.0 or newer (it brings `cakedc/oauth-server`), CakePHP 5.1.10+ and `cakephp/authentication` 3.3.6+.
+- `Mcp.http.maxBodyBytes` (default 4 MiB, the SDK's own limit) bounds the request body. The same value is passed to the SDK transport and to its `AuthorizationMiddleware`.
+- A POST over that limit is answered with `413` and a JSON-RPC error (code `-32600`) whose message and `data.maxBodyBytes` name the limit and suggest a smaller payload, before authentication. Before, `oauth` and `external` modes answered it with a `400` Bearer `invalid_request` challenge.
+- `bin/cake mcp check` understands a Token authenticator of `cakedc/cakephp-oauth-server` 1.0.0 that protects several resources (`OAuthServer.users.resource` as a list), and passes when one of them is the MCP endpoint at the MCP route.
+
+### Contributors
+
+- Contributors: the PHPUnit suite now runs on SQLite with the oauth packages. It needs the sibling clones `../oauth-server` and `../cakephp-oauth-server` (path repositories); both are public repositories, and CI checks them out at their `1.0.0` tags.
+- Contributors: `tests/Conformance/run.sh` (and so CI) runs the newest published alpha of the official conformance suite instead of a pinned version; `CONFORMANCE_PACKAGE` still pins one for a reproducible run.
