@@ -175,10 +175,11 @@ use Cake\Log\Engine\FileLog;
 ],
 ```
 
-Engines without `scopes` (the default `[]`) catch every scope, so the default
-`debug` and `error` engines of the skeleton also receive the `mcp` messages. To
-keep them out, give those engines `'scopes' => null`: an engine with `null`
-scopes only handles messages that have no scope.
+The `debug` and `error` engines of the current application skeleton have
+`'scopes' => null`: they only take messages without a scope, so the `mcp`
+messages (and the `mcp_audit` lines of the [audit log](#audit-log)) reach only
+the engines that list those scopes. An engine with no `scopes` key at all (or
+`'scopes' => []`, as in older skeletons) takes every scope.
 
 ## Rate limiting
 

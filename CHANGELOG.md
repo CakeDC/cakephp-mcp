@@ -6,6 +6,8 @@
 - `bin/cake mcp check` reports the audit log, and warns when it is on and no Log engine lists the `mcp_audit` scope.
 - Fix: a `403 insufficient_scope` reached clients as `401`, because PHP turns any response with a `WWW-Authenticate` header into a 401 when, as in Cake's `ResponseEmitter`, the status line is sent first. The endpoint now keeps the 403 (see the troubleshooting guide).
 - Docs: rate limiting the MCP route with CakePHP's `RateLimitMiddleware` (per token, per user or per address).
+- Docs: the Logging section said the skeleton's `debug` and `error` engines receive the `mcp` messages; they have `'scopes' => null` and do not.
+- Tests: the rate limiting example is skipped on CakePHP before 5.3, which has no `RateLimitMiddleware`.
 - Docs: claude.ai custom connectors are now under Customize > Connectors > Add custom connector.
 
 ## 2.0.0 (2026-11-07)

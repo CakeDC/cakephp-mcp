@@ -23,12 +23,17 @@ class RateLimitExampleTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        if (!class_exists(RateLimitMiddleware::class)) {
+            $this->markTestSkipped('RateLimitMiddleware needs CakePHP 5.3 or newer.');
+        }
         Cache::setConfig('rate_limit', ['className' => ArrayEngine::class]);
     }
 
     protected function tearDown(): void
     {
-        Cache::drop('rate_limit');
+        if (in_array('rate_limit', Cache::configured(), true)) {
+            Cache::drop('rate_limit');
+        }
         parent::tearDown();
     }
 
