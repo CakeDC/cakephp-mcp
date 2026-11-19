@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0 (unreleased)
+
+Port of 2.1.1 to CakePHP 4.5+, replacing the 1.x prototype. Require `^1.1`: version 1.0.0 on Packagist is the
+CakePHP 5 code of 2.0.0, tagged by mistake.
+
+- Everything in 2.1.1 except OAuth 2.1: the endpoint for both protocol eras, stdio, tool discovery with constructor injection, `CurrentIdentity`, per-tool authorization and `RbacToolAuthorizer`, the audit log, `bin/cake mcp check`, `bin/cake mcp inspector`, `McpTestTrait` and `ToolError::invalid()`.
+- Only `host` mode: the identity set by your authentication (`cakephp/authentication` 2.x) becomes the SDK access token. Any other `Mcp.auth.mode` (`oauth` and `external` are 2.x only) stops the application at bootstrap with the reason.
+- Not ported: the protected resource metadata route and its `401` challenge, the scope policy (`Mcp.auth.scopes`, `403 insufficient_scope`), `McpTestTrait::assertMcpInsufficientScope()` and the rate limiting example (CakePHP 4 has no `RateLimitMiddleware`). `mcpActingAs()` still takes scopes and claims, which never refuse a call.
+- The SDK gets the PSR-17 factories of `laminas/laminas-diactoros`, which CakePHP 4 already requires.
+- `bin/cake mcp check` follows the CakePHP 4 log scopes: the skeleton's `debug` and `error` engines have `'scopes' => false` and take only messages without a scope.
+- Requires `mcp/sdk` ^0.9 and `psr/log` ^2.0 or ^3.0.
+- Tests on PHPUnit 9; phpcs and PHPStan level 8; the official MCP conformance suite passes for both protocol revisions.
+
 ## 2.1.1 (2026-11-07)
 
 - `bin/cake mcp check` lists the tools the server offers and warns when there is none.

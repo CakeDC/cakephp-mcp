@@ -19,7 +19,7 @@ that lets anyone call them. Other causes:
 
 The `Host` of the request is not allowed. By default the host of
 `App.fullBaseUrl` and localhost are, but only when `App.fullBaseUrl` is set
-explicitly: the Cake 5 skeleton derives it from the request `Host` when it is
+explicitly: the CakePHP 4 skeleton derives it from the request `Host` when it is
 not set, and then every host is accepted. Set `Mcp.http.allowedHosts` yourself
 (required for servers with `identity.required` set to `false`):
 

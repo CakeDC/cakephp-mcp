@@ -3,15 +3,16 @@
 ## Composer
 
 ```bash
-composer require cakedc/cakephp-mcp
+composer require cakedc/cakephp-mcp:^1.1
 ```
 
-It installs `mcp/sdk` ^0.9, the official PHP SDK. Version 1.0.0 on Packagist
-was this same code tagged by mistake: require `^2.0`.
+It installs `mcp/sdk` ^0.9, the official PHP SDK. Require `^1.1`: version 1.0.0
+on Packagist is the CakePHP 5 code of 2.0.0, tagged by mistake.
 
-The plugin needs PHP 8.2+ and CakePHP 5. It builds on the official `mcp/sdk`.
-The `php-http/discovery` Composer plugin is not needed: the plugin passes
-Cake's own PSR-17 factories to the SDK, so nothing has to be discovered.
+The plugin needs PHP 8.2+ and CakePHP 4.5+. It builds on the official `mcp/sdk`.
+The `php-http/discovery` Composer plugin is not needed: the plugin passes the
+PSR-17 factories of `laminas/laminas-diactoros` (which CakePHP 4 already
+requires) to the SDK, so nothing has to be discovered.
 
 ## Load the plugin
 

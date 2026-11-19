@@ -30,10 +30,10 @@ on your users table:
 public function getAuthenticationService(ServerRequestInterface $request): AuthenticationServiceInterface
 {
     $service = new AuthenticationService();
+    $service->loadIdentifier('Authentication.Token', ['tokenField' => 'api_token']);
     $service->loadAuthenticator('Authentication.Token', [
         'header' => 'Authorization',
         'tokenPrefix' => 'Bearer',
-        'identifier' => ['Authentication.Token' => ['tokenField' => 'api_token']],
     ]);
 
     return $service;
@@ -43,14 +43,12 @@ public function getAuthenticationService(ServerRequestInterface $request): Authe
 For tokens that are not a column on one table, use a callback identifier:
 
 ```php
+$service->loadIdentifier('Authentication.Callback', [
+    'callback' => fn (array $data): ?ArrayObject => $this->tokens->identityFor($data['token'] ?? null),
+]);
 $service->loadAuthenticator('Authentication.Token', [
     'header' => 'Authorization',
     'tokenPrefix' => 'Bearer',
-    'identifier' => [
-        'Authentication.Callback' => [
-            'callback' => fn (array $data): ?ArrayObject => $this->tokens->identityFor($data['token'] ?? null),
-        ],
-    ],
 ]);
 ```
 

@@ -1,8 +1,11 @@
 # CakePHP MCP Server
 
-Expose tools, resources and prompts from a CakePHP 5 application to Claude and
+Expose tools, resources and prompts from a CakePHP 4 application to Claude and
 any other [Model Context Protocol](https://modelcontextprotocol.io) client.
 Built on the official [`mcp/sdk`](https://github.com/modelcontextprotocol/php-sdk).
+
+This is the 1.x line, for CakePHP 4.5+. The 2.x line (CakePHP 5) also has
+OAuth 2.1 for remote clients; see [Not available in 1.x](#not-available-in-1x).
 
 - Remote MCP over Streamable HTTP, mounted as a regular Cake route (`/mcp`).
 - `bin/cake mcp server` for local stdio clients, and `bin/cake mcp inspector` to try the server by hand.
@@ -16,16 +19,17 @@ Built on the official [`mcp/sdk`](https://github.com/modelcontextprotocol/php-sd
 ## Requirements
 
 - PHP 8.2+
-- CakePHP 5
+- CakePHP 4.5+
+- `cakephp/authentication` 2.x (or any authentication that sets the `identity` request attribute)
 
 ## Install
 
 ```bash
-composer require cakedc/cakephp-mcp
+composer require cakedc/cakephp-mcp:^1.1
 ```
 
-It installs `mcp/sdk` ^0.9, the official PHP SDK. Version 1.0.0 on Packagist
-was this same code tagged by mistake: require `^2.0`.
+It installs `mcp/sdk` ^0.9, the official PHP SDK. Require `^1.1`: version 1.0.0
+on Packagist is the CakePHP 5 code of 2.0.0, tagged by mistake.
 
 Load the plugin in `src/Application.php`:
 
@@ -64,7 +68,7 @@ class ArticleTools
     {
         return $this->fetchTable('Articles')->find()
             ->select(['title'])
-            ->orderByDesc('created')
+            ->order(['created' => 'DESC'])
             ->limit($limit)
             ->all()
             ->extract('title')
@@ -79,10 +83,10 @@ By default `/mcp` requires an identity. Add an authenticator that reads a Bearer
 token, for example with `cakephp/authentication`:
 
 ```php
+$service->loadIdentifier('Authentication.Token', ['tokenField' => 'api_token']);
 $service->loadAuthenticator('Authentication.Token', [
     'header' => 'Authorization',
     'tokenPrefix' => 'Bearer',
-    'identifier' => ['Authentication.Token' => ['tokenField' => 'api_token']],
 ]);
 ```
 
@@ -90,6 +94,23 @@ $service->loadAuthenticator('Authentication.Token', [
 
 - Claude Code: `claude mcp add --transport http my-app https://example.com/mcp --header "Authorization: Bearer <token>"`
 - claude.ai: Customize > Connectors > Add custom connector, with the URL and (where available) a request header.
+
+## Not available in 1.x
+
+The 1.x line is a port of 2.1.1 to CakePHP 4. It leaves out what needs
+CakePHP 5 or packages that only exist for it:
+
+- OAuth 2.1 for remote clients: the `oauth` and `external` values of
+  `Mcp.auth.mode`, the protected resource metadata
+  (`/.well-known/oauth-protected-resource`) and its `401` challenge, and the
+  scope policy (`Mcp.auth.scopes`) with `403 insufficient_scope`. Only `host`
+  mode is available; any other value stops the application at bootstrap.
+- `McpTestTrait::assertMcpInsufficientScope()`. `mcpActingAs()` still takes
+  scopes and claims, which reach the access token but never refuse a call.
+- The rate limiting example, since CakePHP 4 has no `RateLimitMiddleware`.
+
+Everything else (the endpoint, stdio, tools, authorization, the audit log,
+`mcp check`, `mcp inspector` and `McpTestTrait`) is the same as in 2.1.1.
 
 ## Documentation
 
