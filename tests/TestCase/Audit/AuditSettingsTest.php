@@ -7,7 +7,6 @@ use Cake\Core\Configure;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Audit\AuditSettings;
 use InvalidArgumentException;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class AuditSettingsTest extends TestCase
 {
@@ -58,8 +57,8 @@ class AuditSettingsTest extends TestCase
 
     /**
      * @param array<string, mixed> $audit
+     * @dataProvider invalidSettings
      */
-    #[DataProvider('invalidSettings')]
     public function testInvalidSettingsNameTheKey(array $audit, string $key): void
     {
         Configure::write('Mcp.audit', $audit);

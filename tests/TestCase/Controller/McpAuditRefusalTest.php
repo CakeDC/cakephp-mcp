@@ -11,7 +11,6 @@ use Cake\Log\Log;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Test\Support\McpHttpTrait;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class McpAuditRefusalTest extends TestCase
 {
@@ -121,7 +120,9 @@ class McpAuditRefusalTest extends TestCase
         $this->post('/mcp', $body);
     }
 
-    #[DataProvider('unreadableBodies')]
+    /**
+     * @dataProvider unreadableBodies
+     */
     public function testUnreadableBodyIsNotRecorded(string $body): void
     {
         $this->postRaw($body);

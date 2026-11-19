@@ -58,9 +58,10 @@ want to change; everything else keeps its default. These are the defaults
 The `oauth` and `external` modes of 2.x (OAuth 2.1 access tokens of
 `cakedc/cakephp-oauth-server`, or JWT access tokens of a third-party
 authorization server) need cakedc/cakephp-mcp 2.x on CakePHP 5. Any other
-value of `auth.mode` makes the plugin bootstrap throw, and the endpoint answers
-`500 Internal error`: a security setting that cannot be honoured never opens
-anything. `bin/cake mcp check` reports it as a failure.
+value of `auth.mode` makes the plugin bootstrap throw, so the application (and
+every `bin/cake` command, `mcp check` included) stops with that message, and an
+endpoint that still sees such a value answers `500 Internal error`: a security
+setting that cannot be honoured never opens anything.
 
 ## Lists replace defaults
 
@@ -126,11 +127,11 @@ use Cake\Log\Engine\FileLog;
 ],
 ```
 
-The `debug` and `error` engines of the current application skeleton have
-`'scopes' => null`: they only take messages without a scope, so the `mcp`
+The `debug` and `error` engines of the CakePHP 4 application skeleton have
+`'scopes' => false`: they only take messages without a scope, so the `mcp`
 messages (and the `mcp_audit` lines of the [audit log](#audit-log)) reach only
 the engines that list those scopes. An engine with no `scopes` key at all (or
-`'scopes' => []`, as in older skeletons) takes every scope.
+`'scopes' => []` or `null`) takes every scope.
 
 ## Audit log
 

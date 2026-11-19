@@ -4,13 +4,13 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Middleware;
 
 use Cake\Http\Response;
-use Cake\Http\ResponseFactory;
 use Cake\Http\ServerRequest;
-use Cake\Http\StreamFactory;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use Closure;
+use Laminas\Diactoros\ResponseFactory;
+use Laminas\Diactoros\StreamFactory;
 use Mcp\Server\Authorization\AccessToken;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;

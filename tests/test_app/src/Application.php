@@ -74,14 +74,12 @@ class Application extends BaseApplication implements AuthenticationServiceProvid
     public function getAuthenticationService(ServerRequestInterface $request): AuthenticationServiceInterface
     {
         $service = new AuthenticationService();
+        $service->loadIdentifier('Authentication.Callback', [
+            'callback' => fn(array $data): ?ArrayObject => TestTokens::identity($data['token'] ?? null),
+        ]);
         $service->loadAuthenticator('Authentication.Token', [
             'header' => 'Authorization',
             'tokenPrefix' => 'Bearer',
-            'identifier' => [
-                'Authentication.Callback' => [
-                    'callback' => fn(array $data): ?ArrayObject => TestTokens::identity($data['token'] ?? null),
-                ],
-            ],
         ]);
 
         return $service;

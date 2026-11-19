@@ -31,7 +31,6 @@ use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\Session\InMemorySessionStore;
 use Mcp\Server\Session\Session;
-use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 class AuditListenerTest extends TestCase
@@ -217,8 +216,8 @@ class AuditListenerTest extends TestCase
 
     /**
      * @param array<string, mixed> $claims
+     * @dataProvider claims
      */
-    #[DataProvider('claims')]
     public function testClientFromClaims(array $claims, ?string $client): void
     {
         $this->assertSame($client, AuditListener::clientOf(new AccessToken([], $claims + ['sub' => '1'])));

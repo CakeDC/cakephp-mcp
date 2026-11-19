@@ -12,7 +12,6 @@ use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Audit\AuditRecord;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
-use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\AbstractLogger;
 use RuntimeException;
 use Stringable;
@@ -153,7 +152,9 @@ class AuditWriterTest extends TestCase
         ];
     }
 
-    #[DataProvider('levels')]
+    /**
+     * @dataProvider levels
+     */
     public function testLevels(string $outcome, string $level): void
     {
         $this->writer()->write($this->record(['outcome' => $outcome]));
@@ -252,7 +253,9 @@ class AuditWriterTest extends TestCase
         return ['null' => [null], 'list' => [['a', 'b']], 'string' => ['text']];
     }
 
-    #[DataProvider('notObjects')]
+    /**
+     * @dataProvider notObjects
+     */
     public function testNonObjectArgumentsBecomeEmpty(mixed $arguments): void
     {
         $this->assertSame([], $this->writer()->arguments($arguments));

@@ -4,13 +4,13 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Middleware;
 
 use Cake\Http\Response;
-use Cake\Http\ResponseFactory;
 use Cake\Http\ServerRequest;
-use Cake\Http\StreamFactory;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
 use Closure;
+use Laminas\Diactoros\ResponseFactory;
 use Laminas\Diactoros\Stream;
+use Laminas\Diactoros\StreamFactory;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -31,7 +31,11 @@ class BodyLimitMiddlewareTest extends TestCase
     public function testAnAnnouncedOversizedBodyIsRefusedWithoutReadingIt(): void
     {
         $unreadable = new class ('php://memory', 'r') extends Stream {
-            public function read(int $length): string
+            /**
+             * @param int $length Bytes to read.
+             * @return string
+             */
+            public function read($length): string
             {
                 throw new RuntimeException('The body must not be read.');
             }
@@ -83,7 +87,11 @@ class BodyLimitMiddlewareTest extends TestCase
                 return null;
             }
 
-            public function read(int $length): string
+            /**
+             * @param int $length Bytes to read.
+             * @return string
+             */
+            public function read($length): string
             {
                 $chunk = parent::read($length);
                 $this->bytesRead += strlen($chunk);

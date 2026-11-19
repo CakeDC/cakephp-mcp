@@ -10,12 +10,19 @@ use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
-use PHPUnit\Framework\Attributes\DataProvider;
+use InvalidArgumentException;
 use Psr\Log\NullLogger;
 
 class McpCheckCommandTest extends TestCase
 {
     use ConsoleIntegrationTestTrait;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // CakePHP 4 runs exec() through the legacy shell dispatcher unless told otherwise.
+        $this->useCommandRunner();
+    }
 
     protected function tearDown(): void
     {
@@ -63,8 +70,9 @@ class McpCheckCommandTest extends TestCase
      */
     private function skeletonLogs(): void
     {
-        Log::setConfig('skeleton_debug', ['className' => ArrayLog::class, 'scopes' => null, 'levels' => ['notice', 'info', 'debug']]);
-        Log::setConfig('skeleton_error', ['className' => ArrayLog::class, 'scopes' => null, 'levels' => ['warning', 'error', 'critical', 'alert', 'emergency']]);
+        // The CakePHP 4 skeleton: `false` takes only messages without a scope.
+        Log::setConfig('skeleton_debug', ['className' => ArrayLog::class, 'scopes' => false, 'levels' => ['notice', 'info', 'debug']]);
+        Log::setConfig('skeleton_error', ['className' => ArrayLog::class, 'scopes' => false, 'levels' => ['warning', 'error', 'critical', 'alert', 'emergency']]);
     }
 
     public function testLoggingWarnsWhenNoEngineTakesTheMcpScope(): void
@@ -235,8 +243,8 @@ class McpCheckCommandTest extends TestCase
 
     /**
      * @param array<string, mixed> $rule
+     * @dataProvider toolRules
      */
-    #[DataProvider('toolRules')]
     public function testRbacWithARuleForTheToolsPasses(array $rule): void
     {
         $this->rbac([$rule]);
@@ -247,8 +255,9 @@ class McpCheckCommandTest extends TestCase
     }
 
     /**
-     * The oauth and external modes of 2.x are not in the 1.x line: the check fails instead of
-     * reporting an endpoint that would run without the authentication they promise.
+     * The oauth and external modes of 2.x are not in the 1.x line: the plugin bootstrap refuses them,
+     * so `mcp check` (as every command) stops with the reason instead of reporting an endpoint that
+     * would run without the authentication they promise.
      *
      * @return array<string, array{string}>
      */
@@ -257,14 +266,15 @@ class McpCheckCommandTest extends TestCase
         return ['oauth' => ['oauth'], 'external' => ['external']];
     }
 
-    #[DataProvider('unavailableModes')]
-    public function testUnavailableAuthModeFails(string $mode): void
+    /**
+     * @dataProvider unavailableModes
+     */
+    public function testUnavailableAuthModeStopsTheCommand(string $mode): void
     {
         Configure::write('Mcp.auth.mode', $mode);
 
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(sprintf('"Mcp.auth.mode" "%s" is not available', $mode));
         $this->exec('mcp check');
-
-        $this->assertExitError();
-        $this->assertOutputContains(sprintf('[FAIL] Authentication: "Mcp.auth.mode" "%s" is not available', $mode));
     }
 }

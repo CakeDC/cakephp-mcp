@@ -255,7 +255,7 @@ class McpCheckCommand extends Command
         return ['warn', sprintf(
             'no Log engine takes the errors of the %1$s scope, so a failing tool only answers "Error while '
             . 'executing tool" and its error is not kept anywhere (the debug and error engines of the '
-            . "application skeleton have 'scopes' => null). Add a FileLog with 'scopes' => ['%1\$s'], see %2\$s",
+            . "application skeleton have 'scopes' => false). Add a FileLog with 'scopes' => ['%1\$s'], see %2\$s",
             McpLogger::SCOPE,
             self::DOCS . 'configuration.md#logging',
         )];
