@@ -9,7 +9,8 @@ composer require cakedc/cakephp-mcp:^1.1
 It installs `mcp/sdk` ^0.9, the official PHP SDK. Require `^1.1`: version 1.0.0
 on Packagist is the CakePHP 5 code of 2.0.0, tagged by mistake.
 
-The plugin needs PHP 8.2+ and CakePHP 4.5+. It builds on the official `mcp/sdk`.
+The plugin needs PHP 8.2 or 8.3 and CakePHP 4.5+ (CakePHP 4 needs
+`laminas/laminas-diactoros` 2.x, which stops at PHP 8.3). It builds on the official `mcp/sdk`.
 The `php-http/discovery` Composer plugin is not needed: the plugin passes the
 PSR-17 factories of `laminas/laminas-diactoros` (which CakePHP 4 already
 requires) to the SDK, so nothing has to be discovered.

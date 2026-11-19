@@ -12,6 +12,9 @@ CakePHP 5 code of 2.0.0, tagged by mistake.
 - `bin/cake mcp check` follows the CakePHP 4 log scopes: the skeleton's `debug` and `error` engines have `'scopes' => false` and take only messages without a scope.
 - Requires `mcp/sdk` ^0.9 and `psr/log` ^2.0 or ^3.0.
 - Tests on PHPUnit 9; phpcs and PHPStan level 8; the official MCP conformance suite passes for both protocol revisions.
+- PHP 8.2 and 8.3: CakePHP 4 needs `laminas/laminas-diactoros` 2.x, which does not install on PHP 8.4.
+
+The entries below 1.1.0 are the history of the 2.x line (CakePHP 5), kept for reference: their OAuth features are not in 1.x.
 
 ## 2.1.1 (2026-11-07)
 

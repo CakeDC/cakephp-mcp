@@ -30,7 +30,7 @@ scenario the plugin fails turns the build red on purpose. Set
 The CI workflow runs the suite on pushes to the main branches and on every
 pull request.
 
-The container uses the PHP version of the host that runs the script (8.4 in
+The container uses the PHP version of the host that runs the script (8.3 in
 CI), because it runs the `vendor/` directory installed there. Set
 `CONFORMANCE_PHP` to use another one.
 

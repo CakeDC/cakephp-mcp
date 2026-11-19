@@ -18,7 +18,7 @@ OAuth 2.1 for remote clients; see [Not available in 1.x](#not-available-in-1x).
 
 ## Requirements
 
-- PHP 8.2+
+- PHP 8.2 or 8.3 (CakePHP 4 needs `laminas/laminas-diactoros` 2.x, which stops at PHP 8.3)
 - CakePHP 4.5+
 - `cakephp/authentication` 2.x (or any authentication that sets the `identity` request attribute)
 

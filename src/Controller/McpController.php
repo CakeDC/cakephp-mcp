@@ -29,9 +29,8 @@ use Throwable;
 
 /**
  * The MCP HTTP endpoint (`Mcp.route`, `/mcp` by default). Hands the request to
- * the SDK's Streamable HTTP transport and returns its response. In host mode the identity comes from the
- * host's authentication; in `oauth` and `external` modes from the access token (the host's identity
- * attribute is ignored).
+ * the SDK's Streamable HTTP transport and returns its response. The identity comes from the host's
+ * authentication (`host` mode, the only one in the 1.x line).
  */
 class McpController extends Controller
 {
