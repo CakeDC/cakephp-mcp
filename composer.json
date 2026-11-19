@@ -15,6 +15,7 @@
         "cakephp/cakephp": "^4.5",
         "laminas/laminas-diactoros": "^2.2",
         "mcp/sdk": "^0.9",
+        "psr/log": "^2.0 || ^3.0",
         "symfony/finder": "^6.4 || ^7.0 || ^8.0"
     },
     "require-dev": {
