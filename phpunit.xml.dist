@@ -2,16 +2,16 @@
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="tests/bootstrap_suite.php"
-         cacheDirectory=".phpunit.cache"
+         cacheResultFile=".phpunit.cache/test-results"
          colors="true">
     <testsuites>
         <testsuite name="cakephp-mcp">
             <directory>tests/TestCase/</directory>
         </testsuite>
     </testsuites>
-    <source>
+    <coverage>
         <include>
             <directory suffix=".php">src/</directory>
         </include>
-    </source>
+    </coverage>
 </phpunit>
