@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.1.0 (2026-11-19)
 
 Port of 2.1.1 to CakePHP 4.5+, replacing the 1.x prototype. Require `^1.1`: version 1.0.0 on Packagist is the
 CakePHP 5 code of 2.0.0, tagged by mistake.
