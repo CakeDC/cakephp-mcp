@@ -1,12 +1,5 @@
 # Troubleshooting
 
-## OAuth sign-in problems
-
-Clients that loop on sign-in, `401 invalid_token`, `403 insufficient_scope`, a
-well-known path blocked by the web server and a `500` after enabling OAuth are
-covered in [OAuth](oauth.md#troubleshooting). `bin/cake mcp check` finds most of
-them without a network call.
-
 ## The tool list is empty
 
 Run `bin/cake mcp check` first: its `Tools` line lists the tools the server
@@ -45,16 +38,12 @@ file, fewer items), or raise the limit:
 Configure::write('Mcp.http.maxBodyBytes', 8 * 1024 * 1024);
 ```
 
-Before 2.0.0 (in the 2.x betas) the `oauth` and `external` modes answered the
-same request with a `400` Bearer `invalid_request` challenge, which clients
-read as a token problem.
-
 ## 403 or a redirect to the login page (cakedc/users)
 
 On a `cakedc/users` host, `RequestAuthorizationMiddleware` authorizes the
 route before the plugin runs, so an anonymous or unlisted request gets a 403 or
 a redirect to the login page instead of the plugin's 401. Add the `bypassAuth`
-permission rule for `CakeDC/Mcp` `Mcp::handle` and `ProtectedResource::metadata`
+permission rule for `CakeDC/Mcp` `Mcp::handle`
 that `McpConfig::rbacPermissions()` returns; see
 [Authentication](authentication.md#cakedcauth-and-cakedcusers). If tokens are
 sent but ignored, the default `Token` authenticator reads `api_key` from the
@@ -109,16 +98,3 @@ because the configuration is invalid. The response is always the JSON body
 `{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}`,
 never an HTML page, even in debug mode. The full error is in your log under the
 `mcp` scope.
-
-## A missing scope answers 401 instead of 403
-
-PHP sets the status to `401` whenever a `WWW-Authenticate` header is sent,
-unless the status is set again afterwards, and Cake's `ResponseEmitter` sends
-the status line before the headers. So a `403 insufficient_scope` with its
-Bearer challenge used to reach clients as `401`, and clients asked people to
-sign in again instead of asking for more scopes. Since 2.1.0 the MCP endpoint
-sets the status once more right before PHP sends the headers
-(`header_register_callback()`). PHP allows one such callback per request, so
-the endpoint replaces one your application registered earlier in the same
-request.
-

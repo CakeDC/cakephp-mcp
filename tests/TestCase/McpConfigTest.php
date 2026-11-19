@@ -90,12 +90,12 @@ class McpConfigTest extends TestCase
         $this->assertSame([], McpConfig::get('discovery.scanDirs'));
     }
 
-    public function testIsEndpointMatchesTheRouteAndItsMetadata(): void
+    public function testIsEndpointMatchesTheRoute(): void
     {
-        foreach (['/mcp', '/mcp/', '/.well-known/oauth-protected-resource/mcp'] as $path) {
+        foreach (['/mcp', '/mcp/'] as $path) {
             $this->assertTrue(McpConfig::isEndpoint(new ServerRequest(['url' => $path])), $path);
         }
-        foreach (['/mcpx', '/api/mcp', '/', '/.well-known/oauth-protected-resource'] as $path) {
+        foreach (['/mcpx', '/api/mcp', '/', '/.well-known/oauth-protected-resource/mcp'] as $path) {
             $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => $path])), $path);
         }
     }
@@ -107,14 +107,14 @@ class McpConfigTest extends TestCase
         $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => '/mcp'])));
     }
 
-    public function testRbacPermissionsBypassAuthForTheEndpointAndItsMetadata(): void
+    public function testRbacPermissionsBypassAuthForTheEndpoint(): void
     {
         $this->assertSame([
             [
                 'role' => '*',
                 'plugin' => 'CakeDC/Mcp',
-                'controller' => ['Mcp', 'ProtectedResource'],
-                'action' => ['handle', 'metadata'],
+                'controller' => 'Mcp',
+                'action' => 'handle',
                 'bypassAuth' => true,
             ],
         ], McpConfig::rbacPermissions());
@@ -135,7 +135,6 @@ class McpConfigTest extends TestCase
 
         try {
             $this->assertTrue($rbac->checkPermissions([], $routed('/mcp', 'POST')));
-            $this->assertTrue($rbac->checkPermissions([], $routed('/.well-known/oauth-protected-resource/mcp', 'GET')));
             $other = (new ServerRequest(['url' => '/users/delete']))->withAttribute('params', [
                 'plugin' => null,
                 'controller' => 'Users',
@@ -145,6 +144,24 @@ class McpConfigTest extends TestCase
         } finally {
             Router::reload();
         }
+    }
+
+    public function testHostAuthModeIsAccepted(): void
+    {
+        McpConfig::assertHostAuthMode();
+        Configure::write('Mcp.auth.mode', 'host');
+        McpConfig::assertHostAuthMode();
+
+        $this->assertSame('host', McpConfig::get('auth.mode'));
+    }
+
+    public function testTheAuthModesOf2xAreRefused(): void
+    {
+        Configure::write('Mcp.auth.mode', 'oauth');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.auth.mode" "oauth" is not available in cakedc/cakephp-mcp 1.x (CakePHP 4)');
+        McpConfig::assertHostAuthMode();
     }
 
     public function testTheBodyLimitDefaultsToTheSdkLimit(): void

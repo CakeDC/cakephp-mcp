@@ -21,24 +21,7 @@ want to change; everything else keeps its default. These are the defaults
     'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4194304],
     'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
     'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => []],
-    'auth' => [
-        'mode' => 'host',
-        'resource' => null,
-        'resourceName' => null,
-        'resourceDocumentation' => null,
-        'scopes' => ['default' => [], 'methods' => [], 'tools' => [], 'implies' => []],
-        'identity' => null,
-        'external' => [
-            'issuer' => null,
-            'audience' => null,
-            'algorithms' => ['RS256'],
-            'scopeClaim' => 'scope',
-            'tokenType' => null,
-            'leeway' => 0,
-            'cache' => 'mcp_oauth',
-            'httpClient' => null,
-        ],
-    ],
+    'auth' => ['mode' => 'host'],
     'stdio' => ['identity' => null, 'trusted' => true],
 ],
 ```
@@ -63,53 +46,21 @@ want to change; everything else keeps its default. These are the defaults
 - `identity.scopes`: optional `fn (mixed $identity): array` returning scope strings for the SDK access token.
 - `authorization.authorizer`: class name or instance of a `ToolAuthorizerInterface`.
 - `authorization.rbac`: options for `RbacToolAuthorizer` (the `cakedc/auth` Rbac config).
-- `auth`: how the endpoint authenticates remote clients. See [Mcp.auth](#mcpauth).
+- `auth`: how the endpoint authenticates remote clients; only `host` in 1.x. See [Mcp.auth](#mcpauth).
 - `stdio.identity`: closure returning the identity for `bin/cake mcp server`.
 - `stdio.trusted`: skip per-tool authorization for stdio.
 - `audit`: the audit log of MCP calls, off by default. See [Audit log](#audit-log).
 
 ## Mcp.auth
 
-`Mcp.auth` chooses between your own authentication (`host`, the default) and
-OAuth 2.1 access tokens (`oauth` and `external`). The whole story, with
-examples, is in [OAuth](oauth.md). Unlike the rest of `Mcp`, this section is
-validated strictly: an unknown key, a wrong type or a scope that the resource
-does not declare makes the endpoint answer `500 Internal error` and logs the
-setting that is wrong (read the `mcp` log scope, or run `bin/cake mcp check`).
-Tools stay unreachable until it is fixed; a typo in a security setting never
-opens anything.
+- `auth.mode`: `host`, the only mode of the 1.x line (CakePHP 4): your authentication puts the identity in the request, and the plugin reads it (see [Authentication](authentication.md)).
 
-- `auth.mode`: `host` (default, the 2.0 behaviour: your authentication puts the identity in the request), `oauth` (tokens of `cakedc/cakephp-oauth-server` in the same application) or `external` (JWT access tokens of a third-party authorization server).
-- `auth.resource`: the canonical URL of the MCP endpoint, which is the audience of its tokens. `null` derives it from `App.fullBaseUrl`, `App.base` and `Mcp.route`; on a subdirectory install set `App.base` or this key, because a base path Cake detects by itself (`App.base` `false`) is not seen. Set it when the application sits behind a proxy. Only `https` is accepted (plain `http` only for localhost), without fragment or credentials. Not used in `host` mode.
-- `auth.resourceName`: optional name shown in the protected resource metadata.
-- `auth.resourceDocumentation`: optional documentation URL shown in the protected resource metadata.
-- `auth.scopes`: the scope policy, as below. Every scope named here must be declared by the resource in `oauth` mode.
-- `auth.scopes.default`: list of scopes every MCP request needs.
-- `auth.scopes.methods`: JSON-RPC method to list of scopes, for example `['tools/call' => ['content:read']]`.
-- `auth.scopes.tools`: tool name to list of scopes, added to the ones of the method for that tool.
-- `auth.scopes.implies`: scope to list of scopes it also grants, for example `['content:write' => ['content:read']]`.
-- `auth.identity`: optional `fn (Mcp\Server\Authorization\AccessToken $token, mixed $identity): mixed` that replaces the identity tools and the authorizer see. Return an array or an object; `null`, `false` or any other scalar rejects the token with 401 `invalid_token`. See [OAuth](oauth.md#identity-in-external-mode).
-- `auth.external`: the settings of `external` mode, as below. Ignored in the other modes.
-- `auth.external.issuer`: required in `external` mode. The issuer URL, compared verbatim with the `iss` claim (a trailing slash counts).
-- `auth.external.audience`: accepted `aud` value, a list of them, or `null` for the resource URL.
-- `auth.external.algorithms`: accepted signature algorithms, a list. Only asymmetric ones (`RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, `EdDSA`) are possible. Default `['RS256']`.
-- `auth.external.scopeClaim`: the claim that holds the scopes. Default `scope` (a space separated string, or a list); Microsoft Entra ID uses `scp`.
-- `auth.external.tokenType`: required `typ` header of the JWT, for example `at+jwt`. `null` accepts any.
-- `auth.external.leeway`: clock skew tolerated, in seconds, from 0 to 300. Default 0.
-- `auth.external.cache`: name of the Cake cache config for the discovery metadata and the signing keys. Created as a file cache when you define none. Default `mcp_oauth`.
-- `auth.external.httpClient`: a PSR-18 client for discovery and key requests. `null` uses Cake's HTTP client with a 5 second timeout.
-
-A minimal `oauth` setup:
-
-```php
-Configure::write('Mcp.auth', [
-    'mode' => 'oauth',
-    'scopes' => [
-        'methods' => ['tools/call' => ['content:read']],
-        'tools' => ['publish_post' => ['content:publish']],
-    ],
-]);
-```
+The `oauth` and `external` modes of 2.x (OAuth 2.1 access tokens of
+`cakedc/cakephp-oauth-server`, or JWT access tokens of a third-party
+authorization server) need cakedc/cakephp-mcp 2.x on CakePHP 5. Any other
+value of `auth.mode` makes the plugin bootstrap throw, and the endpoint answers
+`500 Internal error`: a security setting that cannot be honoured never opens
+anything. `bin/cake mcp check` reports it as a failure.
 
 ## Lists replace defaults
 
@@ -181,46 +132,6 @@ messages (and the `mcp_audit` lines of the [audit log](#audit-log)) reach only
 the engines that list those scopes. An engine with no `scopes` key at all (or
 `'scopes' => []`, as in older skeletons) takes every scope.
 
-## Rate limiting
-
-The plugin does not limit how often a client calls the endpoint. CakePHP 5.3
-and newer have `RateLimitMiddleware`: add it to your application's middleware
-queue, after `ErrorHandlerMiddleware` (it throws a
-`TooManyRequestsException`, which the error handler turns into a `429` with
-`Retry-After`), and keep it to the MCP route with `skipCheck`:
-
-```php
-use Cake\Http\Middleware\RateLimitMiddleware;
-use CakeDC\Mcp\McpConfig;
-use Psr\Http\Message\ServerRequestInterface;
-
-$middlewareQueue->add(new RateLimitMiddleware([
-    'identifier' => RateLimitMiddleware::IDENTIFIER_TOKEN,
-    'limit' => 60,
-    'window' => 60,
-    'cache' => 'rate_limit',
-    'skipCheck' => fn(ServerRequestInterface $request): bool => !McpConfig::isEndpoint($request),
-]));
-```
-
-Who the limit counts:
-
-- In `oauth` and `external` modes the plugin checks the access token inside
-  the endpoint, so the middleware cannot see the user: count per token
-  (`IDENTIFIER_TOKEN`, a hash of the `Authorization` header). An access token
-  changes at every refresh, so the limit applies per token lifetime, not per
-  person.
-- In `host` mode your authentication sets the identity: add the middleware
-  after `AuthenticationMiddleware` and count per user (`IDENTIFIER_USER`).
-- A second instance with `IDENTIFIER_IP` and a higher limit, before
-  authentication, slows down floods of requests without a token.
-
-`McpConfig::isEndpoint()` matches the MCP route and its protected resource
-metadata route. Use a cache shared by every PHP worker (Redis, for example):
-with a per-process cache every worker counts on its own. A request refused
-with `429` never reaches the endpoint, so the [audit log](#audit-log) does not
-record it.
-
 ## Audit log
 
 `Mcp.audit` records who called what: every audited call, allowed, denied or
@@ -252,7 +163,7 @@ named in the `mcp` log) and makes `bin/cake mcp check` fail.
 | `name` | the tool or prompt, or the resource URI, cut to 255 characters |
 | `outcome` | see below |
 | `identity` | the identifier of the caller, `null` without one |
-| `client` | the OAuth client of the access token (`client_id`, `azp`, or a single `aud`), `null` in host mode |
+| `client` | the client of the access token (`client_id`, `azp`, or a single `aud`); always `null` over HTTP in host mode, the only mode of 1.x. Kept so the records have the same fields as in 2.x |
 | `session` | the MCP session id |
 | `request` | the JSON-RPC request id, cut to 255 characters |
 | `arguments` | the arguments, redacted and cut |
@@ -267,7 +178,6 @@ named in the `mcp` log) and makes `bin/cake mcp check` fail.
 | `denied` | the authorizer denied the tool | `warning` |
 | `error` | the tool threw, or another JSON-RPC error | `warning` |
 | `unauthorized` | `401` from authentication, before the server runs | `warning` |
-| `insufficient_scope` | `403`: the access token lacks a scope | `warning` |
 
 A denied tool still gets the same answer as an unknown one (see
 [Authorization](authorization.md#what-a-denied-caller-sees)); only the record
@@ -275,8 +185,7 @@ tells them apart.
 
 Limits:
 
-- A refused call (`unauthorized`, `insufficient_scope`) has no client and no
-  session, and only a `403` names the caller.
+- A refused call (`unauthorized`) has no client, no session and no caller.
 - A tool that waits for an answer from the client (elicitation, sampling):
   over HTTP it finishes in a later request, so its `durationMs` is `null`;
   over stdio it finishes in the same process, and `durationMs` includes the

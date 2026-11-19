@@ -10,15 +10,12 @@ use Cake\Http\StreamFactory;
 use Cake\Log\Log;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
-use CakeDC\Mcp\Http\ChallengeStatus;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\AuditRefusalMiddleware;
 use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
-use CakeDC\Mcp\OAuth\AuthSettings;
-use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
@@ -71,7 +68,7 @@ class McpController extends Controller
                 // Right before authentication, to record the calls it refuses.
                 $middleware[] = new AuditRefusalMiddleware($audit, new AuditWriter($audit), $identity);
             }
-            $middleware[] = $this->authentication($identity, $responseFactory, $streamFactory, $maxBodyBytes);
+            $middleware[] = $this->authentication($identity, $responseFactory, $streamFactory);
             $transport = new StreamableHttpTransport(
                 $this->request,
                 $responseFactory,
@@ -91,30 +88,20 @@ class McpController extends Controller
     }
 
     /**
-     * The middleware that identifies the caller: the host's identity in host mode, an OAuth access
-     * token otherwise. Invalid settings throw, so the endpoint fails closed.
+     * The middleware that identifies the caller from the host's identity. An `auth.mode` other than
+     * `host` throws, so the endpoint fails closed.
      *
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
      * @param \Cake\Http\ResponseFactory $responseFactory For its responses.
      * @param \Cake\Http\StreamFactory $streamFactory For their bodies.
-     * @param int $maxBodyBytes The body limit, for the token middleware's scope policy.
      * @return \Psr\Http\Server\MiddlewareInterface
      */
     private function authentication(
         CurrentIdentity $identity,
         ResponseFactory $responseFactory,
         StreamFactory $streamFactory,
-        int $maxBodyBytes,
     ): MiddlewareInterface {
-        $settings = AuthSettings::fromConfig();
-        if ($settings->mode !== AuthSettings::HOST) {
-            return (new ResourceServer($settings))->middleware(
-                $identity,
-                $responseFactory,
-                $streamFactory,
-                $maxBodyBytes,
-            );
-        }
+        McpConfig::assertHostAuthMode();
         $scopes = McpConfig::get('identity.scopes');
 
         return new IdentityMiddleware(
@@ -148,9 +135,6 @@ class McpController extends Controller
         if (str_starts_with($response->getHeaderLine('Content-Type'), 'text/event-stream')) {
             $response = $response->withHeader('X-Accel-Buffering', 'no');
         }
-        // A 403 insufficient_scope carries a Bearer challenge, which PHP would turn into a 401.
-        ChallengeStatus::keep($response);
-
         return $response;
     }
 

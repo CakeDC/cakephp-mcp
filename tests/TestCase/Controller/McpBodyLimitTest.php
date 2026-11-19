@@ -7,27 +7,16 @@ use Cake\Core\Configure;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Test\Support\McpHttpTrait;
-use CakeDC\Mcp\Test\Support\OAuthFixtures;
-use CakeDC\OAuthServer\OAuthServer;
-use TestApp\OAuthTestConfig;
 use TestApp\TestTokens;
 
 /**
  * `Mcp.http.maxBodyBytes` at the endpoint: an oversized body is answered with 413 and a JSON-RPC error
- * before any authentication, in every mode.
+ * before any authentication.
  */
 class McpBodyLimitTest extends TestCase
 {
     use IntegrationTestTrait;
     use McpHttpTrait;
-
-    protected array $fixtures = OAuthFixtures::ALL;
-
-    protected function tearDown(): void
-    {
-        OAuthServer::reset();
-        parent::tearDown();
-    }
 
     public function testAnOversizedBodyIsAnswered413BeforeAuthentication(): void
     {
@@ -41,19 +30,6 @@ class McpBodyLimitTest extends TestCase
         $this->assertSame(-32600, $error['code'] ?? null);
         $this->assertSame(2048, $error['data']['maxBodyBytes'] ?? null);
         $this->assertStringContainsString('the limit is 2048 bytes', (string)($error['message'] ?? ''));
-    }
-
-    public function testInOAuthModeAnOversizedBodyIsNotABearerChallenge(): void
-    {
-        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
-        OAuthServer::reset();
-        Configure::write('Mcp.http.maxBodyBytes', 2048);
-
-        $this->callTool('create_note', ['title' => str_repeat('a', 4096)]);
-
-        $this->assertResponseCode(413);
-        $this->assertSame('', $this->_response?->getHeaderLine('WWW-Authenticate'));
-        $this->assertSame(-32600, $this->responseJson()['error']['code'] ?? null);
     }
 
     public function testABodyWithinTheLimitStillReachesTheTool(): void

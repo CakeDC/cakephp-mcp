@@ -14,8 +14,6 @@ use Cake\Routing\RoutingApplicationInterface;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
-use CakeDC\Mcp\OAuth\AuthSettings;
-use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Schema\Enum\ProtocolVersion;
@@ -79,12 +77,8 @@ trait McpTestTrait
      * Makes the next calls as this identity, in the shape your authentication
      * produces (an entity, an `ArrayObject`, an array...). Null makes them anonymous.
      *
-     * With $scopes the access token carries them, and in the oauth and external modes the
-     * `Mcp.auth.scopes` policy is applied first, as the HTTP endpoint would. In oauth mode the scopes
-     * are first expanded with the `implies` of the resource declared in `OAuthServer.resources`, as the
-     * authorization server does for the endpoint. A `tools/call` the policy refuses is checked with
-     * `assertMcpInsufficientScope()`; any other refused request (the `tools/list` behind `mcpListTools()`
-     * and the `assertMcpTool*Listed()` assertions) fails the test instead of returning the 403 answer.
+     * With $scopes the access token carries them instead of the scopes returned by the
+     * `identity.scopes` callable.
      *
      * @param mixed $identity The identity.
      * @param list<string>|null $scopes The token's scopes; null keeps the `identity.scopes` callable.
@@ -242,32 +236,6 @@ trait McpTestTrait
     }
 
     /**
-     * Asserts the last call was refused because the access token lacks scopes, as the HTTP endpoint
-     * answers with 403 `insufficient_scope` (only with scopes given to `mcpActingAs()`, in the oauth and
-     * external modes). Only tool calls get this answer: a refused `tools/list` fails the test right away.
-     *
-     * @param list<string>|null $scopes The scopes the call needs, any when null.
-     * @param string $message Shown on failure.
-     * @return void
-     */
-    public function assertMcpInsufficientScope(?array $scopes = null, string $message = ''): void
-    {
-        $response = $this->mcpResponse();
-        $error = $response['error'] ?? null;
-        Assert::assertTrue(
-            is_array($error) && ($error['message'] ?? null) === 'insufficient_scope',
-            $message ?: 'Expected the call to be refused for missing scopes, got: ' . $this->mcpJson($response),
-        );
-        if ($scopes !== null) {
-            Assert::assertEqualsCanonicalizing(
-                $scopes,
-                $error['data']['scopes'] ?? null,
-                $message,
-            );
-        }
-    }
-
-    /**
      * Asserts that the text of the last result contains a string.
      *
      * @param string $text The expected text.
@@ -397,33 +365,6 @@ trait McpTestTrait
                     $this->_mcpScopes ?? $token->getScopes(),
                     $this->_mcpClaims + $token->getClaims(),
                 );
-            }
-        }
-        if ($token !== null && $this->_mcpScopes !== null && !$trusted) {
-            $settings = AuthSettings::fromConfig();
-            $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
-            if ($policy !== null) {
-                $required = $policy->requiredFor($request);
-                // In oauth mode the authorization server expands the token's scopes with the `implies` of
-                // the declared resource before the policy sees them; the policy then adds its own `implies`.
-                $granted = $policy->expand((new ResourceServer($settings))->grantedScopes($token->getScopes()));
-                if (array_diff($required, $granted) !== []) {
-                    if ($method !== 'tools/call') {
-                        Assert::fail(sprintf(
-                            'The access token lacks scopes for `%s`: it needs %s.',
-                            $method,
-                            implode(' ', $required),
-                        ));
-                    }
-
-                    // What the endpoint answers with HTTP 403 and `insufficient_scope`.
-                    return ['jsonrpc' => '2.0', 'id' => 2, 'error' => [
-                        'code' => 403,
-                        'message' => 'insufficient_scope',
-                        'data' => ['scopes' => $required],
-                    ]];
-                }
-                $token = new AccessToken($granted, $token->getClaims());
             }
         }
         $transport = new RecordingTransport(

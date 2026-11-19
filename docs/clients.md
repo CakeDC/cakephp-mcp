@@ -11,10 +11,6 @@ Check that it connected with `claude mcp list`, or `/mcp` inside Claude Code.
 The server must be reachable from your machine, and its host must be allowed
 (`http.allowedHosts`; by default the host of `App.fullBaseUrl`, which only restricts anything when it is set explicitly, so set `http.allowedHosts` for a real deployment).
 
-To sign in with OAuth instead of a header, configure `Mcp.auth` as described in
-[OAuth](oauth.md), then add the server without `--header` and run `/mcp` inside
-Claude Code.
-
 For a server running on your own machine you can use the local URL, for
 example `https://my-app.ddev.site/mcp`.
 
@@ -30,8 +26,9 @@ See [stdio](stdio.md).
 
 In claude.ai go to Customize > Connectors > Add custom connector, and enter the
 URL of your endpoint. Where your account allows custom request headers you can
-send the Bearer token there. To have the connector sign people in instead, use
-`Mcp.auth.mode` `oauth` or `external`; see [OAuth](oauth.md#connecting-clients).
+send the Bearer token there. Connectors that sign people in with OAuth need
+cakedc/cakephp-mcp 2.x on CakePHP 5; the 1.x line only reads the identity of
+your own authentication.
 
 ## MCP Inspector
 
@@ -66,9 +63,8 @@ and macOS that needs PHP's `pcntl` extension, usual in the CLI; without it the
 command warns and prints the path to delete. If the PHP process is killed
 outright (for example `kill -9`), remove `mcp-inspector-*.json` from the
 temporary directory yourself. If the token is wrong, the endpoint answers
-401 and the Inspector offers an OAuth sign-in. That works when the endpoint
-runs in `oauth` or `external` mode (see [OAuth](oauth.md)); in `host` mode,
-check the token instead.
+401 and the Inspector offers an OAuth sign-in. The 1.x line has no OAuth
+sign-in, so check the token instead.
 
 You can also start the Inspector yourself with
 `npx @modelcontextprotocol/inspector`, choose the Streamable HTTP transport,

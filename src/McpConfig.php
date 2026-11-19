@@ -20,9 +20,9 @@ use Psr\Http\Message\ServerRequestInterface;
 final class McpConfig
 {
     /**
-     * Path prefix of the protected resource metadata (RFC 9728), followed by the MCP route.
+     * The only `auth.mode` of the 1.x line. The `oauth` and `external` modes need 2.x on CakePHP 5.
      */
-    public const METADATA_PREFIX = '/.well-known/oauth-protected-resource';
+    public const AUTH_MODE_HOST = 'host';
 
     /**
      * @var array<string, mixed>
@@ -43,24 +43,7 @@ final class McpConfig
         'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4 * 1024 * 1024],
         'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
         'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => []],
-        'auth' => [
-            'mode' => 'host',
-            'resource' => null,
-            'resourceName' => null,
-            'resourceDocumentation' => null,
-            'scopes' => ['default' => [], 'methods' => [], 'tools' => [], 'implies' => []],
-            'identity' => null,
-            'external' => [
-                'issuer' => null,
-                'audience' => null,
-                'algorithms' => ['RS256'],
-                'scopeClaim' => 'scope',
-                'tokenType' => null,
-                'leeway' => 0,
-                'cache' => 'mcp_oauth',
-                'httpClient' => null,
-            ],
-        ],
+        'auth' => ['mode' => self::AUTH_MODE_HOST],
         'stdio' => ['identity' => null, 'trusted' => true],
         'audit' => [
             'enabled' => false,
@@ -141,6 +124,27 @@ final class McpConfig
     }
 
     /**
+     * Fails when `auth.mode` is not `host`: the oauth and external modes of 2.x are not in this line,
+     * and running without the authentication they promise would open the endpoint.
+     *
+     * @return void
+     * @throws \InvalidArgumentException When another mode is configured.
+     */
+    public static function assertHostAuthMode(): void
+    {
+        $mode = self::get('auth.mode');
+        if ($mode === self::AUTH_MODE_HOST) {
+            return;
+        }
+
+        throw new InvalidArgumentException(sprintf(
+            '"Mcp.auth.mode" %s is not available in cakedc/cakephp-mcp 1.x (CakePHP 4): only "host" is. '
+            . 'The oauth and external modes need cakedc/cakephp-mcp 2.x on CakePHP 5.',
+            json_encode($mode),
+        ));
+    }
+
+    /**
      * Recursive merge where associative arrays merge and lists are replaced.
      *
      * @param array<mixed> $base The defaults.
@@ -172,10 +176,10 @@ final class McpConfig
     }
 
     /**
-     * The RBAC rule (cakedc/auth, `config/permissions.php`) that lets every request reach the MCP endpoint and
-     * its protected resource metadata. cakedc/users authorizes the route before the controller runs, so without
-     * it an anonymous request is redirected to the login page instead of receiving the plugin's 401 and its
-     * metadata. The plugin decides access itself (authentication, scopes, then the tool authorizer).
+     * The RBAC rule (cakedc/auth, `config/permissions.php`) that lets every request reach the MCP endpoint.
+     * cakedc/users authorizes the route before the controller runs, so without it an anonymous request is
+     * redirected to the login page instead of receiving the plugin's 401. The plugin decides access itself
+     * (authentication, then the tool authorizer).
      *
      * @return list<array<string, mixed>>
      */
@@ -185,15 +189,15 @@ final class McpConfig
             [
                 'role' => '*',
                 'plugin' => 'CakeDC/Mcp',
-                'controller' => ['Mcp', 'ProtectedResource'],
-                'action' => ['handle', 'metadata'],
+                'controller' => 'Mcp',
+                'action' => 'handle',
                 'bypassAuth' => true,
             ],
         ];
     }
 
     /**
-     * Whether $request is for the MCP endpoint or its protected resource metadata. Use it to skip
+     * Whether $request is for the MCP endpoint. Use it to skip
      * Cake's CSRF check there, and to keep other bearer-token authenticators off these paths.
      *
      * @param \Psr\Http\Message\ServerRequestInterface $request The request.
@@ -209,6 +213,6 @@ final class McpConfig
         $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
         $path = '/' . trim($path, '/');
 
-        return $path === $route || $path === self::METADATA_PREFIX . $route;
+        return $path === $route;
     }
 }

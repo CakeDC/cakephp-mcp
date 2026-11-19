@@ -14,7 +14,6 @@ use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Command\McpInspectorCommand;
 use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
-use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\Server\ServerFactory;
 
 /**
@@ -23,8 +22,7 @@ use CakeDC\Mcp\Server\ServerFactory;
 class McpPlugin extends BasePlugin
 {
     /**
-     * Defines the discovery and session cache configs, and in external mode the authorization server's,
-     * when the host did not.
+     * Checks `Mcp.auth.mode` and defines the discovery and session cache configs when the host did not.
      *
      * @param \Cake\Core\PluginApplicationInterface $app The host application.
      * @return void
@@ -32,12 +30,9 @@ class McpPlugin extends BasePlugin
     public function bootstrap(PluginApplicationInterface $app): void
     {
         parent::bootstrap($app);
+        McpConfig::assertHostAuthMode();
 
         $caches = [McpConfig::get('discovery.cache'), McpConfig::get('session.cache')];
-        if (McpConfig::get('auth.mode') === AuthSettings::EXTERNAL) {
-            // Discovery metadata and signing keys of the external authorization server.
-            $caches[] = McpConfig::get('auth.external.cache');
-        }
         foreach ($caches as $name) {
             if (!is_string($name) || $name === '' || Cache::getConfig($name) !== null) {
                 continue;
@@ -52,8 +47,7 @@ class McpPlugin extends BasePlugin
     }
 
     /**
-     * Connects the MCP endpoint at `Mcp.route` (nothing when it is false), and its protected resource
-     * metadata under `/.well-known/oauth-protected-resource`.
+     * Connects the MCP endpoint at `Mcp.route` (nothing when it is false).
      *
      * @param \Cake\Routing\RouteBuilder $routes The route builder.
      * @return void
@@ -67,13 +61,6 @@ class McpPlugin extends BasePlugin
 
         $routes->connect($path, ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'])
             ->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
-
-        // Always connected: routes are cached, and a mode switch must not need a cache clear.
-        // In host mode the controller answers 404.
-        $routes->connect(
-            McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
-            ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'],
-        )->setMethods(['GET', 'OPTIONS']);
     }
 
     /**

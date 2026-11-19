@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Test\TestCase\Controller;
 
-use Cake\Cache\Cache;
-use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\Event\EventInterface;
 use Cake\Event\EventManager;
@@ -13,7 +11,6 @@ use Cake\Log\Log;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Test\Support\McpHttpTrait;
-use CakeDC\Mcp\Test\Support\TestJwt;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 class McpAuditRefusalTest extends TestCase
@@ -34,12 +31,6 @@ class McpAuditRefusalTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Cache::setConfig('mcp_oauth_test', ['className' => ArrayEngine::class]);
-        Configure::write('Mcp.auth', [
-            'mode' => 'external',
-            'scopes' => ['methods' => ['tools/call' => ['notes:read']], 'tools' => ['create_note' => ['notes:write']]],
-            'external' => ['issuer' => TestJwt::ISSUER, 'cache' => 'mcp_oauth_test', 'httpClient' => TestJwt::client()],
-        ]);
         Configure::write('Mcp.audit.enabled', true);
         Log::setConfig('audit_test', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
         $this->records = [];
@@ -53,7 +44,6 @@ class McpAuditRefusalTest extends TestCase
     {
         EventManager::instance()->off('Mcp.audit', $this->listener);
         Log::drop('audit_test');
-        Cache::drop('mcp_oauth_test');
         parent::tearDown();
     }
 
@@ -97,35 +87,16 @@ class McpAuditRefusalTest extends TestCase
         $this->assertSame([], $this->records);
     }
 
-    public function testInsufficientScopeIsRecordedWithTheOwner(): void
-    {
-        $this->callTool('create_note', ['title' => 'Groceries'], TestJwt::token());
-
-        $this->assertResponseCode(403);
-        $this->assertCount(1, $this->records);
-        $this->assertSame('insufficient_scope', $this->records[0]['outcome']);
-        $this->assertSame('user-1', $this->records[0]['identity']);
-    }
-
     public function testTheTokenNeverAppears(): void
     {
-        $token = TestJwt::token();
-        $this->callTool('create_note', ['title' => 'Groceries'], $token);
-
-        $recorded = implode("\n", $this->lines()) . json_encode($this->records);
-        $this->assertStringNotContainsString($token, $recorded);
-        $this->assertStringNotContainsString('Bearer', $recorded);
-    }
-
-    public function testHostModeUnauthorizedIsRecorded(): void
-    {
-        Configure::delete('Mcp.auth');
-
-        $this->callTool('echo', ['text' => 'hi']);
+        $token = 'not-a-valid-token';
+        $this->callTool('echo', ['text' => 'hi'], $token);
 
         $this->assertResponseCode(401);
         $this->assertCount(1, $this->records);
-        $this->assertSame('unauthorized', $this->records[0]['outcome']);
+        $recorded = implode("\n", $this->lines()) . json_encode($this->records);
+        $this->assertStringNotContainsString($token, $recorded);
+        $this->assertStringNotContainsString('Bearer', $recorded);
     }
 
     /**

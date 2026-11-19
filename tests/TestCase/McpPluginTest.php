@@ -11,6 +11,7 @@ use Cake\Routing\RouteBuilder;
 use Cake\Routing\RouteCollection;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\McpPlugin;
+use InvalidArgumentException;
 use TestApp\Application;
 
 class McpPluginTest extends TestCase
@@ -65,25 +66,18 @@ class McpPluginTest extends TestCase
         $this->assertInstanceOf(ArrayEngine::class, Cache::pool('host_sessions'));
     }
 
-    public function testBootstrapDefinesTheExternalCacheOnlyInExternalMode(): void
+    public function testBootstrapRefusesTheAuthModesOf2x(): void
     {
-        try {
+        foreach (['oauth', 'external'] as $mode) {
+            Configure::write('Mcp.auth.mode', $mode);
             $app = new Application(CONFIG);
             $app->bootstrap();
-            $app->pluginBootstrap();
-            $this->assertNull(Cache::getConfig('mcp_oauth_plugin_test'));
-
-            Configure::write('Mcp.auth', [
-                'mode' => 'external',
-                'external' => ['issuer' => 'https://issuer.example', 'cache' => 'mcp_oauth_plugin_test'],
-            ]);
-            $app = new Application(CONFIG);
-            $app->bootstrap();
-            $app->pluginBootstrap();
-
-            $this->assertInstanceOf(FileEngine::class, Cache::pool('mcp_oauth_plugin_test'));
-        } finally {
-            Cache::drop('mcp_oauth_plugin_test');
+            try {
+                $app->pluginBootstrap();
+                $this->fail(sprintf('Mcp.auth.mode %s should be refused.', $mode));
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('is not available in cakedc/cakephp-mcp 1.x', $e->getMessage());
+            }
         }
     }
 
@@ -94,9 +88,8 @@ class McpPluginTest extends TestCase
 
         (new McpPlugin())->routes(new RouteBuilder($collection, '/'));
 
-        $this->assertCount(2, $collection->routes());
+        $this->assertCount(1, $collection->routes());
         $this->assertSame('/ai/mcp', $collection->routes()[0]->template);
-        $this->assertSame('/.well-known/oauth-protected-resource/ai/mcp', $collection->routes()[1]->template);
     }
 
     public function testRoutesAreSkippedWhenDisabled(): void

@@ -94,8 +94,7 @@ in the `identity` attribute, so the plugin reads it unchanged. Two defaults of
    authorizes the route before the controller runs. The plugin's
    `skipAuthorization()` call never gets a chance, and an anonymous request is
    redirected to the login page instead of receiving the plugin's 401. Add a
-   permission rule for the endpoint and its protected resource metadata (used
-   by [OAuth](oauth.md)) in your `config/permissions.php`, with `bypassAuth` so
+   permission rule for the endpoint in your `config/permissions.php`, with `bypassAuth` so
    the request reaches the plugin, which then does its own 401 and per-tool
    authorization. `McpConfig::rbacPermissions()` returns that rule:
 
@@ -116,14 +115,11 @@ in the `identity` attribute, so the plugin reads it unchanged. Two defaults of
    [
        'role' => '*',
        'plugin' => 'CakeDC/Mcp',
-       'controller' => ['Mcp', 'ProtectedResource'],
-       'action' => ['handle', 'metadata'],
+       'controller' => 'Mcp',
+       'action' => 'handle',
        'bypassAuth' => true,
    ],
    ```
-
-   With the oauth plugin, merge `OAuthServer::rbacPermissions()` as well (see
-   [OAuth](oauth.md#cakedcusers)).
 
 2. The default `Token` authenticator of `cakedc/users` reads the `api_key` query
    parameter (`'header' => null`, `'queryParam' => 'api_key'`), not the
@@ -138,18 +134,8 @@ role, see [Authorization](authorization.md).
 
 ## OAuth
 
-Remote clients such as claude.ai connectors sign people in with OAuth 2.1.
-`Mcp.auth.mode` chooses how the endpoint authenticates:
-
-- `host` (default): everything above. Your authentication puts the identity in
-  the request.
-- `oauth`: access tokens issued by `cakedc/cakephp-oauth-server` in the same
-  application, so people sign in with your own login.
-- `external`: JWT access tokens issued by Auth0, Keycloak, Microsoft Entra ID,
-  WorkOS or another OpenID Connect issuer.
-
-In `oauth` and `external` modes the identity comes from the access token and
-the identity attribute of your own authentication (`Mcp.identity.attribute`) is
-ignored on the MCP route, as are `Mcp.identity.required` and
-`Mcp.identity.scopes`. Tools still read the identity through `CurrentIdentity`.
-The full guide is in [OAuth](oauth.md).
+The 1.x line (CakePHP 4) only has `host` mode: your authentication puts the
+identity in the request, as described above. Signing remote clients such as
+claude.ai connectors in with OAuth 2.1 (the `oauth` and `external` modes of
+`Mcp.auth.mode`) needs cakedc/cakephp-mcp 2.x on CakePHP 5. With 1.x, give
+those clients a Bearer token in a request header (see [Clients](clients.md)).

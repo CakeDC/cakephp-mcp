@@ -21,7 +21,6 @@
         "cakedc/auth": "^9.1",
         "cakephp/authentication": "^2.10",
         "cakephp/cakephp-codesniffer": "^5.1",
-        "cakephp/migrations": "^3.9",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^9.6"
     },
