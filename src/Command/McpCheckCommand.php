@@ -8,7 +8,6 @@ use Cake\Console\Arguments;
 use Cake\Console\ConsoleIo;
 use Cake\Core\Configure;
 use Cake\Core\Container;
-use Cake\Core\Plugin;
 use Cake\Http\BaseApplication;
 use Cake\Http\Middleware\CsrfProtectionMiddleware;
 use Cake\Http\MiddlewareQueue;
@@ -395,12 +394,9 @@ class McpCheckCommand extends Command
         if (!class_exists($class)) {
             return 'could not find the application class to inspect it';
         }
-        $plugins = Plugin::getCollection();
-        try {
-            $app = new $class(CONFIG);
-        } finally {
-            Plugin::setCollection($plugins);
-        }
+        // CakePHP 4 applications share the running plugin collection (Plugin::getCollection()),
+        // so building one replaces nothing.
+        $app = new $class(CONFIG);
 
         return $app instanceof BaseApplication ? $app : 'the application class is not a BaseApplication';
     }

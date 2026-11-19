@@ -218,7 +218,10 @@ final class ServerFactory
             // Only warnings and worse: the SDK's info lines would land among the output of `mcp check`.
             $this->build(true, new class extends AbstractLogger {
                 /**
-                 * @inheritDoc
+                 * @param mixed $level PSR-3 level.
+                 * @param \Stringable|string $message The message.
+                 * @param array<mixed> $context Context.
+                 * @return void
                  */
                 public function log(mixed $level, string|Stringable $message, array $context = []): void
                 {

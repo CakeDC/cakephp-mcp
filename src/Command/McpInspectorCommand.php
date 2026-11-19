@@ -240,8 +240,8 @@ class McpInspectorCommand extends Command
     }
 
     /**
-     * The values of a multiple option. Read raw: `getMultipleOption()` is
-     * deprecated from Cake 5.2 and `getArrayOption()` only exists from 5.2.
+     * The values of a multiple option. CakePHP 4 parses a `multiple` option into a list, but
+     * `Arguments::getOptions()` documents scalar values only, so the raw value is checked here.
      *
      * @param \Cake\Console\Arguments $args The arguments.
      * @param string $name The option.
@@ -249,8 +249,15 @@ class McpInspectorCommand extends Command
      */
     private function listOption(Arguments $args, string $name): array
     {
-        $values = $args->getOptions()[$name] ?? [];
+        return self::stringList($args->getOptions()[$name] ?? null);
+    }
 
+    /**
+     * @param mixed $values A raw option value.
+     * @return list<string> Its string items, nothing when it is not a list.
+     */
+    private static function stringList(mixed $values): array
+    {
         return is_array($values) ? array_values(array_filter($values, 'is_string')) : [];
     }
 

@@ -5,8 +5,6 @@ namespace CakeDC\Mcp\Controller;
 
 use Cake\Controller\Controller;
 use Cake\Http\Response;
-use Cake\Http\ResponseFactory;
-use Cake\Http\StreamFactory;
 use Cake\Log\Log;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
@@ -18,10 +16,14 @@ use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
+use Laminas\Diactoros\ResponseFactory;
+use Laminas\Diactoros\StreamFactory;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
 use Mcp\Server\Transport\Http\Middleware\DnsRebindingProtectionMiddleware;
 use Mcp\Server\Transport\StreamableHttpTransport;
+use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Throwable;
 
@@ -92,14 +94,14 @@ class McpController extends Controller
      * `host` throws, so the endpoint fails closed.
      *
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
-     * @param \Cake\Http\ResponseFactory $responseFactory For its responses.
-     * @param \Cake\Http\StreamFactory $streamFactory For their bodies.
+     * @param \Psr\Http\Message\ResponseFactoryInterface $responseFactory For its responses.
+     * @param \Psr\Http\Message\StreamFactoryInterface $streamFactory For their bodies.
      * @return \Psr\Http\Server\MiddlewareInterface
      */
     private function authentication(
         CurrentIdentity $identity,
-        ResponseFactory $responseFactory,
-        StreamFactory $streamFactory,
+        ResponseFactoryInterface $responseFactory,
+        StreamFactoryInterface $streamFactory,
     ): MiddlewareInterface {
         McpConfig::assertHostAuthMode();
         $scopes = McpConfig::get('identity.scopes');
@@ -135,6 +137,7 @@ class McpController extends Controller
         if (str_starts_with($response->getHeaderLine('Content-Type'), 'text/event-stream')) {
             $response = $response->withHeader('X-Accel-Buffering', 'no');
         }
+
         return $response;
     }
 
