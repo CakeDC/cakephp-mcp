@@ -11,7 +11,7 @@
         }
     ],
     "require": {
-        "php": ">=8.2",
+        "php": "~8.2.0 || ~8.3.0",
         "cakephp/cakephp": "^4.5",
         "laminas/laminas-diactoros": "^2.2",
         "mcp/sdk": "^0.9",
@@ -52,7 +52,5 @@
             "dealerdirect/phpcodesniffer-composer-installer": true,
             "php-http/discovery": false
         }
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+    }
 }
