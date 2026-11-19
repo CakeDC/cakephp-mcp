@@ -1,0 +1,8 @@
+# Kept out of the archives Composer installs.
+/.github export-ignore
+/tests export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/phpcs.xml export-ignore
+/phpstan.neon export-ignore
+/phpunit.xml.dist export-ignore

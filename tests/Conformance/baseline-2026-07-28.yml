@@ -1,0 +1,3 @@
+# Server scenarios expected to fail at this revision, each with the reason.
+# Empty: every scenario must pass.
+server: []

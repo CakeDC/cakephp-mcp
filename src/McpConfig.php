@@ -1,0 +1,218 @@
+<?php
+declare(strict_types=1);
+
+namespace CakeDC\Mcp;
+
+use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
+use Cake\Utility\Hash;
+use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use InvalidArgumentException;
+use Psr\Http\Message\ServerRequestInterface;
+
+/**
+ * Reads the plugin configuration (`Mcp` in Configure) merged over its defaults.
+ *
+ * The merge happens on every read, so the host may write `Mcp` at any point of
+ * its bootstrap. Lists (such as `discovery.scanDirs`) replace the default list. An empty array
+ * over an associative default keeps the default, so `Mcp.identity => []` cannot disable authentication.
+ */
+final class McpConfig
+{
+    /**
+     * The only `auth.mode` of the 1.x line. The `oauth` and `external` modes need 2.x on CakePHP 5.
+     */
+    public const AUTH_MODE_HOST = 'host';
+
+    /**
+     * @var array<string, mixed>
+     */
+    public const DEFAULTS = [
+        'route' => '/mcp',
+        'server' => [
+            'name' => 'CakePHP MCP Server',
+            'version' => '1.0.0',
+            'title' => null,
+            'description' => null,
+            'websiteUrl' => null,
+            'instructions' => null,
+            'configure' => null,
+        ],
+        'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
+        'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
+        'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4 * 1024 * 1024],
+        'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
+        'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => []],
+        'auth' => ['mode' => self::AUTH_MODE_HOST],
+        'stdio' => ['identity' => null, 'trusted' => true],
+        'audit' => [
+            'enabled' => false,
+            'methods' => ['tools/call'],
+            'log' => true,
+            'arguments' => true,
+            'redact' => ['password', 'token', 'secret'],
+            'maxLength' => 200,
+        ],
+    ];
+
+    /**
+     * @param string|null $path Dot path inside the `Mcp` config, or null for all of it.
+     * @return mixed
+     */
+    public static function get(?string $path = null): mixed
+    {
+        $config = self::merge(self::DEFAULTS, (array)Configure::read('Mcp'));
+
+        return $path === null ? $config : Hash::get($config, $path);
+    }
+
+    /**
+     * The cache config used for the discovery cache, or null when it is disabled.
+     * Always null in debug mode, so new tools show up without clearing caches.
+     *
+     * @return string|null
+     */
+    public static function discoveryCache(): ?string
+    {
+        $name = self::get('discovery.cache');
+        if (Configure::read('debug') || !is_string($name) || $name === '') {
+            return null;
+        }
+
+        return $name;
+    }
+
+    /**
+     * The largest request body the endpoint reads, in bytes (`http.maxBodyBytes`, 4 MiB by default, the
+     * SDK's own limit). The same value goes to the SDK transport and to its AuthorizationMiddleware, and
+     * BodyLimitMiddleware answers a larger body with 413 before either reads it.
+     *
+     * @return int
+     * @throws \InvalidArgumentException When the setting is not a positive integer, so the endpoint fails closed.
+     */
+    public static function maxBodyBytes(): int
+    {
+        $value = self::get('http.maxBodyBytes');
+        if (!is_int($value) || $value < 1) {
+            throw new InvalidArgumentException('`Mcp.http.maxBodyBytes` must be a positive integer (bytes).');
+        }
+
+        return $value;
+    }
+
+    /**
+     * Hosts the DNS-rebinding protection accepts. Defaults to the host of
+     * `App.fullBaseUrl` plus localhost; the SDK default (localhost only) would
+     * reject every request to a real domain.
+     *
+     * @return list<string>
+     */
+    public static function allowedHosts(): array
+    {
+        $hosts = self::get('http.allowedHosts');
+        if (is_array($hosts)) {
+            return array_values(array_map(fn(mixed $host): string => strtolower((string)$host), $hosts));
+        }
+
+        $allowed = ['localhost', '127.0.0.1', '[::1]'];
+        $host = parse_url((string)Configure::read('App.fullBaseUrl'), PHP_URL_HOST);
+        if (is_string($host) && $host !== '') {
+            array_unshift($allowed, strtolower($host));
+        }
+
+        return array_values(array_unique($allowed));
+    }
+
+    /**
+     * Fails when `auth.mode` is not `host`: the oauth and external modes of 2.x are not in this line,
+     * and running without the authentication they promise would open the endpoint.
+     *
+     * @return void
+     * @throws \InvalidArgumentException When another mode is configured.
+     */
+    public static function assertHostAuthMode(): void
+    {
+        $mode = self::get('auth.mode');
+        if ($mode === self::AUTH_MODE_HOST) {
+            return;
+        }
+
+        throw new InvalidArgumentException(sprintf(
+            '"Mcp.auth.mode" %s is not available in cakedc/cakephp-mcp 1.x (CakePHP 4): only "host" is. '
+            . 'The oauth and external modes need cakedc/cakephp-mcp 2.x on CakePHP 5.',
+            json_encode($mode),
+        ));
+    }
+
+    /**
+     * Recursive merge where associative arrays merge and lists are replaced.
+     *
+     * @param array<mixed> $base The defaults.
+     * @param array<mixed> $override The host values.
+     * @return array<mixed>
+     */
+    private static function merge(array $base, array $override): array
+    {
+        foreach ($override as $key => $value) {
+            if (
+                $value === [] && isset($base[$key]) && is_array($base[$key])
+                && $base[$key] !== [] && !array_is_list($base[$key])
+            ) {
+                // An empty array over an associative default is a misconfiguration, not an intent to clear it.
+                continue;
+            }
+            if (
+                is_array($value) && isset($base[$key]) && is_array($base[$key])
+                && !array_is_list($value) && !array_is_list($base[$key])
+            ) {
+                $base[$key] = self::merge($base[$key], $value);
+
+                continue;
+            }
+            $base[$key] = $value;
+        }
+
+        return $base;
+    }
+
+    /**
+     * The RBAC rule (cakedc/auth, `config/permissions.php`) that lets every request reach the MCP endpoint.
+     * cakedc/users authorizes the route before the controller runs, so without it an anonymous request is
+     * redirected to the login page instead of receiving the plugin's 401. The plugin decides access itself
+     * (authentication, then the tool authorizer).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function rbacPermissions(): array
+    {
+        return [
+            [
+                'role' => '*',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => 'Mcp',
+                'action' => 'handle',
+                'bypassAuth' => true,
+            ],
+        ];
+    }
+
+    /**
+     * Whether $request is for the MCP endpoint. Use it to skip
+     * Cake's CSRF check there, and to keep other bearer-token authenticators off these paths.
+     *
+     * @param \Psr\Http\Message\ServerRequestInterface $request The request.
+     * @return bool
+     */
+    public static function isEndpoint(ServerRequestInterface $request): bool
+    {
+        $route = self::get('route');
+        if (!is_string($route) || trim($route, '/') === '') {
+            return false;
+        }
+        $route = '/' . trim($route, '/');
+        $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
+        $path = '/' . trim($path, '/');
+
+        return $path === $route;
+    }
+}

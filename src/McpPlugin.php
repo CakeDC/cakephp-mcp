@@ -3,86 +3,94 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp;
 
+use Cake\Cache\Cache;
+use Cake\Cache\Engine\FileEngine;
 use Cake\Console\CommandCollection;
 use Cake\Core\BasePlugin;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
-use Cake\Http\MiddlewareQueue;
 use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\Command\McpCheckCommand;
+use CakeDC\Mcp\Command\McpInspectorCommand;
+use CakeDC\Mcp\Command\McpServerCommand;
+use CakeDC\Mcp\Identity\CurrentIdentity;
+use CakeDC\Mcp\Server\ServerFactory;
 
 /**
- * Plugin for Mcp
+ * Exposes an MCP (Model Context Protocol) server from a CakePHP application.
  */
 class McpPlugin extends BasePlugin
 {
     /**
-     * Load all the plugin configuration and bootstrap logic.
+     * Checks `Mcp.auth.mode` and defines the discovery and session cache configs when the host did not.
      *
-     * The host application is provided as an argument. This allows you to load
-     * additional plugin dependencies, or attach events.
-     *
-     * @param \Cake\Core\PluginApplicationInterface $app The host application
+     * @param \Cake\Core\PluginApplicationInterface $app The host application.
      * @return void
      */
     public function bootstrap(PluginApplicationInterface $app): void
     {
-        // remove this method hook if you don't need it
+        parent::bootstrap($app);
+        McpConfig::assertHostAuthMode();
+
+        $caches = [McpConfig::get('discovery.cache'), McpConfig::get('session.cache')];
+        foreach ($caches as $name) {
+            if (!is_string($name) || $name === '' || Cache::getConfig($name) !== null) {
+                continue;
+            }
+            Cache::setConfig($name, [
+                'className' => FileEngine::class,
+                'path' => CACHE . 'mcp' . DS,
+                'prefix' => $name . '_',
+                'duration' => '+1 hours',
+            ]);
+        }
     }
 
     /**
-     * Add routes for the plugin.
+     * Connects the MCP endpoint at `Mcp.route` (nothing when it is false).
      *
-     * If your plugin has many routes and you would like to isolate them into a separate file,
-     * you can create `$plugin/config/routes.php` and delete this method.
-     *
-     * @param \Cake\Routing\RouteBuilder $routes The route builder to update.
+     * @param \Cake\Routing\RouteBuilder $routes The route builder.
      * @return void
      */
     public function routes(RouteBuilder $routes): void
     {
-        parent::routes($routes);
+        $path = McpConfig::get('route');
+        if (!is_string($path) || $path === '') {
+            return;
+        }
+
+        $routes->connect($path, ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'])
+            ->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
     }
 
     /**
-     * Add middleware for the plugin.
+     * Registers `bin/cake mcp server`, the stdio transport, `bin/cake mcp inspector` and `bin/cake mcp check`.
      *
-     * @param \Cake\Http\MiddlewareQueue $middlewareQueue The middleware queue to update.
-     * @return \Cake\Http\MiddlewareQueue
-     */
-    public function middleware(MiddlewareQueue $middlewareQueue): MiddlewareQueue
-    {
-        // Add your middlewares here
-        // remove this method hook if you don't need it
-
-        return $middlewareQueue;
-    }
-
-    /**
-     * Add commands for the plugin.
-     *
-     * @param \Cake\Console\CommandCollection $commands The command collection to update.
+     * @param \Cake\Console\CommandCollection $commands The collection.
      * @return \Cake\Console\CommandCollection
      */
     public function console(CommandCollection $commands): CommandCollection
     {
-        // Add your commands here
-        // remove this method hook if you don't need it
-
-        $commands = parent::console($commands);
-
-        return $commands;
+        return $commands
+            ->add('mcp server', McpServerCommand::class)
+            ->add('mcp inspector', McpInspectorCommand::class)
+            ->add('mcp check', McpCheckCommand::class);
     }
 
     /**
-     * Register application container services.
-     *
-     * @param \Cake\Core\ContainerInterface $container The Container to update.
+     * @param \Cake\Core\ContainerInterface $container The host container.
      * @return void
-     * @link https://book.cakephp.org/5/en/development/dependency-injection.html#dependency-injection
      */
     public function services(ContainerInterface $container): void
     {
-        // Add your services here
-        // remove this method hook if you don't need it
+        $container->addShared(CurrentIdentity::class);
+        $container->addShared(ServerFactory::class)
+            ->addArgument($container)
+            ->addArgument(CurrentIdentity::class);
+        $container->add(McpServerCommand::class)
+            ->addArgument(ServerFactory::class)
+            ->addArgument(CurrentIdentity::class);
+        $container->add(McpCheckCommand::class)
+            ->addArgument(ServerFactory::class);
     }
 }

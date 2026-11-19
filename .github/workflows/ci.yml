@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: ['1.next-cake4']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testsuite:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3']
+        dependencies: ['highest']
+        include:
+          - php-version: '8.2'
+            dependencies: 'lowest'
+    name: PHP ${{ matrix.php-version }} (${{ matrix.dependencies }})
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: cakephp-mcp
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring, intl, pdo_sqlite, openssl
+          coverage: none
+      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
+        with:
+          dependency-versions: ${{ matrix.dependencies }}
+          working-directory: cakephp-mcp
+      - run: vendor/bin/phpunit
+        working-directory: cakephp-mcp
+
+  cs-stan:
+    runs-on: ubuntu-24.04
+    name: Coding standard and static analysis
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: cakephp-mcp
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.3'
+          coverage: none
+      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
+        with:
+          working-directory: cakephp-mcp
+      - run: vendor/bin/phpcs
+        working-directory: cakephp-mcp
+      - run: vendor/bin/phpstan analyse --no-progress
+        working-directory: cakephp-mcp
+
+  conformance:
+    runs-on: ubuntu-24.04
+    name: MCP conformance
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: cakephp-mcp
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.3'
+          coverage: none
+      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
+        with:
+          working-directory: cakephp-mcp
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: tests/Conformance/run.sh
+        working-directory: cakephp-mcp
