@@ -219,6 +219,39 @@ class McpConfigTest extends TestCase
         $this->assertNull(McpConfig::get('server.configure', 'none'));
     }
 
+    public function testANullOrEmptySecuritySectionFailsClosed(): void
+    {
+        foreach (['auth', 'authorization', 'discovery'] as $section) {
+            foreach ([null, [], 'yes'] as $value) {
+                Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin', $section => $value]]);
+                try {
+                    McpConfig::get('route', 'admin');
+                    $this->fail(sprintf('Accepted %s => %s', $section, var_export($value, true)));
+                } catch (InvalidArgumentException $e) {
+                    $this->assertStringContainsString(sprintf('"Mcp.servers.admin.%s"', $section), $e->getMessage());
+                }
+            }
+        }
+    }
+
+    public function testServerNamesAreSlugs(): void
+    {
+        Configure::write('Mcp.servers', ['back office' => ['route' => '/mcp/bo']]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('letters, digits, "-" and "_"');
+
+        McpConfig::servers();
+    }
+
+    public function testForReturnsTheResolvedConfig(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'servers' => ['nested' => ['route' => '/x']]]);
+
+        $this->assertSame(McpConfig::get(null, 'admin'), McpConfig::for('admin'));
+        $this->assertArrayNotHasKey('servers', McpConfig::for('admin'));
+    }
+
     public function testUnknownServerFails(): void
     {
         $this->expectException(InvalidArgumentException::class);

@@ -101,6 +101,18 @@ final class McpConfig
     }
 
     /**
+     * The resolved config of a server, as `get(null, $server)`.
+     *
+     * @param string $server The server: `default` or a key of `Mcp.servers`.
+     * @return array<string, mixed>
+     * @throws \InvalidArgumentException When the server is not configured or its config is invalid.
+     */
+    public static function for(string $server): array
+    {
+        return self::resolve($server);
+    }
+
+    /**
      * The configured servers: `default` first, then the keys of `Mcp.servers` in order.
      *
      * @return list<string>
@@ -153,11 +165,22 @@ final class McpConfig
             throw new InvalidArgumentException(sprintf('"Mcp.servers.%s" is not configured.', $server));
         }
         $config = $default;
+        unset($named['servers']);
         foreach (self::REPLACED_SECTIONS as $section) {
-            if (array_key_exists($section, $named)) {
-                $config[$section] = self::merge(self::DEFAULTS[$section], (array)$named[$section]);
-                unset($named[$section]);
+            if (!array_key_exists($section, $named)) {
+                continue;
             }
+            // A null (an unset env() value, say) or an empty array is a misconfiguration, never a request for the
+            // plugin's permissive defaults: fail closed, as the default server does.
+            if (!is_array($named[$section]) || $named[$section] === []) {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.servers.%s.%s" must be a non-empty array; leave it out to use the default server\'s.',
+                    $server,
+                    $section,
+                ));
+            }
+            $config[$section] = self::merge(self::DEFAULTS[$section], $named[$section]);
+            unset($named[$section]);
         }
         $hasConfigure = is_array($named['server'] ?? null) && array_key_exists('configure', $named['server']);
         if ($hasConfigure) {
@@ -178,8 +201,14 @@ final class McpConfig
             throw new InvalidArgumentException('"Mcp.servers" must be an array of server name => config.');
         }
         foreach ($servers as $name => $config) {
-            if (!is_string($name) || $name === '' || !is_array($config)) {
+            if (!is_string($name) || !is_array($config)) {
                 throw new InvalidArgumentException('"Mcp.servers" must be an array of server name => config.');
+            }
+            if (preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
+                throw new InvalidArgumentException(sprintf(
+                    'The server name "%s" in "Mcp.servers" may only have letters, digits, "-" and "_".',
+                    $name,
+                ));
             }
             if ($name === self::DEFAULT_SERVER) {
                 throw new InvalidArgumentException(
