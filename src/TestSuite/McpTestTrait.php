@@ -56,6 +56,11 @@ trait McpTestTrait
     protected array $_mcpClaims = [];
 
     /**
+     * The MCP server the requests go to (`Mcp.servers`).
+     */
+    protected string $_mcpServer = McpConfig::DEFAULT_SERVER;
+
+    /**
      * The JSON-RPC response to the last `mcpCallTool()`.
      *
      * @var array<string, mixed>|null
@@ -96,6 +101,17 @@ trait McpTestTrait
         $this->_mcpIdentity = $identity;
         $this->_mcpScopes = $scopes === null ? null : array_values(array_filter($scopes, 'is_string'));
         $this->_mcpClaims = $claims;
+    }
+
+    /**
+     * Sends the following requests to another MCP server: `default` or a key of `Mcp.servers`.
+     *
+     * @param string $server The server.
+     * @return void
+     */
+    public function mcpUseServer(string $server): void
+    {
+        $this->_mcpServer = $server;
     }
 
     /**
@@ -482,9 +498,10 @@ trait McpTestTrait
         if (!$factory instanceof ServerFactory) {
             Assert::fail('The container has no MCP ServerFactory. Is the CakeDC/Mcp plugin loaded?');
         }
+        $factory = $factory->forServer($this->_mcpServer);
         $factory->identity()->set($this->_mcpIdentity);
 
-        $scopes = McpConfig::get('identity.scopes');
+        $scopes = McpConfig::get('identity.scopes', $this->_mcpServer);
         $token = null;
         if ($this->_mcpIdentity !== null) {
             $token = IdentityMiddleware::accessTokenFor(
@@ -499,7 +516,7 @@ trait McpTestTrait
             }
         }
         if ($token !== null && $this->_mcpScopes !== null && !$trusted) {
-            $settings = AuthSettings::fromConfig();
+            $settings = AuthSettings::fromConfig($this->_mcpServer);
             $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
             if ($policy !== null) {
                 $required = $policy->requiredFor($request);

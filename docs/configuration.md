@@ -149,6 +149,50 @@ If you set a cache policy, keep `tools/list` private unless every caller sees
 the same tools. With an authorizer, the list depends on who asks, and a
 `CacheScope::Public` hint lets shared caches serve one user's list to others.
 
+## Several servers
+
+One application can serve several MCP servers, each on its own route with its own
+tools, authentication and authorizer. The top-level `Mcp` config is the server
+named `default`; `Mcp.servers` adds more:
+
+```php
+'Mcp' => [
+    // The default server, at /mcp: what every user may do.
+    'route' => '/mcp',
+    'authorization' => ['authorizer' => RbacToolAuthorizer::class],
+    'servers' => [
+        'admin' => [
+            'route' => '/mcp/admin',
+            'server' => ['name' => 'Back office'],
+            'discovery' => ['scanDirs' => ['src/Mcp/Admin']],
+            'auth' => ['mode' => 'oauth', 'scopes' => ['default' => ['admin']]],
+        ],
+    ],
+],
+```
+
+Each named server needs a `route`. What it does not set comes from the default
+server, in two ways:
+
+- `auth`, `authorization`, `discovery` and `server.configure` are replaced whole
+  when the named server sets them, starting again from the plugin's defaults. A
+  narrower server never picks up the default server's scopes, rules, tool
+  directories or code-registered tools by accident. When it does not set them,
+  it uses the default server's.
+- Every other section (`server`, `http`, `identity`, `session`, `stdio`,
+  `audit`, `schema`) is merged key by key, so `'server' => ['name' => ...]`
+  keeps the default server's version and instructions.
+
+Every server gets its endpoint and, in `oauth` and `external` modes, its
+protected resource metadata at `/.well-known/oauth-protected-resource` plus its
+route. Its resource defaults to its own URL, so a token issued for one server is
+not accepted by another. Sessions are kept apart, and audit records of a named
+server carry a `server` field (`server=admin` on the log line).
+
+`bin/cake mcp check` checks every server and fails when two share a route or a
+resource. `mcp check`, `mcp server` and `mcp inspector` take
+`--server <name>`, and tests pick a server with `mcpUseServer('admin')`.
+
 ## Caches
 
 If the cache configs named in `discovery.cache` and `session.cache` do not

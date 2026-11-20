@@ -521,6 +521,72 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Authenticators');
     }
 
+    public function testOneServerOutputIsUnchanged(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('Server default');
+        $this->assertOutputNotContains('Servers:');
+    }
+
+    public function testChecksEveryServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('Server default');
+        $this->assertOutputContains('Server admin');
+        $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp/admin');
+        $this->assertOutputRegExp('/\[PASS\] Tools: \d+ tools: .*find_order/');
+        $this->assertOutputContains('[PASS] Servers: 2 servers: default, admin');
+    }
+
+    public function testCheckOneServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('Server admin');
+        $this->assertOutputNotContains('Server default');
+        $this->assertOutputNotContains('Servers:');
+    }
+
+    public function testUnknownServerFails(): void
+    {
+        $this->exec('mcp check --server nope');
+
+        $this->assertExitError();
+        $this->assertErrorContains('"Mcp.servers.nope" is not configured.');
+    }
+
+    public function testSharedRouteFails(): void
+    {
+        Configure::write('Mcp.servers.copy', ['route' => '/mcp/']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Servers: default and copy share the route /mcp');
+    }
+
+    public function testSharedResourceFails(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/admin',
+            'auth' => ['resource' => OAuthTestConfig::MCP] + OAuthTestConfig::MCP_AUTH,
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('share the resource ' . OAuthTestConfig::MCP);
+    }
+
     public function testCacheHintsOffPass(): void
     {
         $this->exec('mcp check');

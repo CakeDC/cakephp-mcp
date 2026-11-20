@@ -135,6 +135,16 @@ $this->assertMcpToolListedFor(['id' => 1, 'role' => 'admin'], 'refund_order');
 $this->assertMcpToolNotListedFor(['id' => 2, 'role' => 'user'], 'refund_order');
 ```
 
+## Several servers
+
+With `Mcp.servers`, the trait talks to the `default` server. Switch with
+`mcpUseServer()`:
+
+```php
+$this->mcpUseServer('admin');
+$this->assertMcpToolListed('refund_order');
+```
+
 ## Replacing services
 
 The trait uses Cake's `ContainerStubTrait`, so `mockService()` replaces a

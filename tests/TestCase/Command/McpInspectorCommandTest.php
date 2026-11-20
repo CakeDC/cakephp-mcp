@@ -46,6 +46,24 @@ class McpInspectorCommandTest extends TestCase
         ], $this->launched[0]['config']['mcpServers']['cakephp-mcp-server'] ?? null);
     }
 
+    public function testNamedServerOverStdioAndHttp(): void
+    {
+        Configure::write('App.fullBaseUrl', 'https://app.example.com');
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'server' => ['name' => 'Admin MCP']]);
+
+        $this->assertSame(0, $this->runCommand(['--server', 'admin']));
+        $this->assertSame(
+            [rtrim(ROOT, DS) . DS . 'bin' . DS . 'cake.php', 'mcp', 'server', '--server', 'admin'],
+            $this->launched[0]['config']['mcpServers']['admin-mcp']['args'] ?? null,
+        );
+
+        $this->assertSame(0, $this->runCommand(['--server', 'admin', '--http']));
+        $this->assertSame(
+            'https://app.example.com/mcp/admin',
+            $this->launched[1]['config']['mcpServers']['admin-mcp']['url'] ?? null,
+        );
+    }
+
     public function testHttpUsesTheFullBaseUrlAndTheRoute(): void
     {
         Configure::write('App.fullBaseUrl', 'https://app.example.com/');

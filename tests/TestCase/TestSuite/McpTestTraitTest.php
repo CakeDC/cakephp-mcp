@@ -99,6 +99,20 @@ class McpTestTraitTest extends TestCase
         $this->assertSame(['mcp:tools'], $this->_mcpScopes);
     }
 
+    public function testUseServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+
+        $this->mcpUseServer('admin');
+
+        $this->assertMcpToolListed('find_order');
+        $this->mcpCallTool('find_order', ['number' => 'A-1']);
+        $this->assertMcpStructuredContentPath('number', 'A-1');
+
+        $this->mcpUseServer('default');
+        $this->assertMcpToolListed('echo');
+    }
+
     public function testAnonymousByDefault(): void
     {
         $this->mcpCallTool('whoami');
