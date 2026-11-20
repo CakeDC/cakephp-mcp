@@ -8,12 +8,22 @@ use LogicException;
 /**
  * A named client of `Mcp.clients`. In app mode it calls the server with the app's own credentials; in user mode,
  * for($user) gives the connection of one user.
+ *
+ * ```
+ * McpClients::get('github')->callTool('search_issues', ['query' => 'bug']);
+ * McpClients::get('linear')->for($this->Authentication->getIdentity())->listTools();
+ * ```
  */
 final class McpClient
 {
     use CallsServerTrait;
 
     private ?ClientSession $session = null;
+
+    /**
+     * @var array<string, \CakeDC\Mcp\Client\UserConnection>
+     */
+    private array $users = [];
 
     /**
      * @param \CakeDC\Mcp\Client\ClientConfig $config The client.
@@ -40,7 +50,30 @@ final class McpClient
     }
 
     /**
-     * Ends the connection to the server; the next call opens a new one.
+     * The connection of one user, for a user mode client.
+     *
+     * @param mixed $user A user id, an identity, or a user entity or array with an `id`.
+     * @return \CakeDC\Mcp\Client\UserConnection The same instance for the same user.
+     * @throws \LogicException When the client is in app mode.
+     * @throws \InvalidArgumentException When no user id can be read from $user.
+     */
+    public function for(mixed $user): UserConnection
+    {
+        if (!$this->config->isUser()) {
+            throw new LogicException(sprintf(
+                '"Mcp.clients.%s" is an app mode client: call it directly with McpClients::get(\'%s\'), or set '
+                . '"auth" => "user" to call it on behalf of each user.',
+                $this->config->name,
+                $this->config->name,
+            ));
+        }
+        $userId = UserId::of($user);
+
+        return $this->users[$userId] ??= new UserConnection($this->config, $this->registry, $userId);
+    }
+
+    /**
+     * Ends the connection to the server, and every user's; the next call opens a new one.
      *
      * @return void
      */
@@ -48,6 +81,10 @@ final class McpClient
     {
         $this->session?->close();
         $this->session = null;
+        foreach ($this->users as $user) {
+            $user->close();
+        }
+        $this->users = [];
     }
 
     /**
