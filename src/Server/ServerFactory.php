@@ -196,7 +196,6 @@ final class ServerFactory
 
     /**
      * The names of the tools the server offers, as a trusted client lists them (no authorizer, every page).
-     * Builds the server the same way the endpoint does, without network calls.
      *
      * @internal Used by `bin/cake mcp check`; not part of the public API.
      * @return list<string>
@@ -204,7 +203,21 @@ final class ServerFactory
      */
     public function toolNames(): array
     {
-        $names = [];
+        return array_map(fn(array $tool): string => $tool['name'], $this->toolDefinitions());
+    }
+
+    /**
+     * The tools the server offers, as a trusted client lists them (no authorizer, every page), decoded from JSON:
+     * the schemas as clients see them, after `Mcp.schema.normalize` when it is on. Builds the server the same way
+     * the endpoint does, without network calls.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<array<string, mixed>> Each tool has a string `name`.
+     * @throws \RuntimeException When the server cannot list its tools.
+     */
+    public function toolDefinitions(): array
+    {
+        $tools = [];
         $cursor = null;
         for ($page = 0; $page < 100; $page++) {
             $list = ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'];
@@ -240,7 +253,7 @@ final class ServerFactory
             }
             foreach ($result['tools'] as $tool) {
                 if (is_array($tool) && is_string($tool['name'] ?? null)) {
-                    $names[] = $tool['name'];
+                    $tools[] = $tool;
                 }
             }
             $cursor = $result['nextCursor'] ?? null;
@@ -249,7 +262,7 @@ final class ServerFactory
             }
         }
 
-        return $names;
+        return $tools;
     }
 
     /**

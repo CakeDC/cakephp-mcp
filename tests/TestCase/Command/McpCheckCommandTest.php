@@ -204,6 +204,37 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputRegExp('/\\[PASS\\] Tools: \\d+ tools: .*echo/');
     }
 
+    public function testToolSchemasWarnAboutUnionsAndUntypedArrays(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[WARN] Tool schemas: report.date_from: type union null|string');
+        $this->assertOutputContains('report.statuses: array without item type');
+        $this->assertOutputContains('tools.md#input-schemas');
+    }
+
+    public function testToolSchemasFollowTheNormalizer(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+        Configure::write('Mcp.schema.normalize', true);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('type union');
+    }
+
+    public function testToolSchemasWithoutToolsPass(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/NoTools']);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Tool schemas: no tools to check');
+    }
+
     public function testNoToolFoundWarns(): void
     {
         Configure::write('Mcp.discovery.scanDirs', ['src/NoTools']);

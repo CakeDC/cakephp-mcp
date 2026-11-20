@@ -32,6 +32,7 @@ use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
+use CakeDC\Mcp\Schema\SchemaLint;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
@@ -55,7 +56,7 @@ class McpCheckCommand extends Command
     private const LISTED_TOOLS = 10;
 
     /**
-     * @var list<string>|null
+     * @var list<array<string, mixed>>|null
      */
     private ?array $tools = null;
 
@@ -119,6 +120,7 @@ class McpCheckCommand extends Command
             'CSRF' => fn(): array => $this->csrf(),
             'Authenticators' => fn(): array => $this->authenticators(),
             'Tools' => fn(): array => $this->toolsCheck(),
+            'Tool schemas' => fn(): array => $this->toolSchemas(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
             'Tool scopes' => fn(): array => $this->toolScopes(),
             'Logging' => fn(): array => $this->logging(),
@@ -137,11 +139,46 @@ class McpCheckCommand extends Command
     /**
      * The tools the server offers, listed once per run.
      *
+     * @return list<array<string, mixed>>
+     */
+    private function toolDefinitions(): array
+    {
+        return $this->tools ??= $this->factory()->toolDefinitions();
+    }
+
+    /**
      * @return list<string>
      */
     private function toolNames(): array
     {
-        return $this->tools ??= $this->factory()->toolNames();
+        return array_map(fn(array $tool): string => (string)$tool['name'], $this->toolDefinitions());
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function toolSchemas(): array
+    {
+        $tools = $this->toolDefinitions();
+        if ($tools === []) {
+            return ['pass', 'no tools to check'];
+        }
+        $problems = [];
+        foreach ($tools as $tool) {
+            foreach (SchemaLint::problems($tool) as $problem) {
+                $problems[] = $tool['name'] . '.' . $problem;
+            }
+        }
+        if ($problems === []) {
+            return ['pass', sprintf('%d tools, no problems', count($tools))];
+        }
+
+        return ['warn', sprintf(
+            '%s. Some hosts reject type arrays and the model cannot tell what an untyped or undescribed '
+            . 'parameter takes. See %s',
+            implode('; ', $problems),
+            self::DOCS . 'tools.md#input-schemas',
+        )];
     }
 
     /**
