@@ -11,6 +11,7 @@ use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\Routing\RoutingApplicationInterface;
+use CakeDC\Mcp\Catalog\CatalogScopes;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
@@ -584,7 +585,11 @@ trait McpTestTrait
             $settings = AuthSettings::fromConfig($this->_mcpServer);
             $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
             if ($policy !== null) {
-                $required = $policy->requiredFor($request);
+                $catalog = McpConfig::get('catalog.enabled', $this->_mcpServer) === true
+                    ? array_values(array_filter((array)McpConfig::get('catalog.tools', $this->_mcpServer), 'is_string'))
+                    : [];
+                // call_tools needs the scopes of the catalogued tools it runs, as the endpoint requires.
+                $required = CatalogScopes::required($policy, $request, $catalog);
                 // In oauth mode the authorization server expands the token's scopes with the `implies` of
                 // the declared resource before the policy sees them; the policy then adds its own `implies`.
                 $granted = $policy->expand((new ResourceServer($settings))->grantedScopes($token->getScopes()));

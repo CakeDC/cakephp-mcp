@@ -16,6 +16,7 @@ use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\AuditRefusalMiddleware;
 use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
+use CakeDC\Mcp\Middleware\CatalogScopeMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
@@ -78,6 +79,10 @@ class McpController extends Controller
                 $middleware[] = new AuditRefusalMiddleware($audit, new AuditWriter($audit), $identity);
             }
             $middleware[] = $this->authentication($server, $identity, $responseFactory, $streamFactory, $maxBodyBytes);
+            $catalog = $this->catalogScopes($server, $responseFactory, $streamFactory, $maxBodyBytes);
+            if ($catalog !== null) {
+                $middleware[] = $catalog;
+            }
             $transport = new StreamableHttpTransport(
                 $this->request,
                 $responseFactory,
@@ -94,6 +99,38 @@ class McpController extends Controller
         }
 
         return $this->toCakeResponse($response);
+    }
+
+    /**
+     * With the tool catalog on and access tokens checked, the step that requires the scopes of the tools a
+     * `call_tools` runs. Null otherwise.
+     *
+     * @param string $server The MCP server.
+     * @param \Cake\Http\ResponseFactory $responseFactory For its 403.
+     * @param \Cake\Http\StreamFactory $streamFactory For the body it hands on.
+     * @param int $maxBodyBytes The largest body it reads.
+     * @return \CakeDC\Mcp\Middleware\CatalogScopeMiddleware|null
+     */
+    private function catalogScopes(
+        string $server,
+        ResponseFactory $responseFactory,
+        StreamFactory $streamFactory,
+        int $maxBodyBytes,
+    ): ?CatalogScopeMiddleware {
+        $settings = AuthSettings::fromConfig($server);
+        $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
+        if ($policy === null || McpConfig::get('catalog.enabled', $server) !== true) {
+            return null;
+        }
+
+        return new CatalogScopeMiddleware(
+            $policy,
+            (new ResourceServer($settings))->metadata(),
+            array_values(array_filter((array)McpConfig::get('catalog.tools', $server), 'is_string')),
+            $responseFactory,
+            $streamFactory,
+            $maxBodyBytes,
+        );
     }
 
     /**

@@ -20,6 +20,7 @@ use CakeDC\Mcp\Event\ToolSchemaNormalizer;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
@@ -32,6 +33,7 @@ use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
+use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Psr\Container\ContainerInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
@@ -145,6 +147,7 @@ final class ServerFactory
                 $this->maxCalls($catalog['maxCalls'] ?? 5),
                 new ReferenceHandler(new ContainerBridge($this->container)),
                 $logger,
+                $this->scopePolicy(),
             ));
         }
         $audit = AuditSettings::fromConfig($this->server);
@@ -345,6 +348,16 @@ final class ServerFactory
             null,
             $schemas[ToolCatalog::CALL],
         );
+    }
+
+    /**
+     * @return \Mcp\Server\Transport\Http\OAuth\ScopePolicy|null The server's scope policy; null in host mode.
+     */
+    private function scopePolicy(): ?ScopePolicy
+    {
+        $settings = AuthSettings::fromConfig($this->server);
+
+        return $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
     }
 
     /**

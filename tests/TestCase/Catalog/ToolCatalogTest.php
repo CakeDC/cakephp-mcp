@@ -6,9 +6,14 @@ namespace CakeDC\Mcp\Test\TestCase\Catalog;
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
+use Cake\Core\Container;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\Identity\CurrentIdentity;
+use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
+use Mcp\Server\Authorization\AccessToken;
 use stdClass;
 
 /**
@@ -30,6 +35,7 @@ class ToolCatalogTest extends TestCase
     protected function tearDown(): void
     {
         Cache::drop('mcp_sessions');
+        Cache::drop('mcp_oauth_test');
         parent::tearDown();
     }
 
@@ -134,6 +140,57 @@ class ToolCatalogTest extends TestCase
         $this->assertMcpJsonRpcError(-32602);
     }
 
+    public function testScopeSimulationCoversInnerCalls(): void
+    {
+        $this->scoped();
+        $this->mcpActingAs(['id' => 1], ['notes:read']);
+
+        $this->mcpCallTool('call_tools', ['calls' => [['name' => 'order_status', 'arguments' => ['number' => 'A-1']]]]);
+
+        $this->assertMcpInsufficientScope(['orders:read']);
+    }
+
+    public function testFindToolsHidesToolsTheTokenCannotCall(): void
+    {
+        $this->scoped();
+        $this->mcpActingAs(['id' => 1], ['notes:read']);
+
+        $this->mcpCallTool('find_tools', ['query' => 'order']);
+
+        $this->assertMcpToolSucceeded();
+        $names = array_column($this->mcpResult()['structuredContent']['tools'], 'name');
+        $this->assertNotContains('order_status', $names);
+        $this->assertContains('order_numbers', $names);
+    }
+
+    public function testEachInnerCallChecksItsScopesInTheServer(): void
+    {
+        // Straight to the server, past the HTTP step and the trait's simulation: only the server's own check stands.
+        $this->scoped();
+        $container = new Container();
+        $identity = new CurrentIdentity();
+        $container->addShared(CurrentIdentity::class, $identity);
+        $identity->set(['id' => 1]);
+        $transport = new RecordingTransport(array_map(fn(array $message): string => (string)json_encode($message), [
+            ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
+                'protocolVersion' => '2025-06-18',
+                'capabilities' => new stdClass(),
+                'clientInfo' => ['name' => 'test', 'version' => '1.0'],
+            ]],
+            ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
+            ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [
+                'name' => 'call_tools',
+                'arguments' => ['calls' => [['name' => 'order_status', 'arguments' => ['number' => 'A-1']]]],
+            ]],
+        ]), new AccessToken(['notes:read'], ['sub' => '1']));
+
+        (new ServerFactory($container, $identity))->create()->run($transport);
+
+        $result = $transport->responseFor(2)['result']['structuredContent']['results'][0] ?? [];
+        $this->assertTrue($result['isError'] ?? false);
+        $this->assertSame('Tool not found: "order_status".', $result['content'][0]['text'] ?? null);
+    }
+
     public function testCatalogOffChangesNothing(): void
     {
         Configure::write('Mcp.catalog.enabled', false);
@@ -142,6 +199,16 @@ class ToolCatalogTest extends TestCase
 
         $this->assertContains('order_status', $names);
         $this->assertNotContains('find_tools', $names);
+    }
+
+    private function scoped(): void
+    {
+        Cache::setConfig('mcp_oauth_test', ['className' => ArrayEngine::class]);
+        Configure::write('Mcp.auth', [
+            'mode' => 'external',
+            'scopes' => ['tools' => ['order_status' => ['orders:read']]],
+            'external' => ['issuer' => 'https://issuer.example', 'cache' => 'mcp_oauth_test'],
+        ]);
     }
 
     private function denying(string $denied): ToolAuthorizerInterface

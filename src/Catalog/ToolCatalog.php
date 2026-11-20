@@ -14,6 +14,7 @@ use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Tool;
 use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\RequestContext;
+use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -34,6 +35,8 @@ final class ToolCatalog
      * @param int $maxCalls `Mcp.catalog.maxCalls`.
      * @param \Mcp\Capability\Registry\ReferenceHandlerInterface $references Runs the tools, with the plugin container.
      * @param \Psr\Log\LoggerInterface $logger The server's logger.
+     * @param \Mcp\Server\Transport\Http\OAuth\ScopePolicy|null $policy The scope policy, null when tokens are not
+     *   checked (host mode).
      */
     public function __construct(
         private readonly Registry $registry,
@@ -42,6 +45,7 @@ final class ToolCatalog
         private readonly int $maxCalls,
         private readonly ReferenceHandlerInterface $references,
         private readonly LoggerInterface $logger,
+        private readonly ?ScopePolicy $policy = null,
     ) {
     }
 
@@ -70,7 +74,7 @@ final class ToolCatalog
         $ranked = [];
         foreach ($this->registry->getTools()->references as $name => $tool) {
             $name = (string)$name;
-            if (!$this->callable($name)) {
+            if (!$this->callable($name, $context)) {
                 continue;
             }
             $score = $terms === [] ? 1 : $this->score($tool, $terms);
@@ -187,11 +191,23 @@ final class ToolCatalog
      * Whether the caller may call $tool through the catalog.
      *
      * @param string $tool A tool name.
+     * @param \Mcp\Server\RequestContext $context The call, for its access token.
      * @return bool
      */
-    private function callable(string $tool): bool
+    private function callable(string $tool, RequestContext $context): bool
     {
-        return $this->has($tool) && $this->gate->allows($tool);
+        if (!$this->has($tool) || !$this->gate->allows($tool)) {
+            return false;
+        }
+        $token = $context->getAccessToken();
+        if ($this->policy === null || $token === null) {
+            return true;
+        }
+        // The HTTP step already refused a call_tools whose token lacks these; this check stands behind it, and
+        // keeps find_tools from offering tools the token cannot call.
+        $required = $this->policy->requiredFor(['method' => 'tools/call', 'params' => ['name' => $tool]]);
+
+        return array_diff($required, $token->getScopes()) === [];
     }
 
     /**
@@ -209,7 +225,7 @@ final class ToolCatalog
         string $name,
         array $arguments,
     ): array {
-        if (!$this->callable($name)) {
+        if (!$this->callable($name, $context)) {
             // Like a direct call: a denied tool answers as an unknown one.
             return $this->error($name, sprintf('Tool not found: "%s".', $name));
         }
