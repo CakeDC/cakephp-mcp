@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Server;
 
 use Cake\Cache\Cache;
+use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
@@ -13,6 +14,7 @@ use CakeDC\Mcp\Authorization\ToolGate;
 use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Container\ContainerBridge;
+use CakeDC\Mcp\Event\AppToolFilter;
 use CakeDC\Mcp\Event\AuditListener;
 use CakeDC\Mcp\Event\EventDispatcher;
 use CakeDC\Mcp\Event\ToolListFilter;
@@ -140,6 +142,8 @@ final class ServerFactory
             // After the filter, on the tools the caller may see.
             $events->listen(ResponseEvent::class, new ToolSchemaNormalizer());
         }
+        // Clients that do not render apps never get app-only tools listed.
+        $events->listen(ResponseEvent::class, new AppToolFilter());
         // The guard goes first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
         // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
@@ -170,6 +174,8 @@ final class ServerFactory
                 $gate,
                 $this->identity,
                 toolExists: fn(string $name): ?bool => $registry->hasTools() ? $registry->hasTool($name) : null,
+                appOnly: fn(string $name): bool => $registry->hasTool($name)
+                    && AppTools::appOnly($registry->getTool($name)->tool),
             );
             $events->listen(RequestEvent::class, $listener->onRequest(...));
             $events->listen(ResponseEvent::class, $listener->onResponse(...));
@@ -217,6 +223,7 @@ final class ServerFactory
 
         $server = $builder->build();
         $this->skipped = Conditions::prune($registry, $this->server);
+        AppTools::link($registry);
         $this->lastRegistry = $registry;
 
         return $server;

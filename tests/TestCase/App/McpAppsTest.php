@@ -7,7 +7,10 @@ use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\Core\Container;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
@@ -19,6 +22,11 @@ use stdClass;
 class McpAppsTest extends TestCase
 {
     private const UI = 'io.modelcontextprotocol/ui';
+
+    /**
+     * The capabilities of a client that renders apps.
+     */
+    private const APPS_CLIENT = ['extensions' => [self::UI => ['mimeTypes' => ['text/html;profile=mcp-app']]]];
 
     protected function setUp(): void
     {
@@ -78,11 +86,90 @@ class McpAppsTest extends TestCase
         $this->assertArrayHasKey('error', $transport->responseFor(2) ?? []);
     }
 
+    public function testMcpAppLinksTheToolToItsApp(): void
+    {
+        $tools = $this->toolsFor(self::APPS_CLIENT);
+
+        $this->assertSame(
+            ['resourceUri' => 'ui://test/inbox', 'visibility' => ['model', 'app']],
+            $tools['show_inbox']['_meta']['ui'] ?? null,
+        );
+        $this->assertSame(['app'], $tools['inbox_rows']['_meta']['ui']['visibility'] ?? null);
+    }
+
+    public function testAppOnlyToolsAreHiddenFromClientsWithoutApps(): void
+    {
+        $tools = $this->toolsFor([]);
+
+        $this->assertArrayHasKey('show_inbox', $tools);
+        $this->assertArrayNotHasKey('inbox_rows', $tools);
+    }
+
+    public function testAppOnlyToolsAreListedForClientsWithApps(): void
+    {
+        $this->assertArrayHasKey('inbox_rows', $this->toolsFor(self::APPS_CLIENT));
+    }
+
+    public function testAppOnlyToolsAreStillGatedWhenCalledDirectly(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return $tool !== 'inbox_rows';
+            }
+        });
+
+        $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [
+            'name' => 'inbox_rows',
+            'arguments' => new stdClass(),
+        ]]], self::APPS_CLIENT, trusted: false);
+
+        $this->assertSame('Tool not found: "inbox_rows".', $transport->responseFor(2)['error']['message'] ?? null);
+    }
+
+    public function testAppToolCallsAreAuditedAsApp(): void
+    {
+        Log::setConfig('audit_apps', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
+        Configure::write('Mcp.audit.enabled', true);
+        try {
+            $this->serve([
+                ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [
+                    'name' => 'inbox_rows',
+                    'arguments' => new stdClass(),
+                ]],
+                ['jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call', 'params' => [
+                    'name' => 'show_inbox',
+                    'arguments' => new stdClass(),
+                ]],
+            ], self::APPS_CLIENT);
+
+            $engine = Log::engine('audit_apps');
+            $lines = array_map('strval', $engine instanceof ArrayLog ? $engine->read() : []);
+            $this->assertCount(2, $lines);
+            $this->assertStringContainsString('MCP tools/call inbox_rows ok', $lines[0]);
+            $this->assertStringContainsString(' app=1', $lines[0]);
+            $this->assertStringNotContainsString('app=', $lines[1]);
+        } finally {
+            Log::drop('audit_apps');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $capabilities The client's capabilities.
+     * @return array<string, array<string, mixed>> The listed tools by name.
+     */
+    private function toolsFor(array $capabilities): array
+    {
+        $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']], $capabilities);
+
+        return array_column($transport->responseFor(2)['result']['tools'] ?? [], null, 'name');
+    }
+
     /**
      * @param list<array<string, mixed>> $requests
      * @param array<string, mixed> $capabilities The client's capabilities.
      */
-    private function serve(array $requests, array $capabilities = []): RecordingTransport
+    private function serve(array $requests, array $capabilities = [], bool $trusted = true): RecordingTransport
     {
         $container = new Container();
         $identity = new CurrentIdentity();
@@ -96,7 +183,7 @@ class McpAppsTest extends TestCase
             ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
             ...$requests,
         ]));
-        (new ServerFactory($container, $identity))->create(true)->run($transport);
+        (new ServerFactory($container, $identity))->create($trusted)->run($transport);
 
         return $transport;
     }

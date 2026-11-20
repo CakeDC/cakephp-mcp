@@ -58,6 +58,7 @@ final class AuditListener
      * @param \Closure|null $clock `fn(): float`, seconds; `microtime(true)` by default.
      * @param \Closure|null $toolExists `fn(string $name): ?bool`, whether the tool exists (null: unknown). Without
      *   it, every tool the gate refuses is recorded as denied.
+     * @param \Closure|null $appOnly `fn(string $name): bool`, whether a tool is for MCP Apps only (`app=1` in records).
      */
     public function __construct(
         private readonly AuditSettings $settings,
@@ -66,6 +67,7 @@ final class AuditListener
         private readonly CurrentIdentity $identity,
         ?Closure $clock = null,
         ?Closure $toolExists = null,
+        private readonly ?Closure $appOnly = null,
     ) {
         $this->clock = $clock ?? fn(): float => microtime(true);
         $this->toolExists = $toolExists;
@@ -230,6 +232,7 @@ final class AuditListener
             $error === null ? null : mb_substr($error, 0, self::MAX_ERROR_LENGTH),
             $start === null ? null : (int)round((($this->clock)() - $start) * 1000),
             self::viaOf($request),
+            $request instanceof CallToolRequest && $this->appOnly !== null && ($this->appOnly)($request->name) === true,
         ));
     }
 

@@ -39,6 +39,7 @@ final class AuditRecord
      * @param string|null $error Error message, for the outcomes that are not `ok`.
      * @param int|null $durationMs Duration, null when it is not known.
      * @param string|null $via The plugin tool that made the call (`call_tools`), null for a direct call.
+     * @param bool $app Whether the tool is for MCP Apps only.
      */
     public function __construct(
         public readonly string $method,
@@ -52,6 +53,7 @@ final class AuditRecord
         public readonly ?string $error,
         public readonly ?int $durationMs,
         public readonly ?string $via = null,
+        public readonly bool $app = false,
     ) {
     }
 
@@ -82,6 +84,6 @@ final class AuditRecord
             'arguments' => $this->arguments,
             'error' => $this->error,
             'durationMs' => $this->durationMs,
-        ] + ($this->via === null ? [] : ['via' => $this->via]);
+        ] + ($this->via === null ? [] : ['via' => $this->via]) + ($this->app ? ['app' => true] : []);
     }
 }

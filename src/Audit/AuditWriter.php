@@ -129,6 +129,9 @@ final class AuditWriter
         if ($record->via !== null) {
             $line .= ' via=' . $this->field($record->via);
         }
+        if ($record->app) {
+            $line .= ' app=1';
+        }
         if ($this->settings->arguments) {
             $line .= ' args=' . json_encode((object)$record->arguments, self::JSON_FLAGS);
         }
