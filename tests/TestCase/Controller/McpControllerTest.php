@@ -66,6 +66,46 @@ class McpControllerTest extends TestCase
         $this->assertSame('stateless', $this->json()['result']['content'][0]['text'] ?? null);
     }
 
+    public function testModernListCarriesPrivateNoCacheHintsByDefault(): void
+    {
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+
+        $this->assertResponseOk();
+        $this->assertSame(0, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testServerCacheSetsTheHints(): void
+    {
+        Configure::write('Mcp.server.cache', [
+            'ttl' => 60000,
+            'scope' => 'public',
+            'methods' => ['tools/list' => ['ttl' => 300000]],
+        ]);
+
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+
+        $this->assertResponseOk();
+        $this->assertSame(300000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('public', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testHandshakeEraHasNoCacheHints(): void
+    {
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+        $this->mcp($this->initialize(1));
+        $headers = [
+            'Mcp-Session-Id' => $this->_response->getHeaderLine('Mcp-Session-Id'),
+            'MCP-Protocol-Version' => self::HANDSHAKE,
+        ];
+        $this->mcp(['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $headers);
+
+        $this->mcp(['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'], $headers);
+
+        $this->assertResponseOk();
+        $this->assertArrayNotHasKey('ttlMs', $this->json()['result'] ?? []);
+    }
+
     public function testJsonBodyIsReadAfterBodyParserMiddleware(): void
     {
         $this->mcp(

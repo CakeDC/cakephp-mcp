@@ -123,6 +123,11 @@ final class ServerFactory
                 (int)McpConfig::get('session.ttl'),
             ));
 
+        $cachePolicy = CacheHints::fromConfig(McpConfig::get('server.cache'));
+        if ($cachePolicy !== null) {
+            $builder->setCachePolicy($cachePolicy);
+        }
+
         $instructions = McpConfig::get('server.instructions');
         if (is_string($instructions) && $instructions !== '') {
             $builder->setInstructions($instructions);

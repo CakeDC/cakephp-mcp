@@ -36,6 +36,7 @@ final class McpConfig
             'description' => null,
             'websiteUrl' => null,
             'instructions' => null,
+            'cache' => null,
             'configure' => null,
         ],
         'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],

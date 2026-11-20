@@ -49,6 +49,7 @@ want to change; everything else keeps its default. These are the defaults
 - `server.name`, `server.version`: reported to clients in the `initialize` result.
 - `server.title`, `server.description`, `server.websiteUrl`: optional, also reported to clients. `null` sends none.
 - `server.instructions`: optional text telling the client's model how to use your server. `null` sends none.
+- `server.cache`: the cache hints of the 2026-07-28 protocol revision, which tell a client how long it may keep a result of `server/discover`, `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and `resources/read`. `null` (the default) marks them private and not to be cached. Otherwise an array: `ttl` in milliseconds (default `0`), `scope` `'private'` (one user, the default) or `'public'` (any user, only for results that are the same for everyone), and `methods` to set them per method, for example `['ttl' => 60000, 'methods' => ['tools/list' => ['ttl' => 300000]]]`. Clients of the older revisions get no hints. Keep `tools/list` private when the authorizer gives each user different tools.
 - `server.configure`: optional callable that receives the SDK `Mcp\Server\Builder` before the server is built. See [Using the SDK builder](#using-the-sdk-builder).
 - `discovery.scanDirs`: directories (relative to `ROOT`) scanned for attributes. Missing directories are skipped.
 - `discovery.excludeDirs`: directories to skip while scanning.
