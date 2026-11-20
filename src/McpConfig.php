@@ -42,6 +42,7 @@ final class McpConfig
         'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
         'schema' => ['normalize' => false],
         'catalog' => ['enabled' => false, 'tools' => [], 'maxCalls' => 5],
+        'apps' => ['enabled' => false],
         'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
         'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4 * 1024 * 1024],
         'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],

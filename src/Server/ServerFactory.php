@@ -30,6 +30,7 @@ use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
 use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
@@ -145,6 +146,9 @@ final class ServerFactory
         // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
         $registry = new Registry($events, $logger);
         $builder->setRegistry($registry);
+        if (McpConfig::get('apps.enabled', $this->server) === true) {
+            $builder->enableExtension(new McpApps());
+        }
         if ($catalogOn) {
             $this->addCatalog($builder, new ToolCatalog(
                 $registry,
