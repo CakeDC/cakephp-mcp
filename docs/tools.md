@@ -19,6 +19,50 @@ use Mcp\Capability\Attribute\McpTool;
 The description comes from the method's docblock. The input schema is built
 from the parameter types, and `@param` lines become the parameter descriptions.
 
+## Input schemas
+
+Clients show the input schema to the model, and some hosts reject schemas they
+find ambiguous. A few habits keep it clean:
+
+- Describe every parameter in a `@param` line. A parameter without a
+  description leaves the model guessing.
+- Write arrays as `int[]` or `array<int>` in the docblock. The SDK does not
+  resolve `list<int>` yet, so that form gives `"items": {}`, an array of
+  anything.
+- Prefer `string $from = ''` to `?string $from = null` for an optional string.
+  The nullable form gives `"type": ["null", "string"]`, a type array that some
+  hosts (Gemini-based ones, for example) reject.
+- Use `#[Schema]` (`Mcp\Capability\Attribute\Schema`) on a parameter for what a
+  PHP type cannot say: allowed values, a format, a range, or the type of the
+  items of an array.
+
+```php
+use Mcp\Capability\Attribute\McpTool;
+use Mcp\Capability\Attribute\Schema;
+
+/**
+ * Orders in a date range.
+ *
+ * @param string $from First day, YYYY-MM-DD. Empty: 30 days ago.
+ * @param string $status Order status.
+ * @param int[] $facilities Facility ids. Empty: all.
+ */
+#[McpTool(name: 'list_orders')]
+public function list(
+    #[Schema(format: 'date')] string $from = '',
+    #[Schema(enum: ['open', 'closed'])] string $status = 'open',
+    array $facilities = [],
+): array {
+    // ...
+}
+```
+
+For existing tools written with nullable parameters, set
+`Mcp.schema.normalize` to `true` (see [Configuration](configuration.md#keys)):
+it removes the type arrays from `tools/list` without changing the code.
+`bin/cake mcp check` lists the schemas that still have type arrays, untyped
+arrays or parameters without a description.
+
 ## Example returning structured data
 
 ```php

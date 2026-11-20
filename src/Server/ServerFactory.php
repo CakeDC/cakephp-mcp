@@ -14,6 +14,7 @@ use CakeDC\Mcp\Container\ContainerBridge;
 use CakeDC\Mcp\Event\AuditListener;
 use CakeDC\Mcp\Event\EventDispatcher;
 use CakeDC\Mcp\Event\ToolListFilter;
+use CakeDC\Mcp\Event\ToolSchemaNormalizer;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
@@ -79,6 +80,10 @@ final class ServerFactory
         $gate = new ToolGate($this->authorizer(), $this->identity, $trusted);
         $events = new EventDispatcher();
         $events->listen(ResponseEvent::class, new ToolListFilter($gate));
+        if (McpConfig::get('schema.normalize') === true) {
+            // After the filter, on the tools the caller may see.
+            $events->listen(ResponseEvent::class, new ToolSchemaNormalizer());
+        }
         // The guard goes first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
         $audit = AuditSettings::fromConfig();
