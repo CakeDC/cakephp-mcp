@@ -174,6 +174,7 @@ class McpCheckCommand extends Command
     {
         $routes = [];
         $resources = [];
+        $audiences = [];
         foreach ($servers as $server) {
             $route = McpConfig::get('route', $server);
             if (is_string($route) && trim($route, '/') !== '') {
@@ -182,6 +183,10 @@ class McpCheckCommand extends Command
             $settings = AuthSettings::fromConfig($server);
             if ($settings->mode !== AuthSettings::HOST) {
                 $resources[$settings->resource][] = $server;
+            }
+            // An external authorization server's tokens are accepted by audience, not by resource.
+            foreach ($settings->external->audiences ?? [] as $audience) {
+                $audiences[$settings->external?->issuer . ' ' . $audience][] = $server;
             }
         }
         $problems = [];
@@ -196,6 +201,19 @@ class McpCheckCommand extends Command
                     '%s share the resource %s, so a token for one works on the other',
                     implode(' and ', $names),
                     $resource,
+                );
+            }
+        }
+        foreach ($audiences as $key => $names) {
+            $names = array_values(array_unique($names));
+            if (count($names) > 1) {
+                [$issuer, $audience] = explode(' ', $key, 2);
+                $problems[] = sprintf(
+                    '%s accept the audience %s from %s, so a token for one works on the other: give each server '
+                    . 'its own auth.external.audience',
+                    implode(' and ', $names),
+                    $audience,
+                    $issuer,
                 );
             }
         }

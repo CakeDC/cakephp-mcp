@@ -9,6 +9,7 @@ use Cake\Cache\Engine\FileEngine;
 use Cake\Core\Configure;
 use Cake\Routing\RouteBuilder;
 use Cake\Routing\RouteCollection;
+use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\McpPlugin;
 use TestApp\Application;
@@ -85,6 +86,21 @@ class McpPluginTest extends TestCase
         } finally {
             Cache::drop('mcp_oauth_plugin_test');
         }
+    }
+
+    public function testReverseRoutingReachesEachServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+        Router::reload();
+        (new McpPlugin())->routes(Router::createRouteBuilder('/'));
+
+        $endpoint = ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle', 'prefix' => false];
+        $metadata = ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata', 'prefix' => false];
+        $this->assertSame('/mcp', Router::url($endpoint));
+        $this->assertSame('/mcp/admin', Router::url($endpoint + ['server' => 'admin']));
+        $this->assertSame('/.well-known/oauth-protected-resource/mcp', Router::url($metadata));
+        $this->assertSame('/.well-known/oauth-protected-resource/mcp/admin', Router::url($metadata + ['server' => 'admin']));
+        Router::reload();
     }
 
     public function testRoutesConnectTheEndpointAtTheConfiguredPath(): void

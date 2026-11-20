@@ -64,7 +64,9 @@ class McpPlugin extends BasePlugin
      */
     public function routes(RouteBuilder $routes): void
     {
-        foreach (McpConfig::servers() as $server) {
+        // Named servers first: the default server's routes carry no `server` param, so connected first they would
+        // also match reverse routing to a named server.
+        foreach (array_reverse(McpConfig::servers()) as $server) {
             $path = McpConfig::get('route', $server);
             if (!is_string($path) || $path === '') {
                 continue;

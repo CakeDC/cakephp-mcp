@@ -435,6 +435,36 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('rewrite');
     }
 
+    public function testNamedExternalServerHasItsOwnMetadataRoute(): void
+    {
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['mode' => 'external', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'cache' => 'mcp_check_cache',
+        ]]]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertOutputContains('[PASS] Metadata route');
+        $this->assertOutputNotContains('advertised URL path');
+    }
+
+    public function testSharedExternalAudienceFails(): void
+    {
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        Configure::write('Mcp.auth', ['mode' => 'external', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'audience' => 'api://mcp',
+            'cache' => 'mcp_check_cache',
+        ]]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('default and admin accept the audience api://mcp');
+    }
+
     public function testExternalModeReportsTheAudiences(): void
     {
         Configure::write('Mcp.auth', ['mode' => 'external', 'resource' => 'http://localhost/mcp', 'external' => [
