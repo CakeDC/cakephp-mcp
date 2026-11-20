@@ -100,6 +100,24 @@ class AuditWriterTest extends TestCase
         );
     }
 
+    public function testNamedServerRecordsCarryTheServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+
+        (new AuditWriter(AuditSettings::fromConfig('admin')))->write($this->record());
+
+        $this->assertStringContainsString(' request=2 server=admin args=', $this->lines()[0]);
+        $this->assertSame('admin', $this->events[0]->getData()['server'] ?? null);
+    }
+
+    public function testDefaultServerRecordsHaveNoServerField(): void
+    {
+        $this->writer()->write($this->record());
+
+        $this->assertStringNotContainsString('server=', $this->lines()[0]);
+        $this->assertArrayNotHasKey('server', $this->events[0]->getData());
+    }
+
     public function testClientTextCannotForgeLinesOrPlaceholders(): void
     {
         $writer = $this->writer();

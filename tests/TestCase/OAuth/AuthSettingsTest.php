@@ -67,6 +67,18 @@ class AuthSettingsTest extends TestCase
         $this->assertSame('https://example.com/mcp', AuthSettings::fromConfig()->resource);
     }
 
+    public function testNamedServerDerivesItsResourceFromItsRoute(): void
+    {
+        Configure::write('App.fullBaseUrl', 'https://example.com');
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['mode' => 'oauth']]);
+
+        $settings = AuthSettings::fromConfig('admin');
+
+        $this->assertSame('https://example.com/mcp/admin', $settings->resource);
+        $this->assertSame('admin', $settings->server);
+        $this->assertSame('host', AuthSettings::fromConfig()->mode);
+    }
+
     public function testResourceKeepsTheBasePathOfASubdirectoryInstall(): void
     {
         Configure::write('App.fullBaseUrl', 'https://example.com');

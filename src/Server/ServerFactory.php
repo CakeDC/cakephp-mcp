@@ -46,11 +46,35 @@ final class ServerFactory
     /**
      * @param \Psr\Container\ContainerInterface $container The host container.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The shared current identity.
+     * @param string $server The MCP server this factory builds: `default` or a key of `Mcp.servers`.
      */
     public function __construct(
         private readonly ContainerInterface $container,
         private readonly CurrentIdentity $identity,
+        private readonly string $server = McpConfig::DEFAULT_SERVER,
     ) {
+    }
+
+    /**
+     * A factory for another MCP server, with the same container and current identity.
+     *
+     * @param string $server `default` or a key of `Mcp.servers`.
+     * @return self
+     * @throws \InvalidArgumentException When the server is not configured.
+     */
+    public function forServer(string $server): self
+    {
+        McpConfig::get('route', $server);
+
+        return new self($this->container, $this->identity, $server);
+    }
+
+    /**
+     * @return string The MCP server this factory builds.
+     */
+    public function server(): string
+    {
+        return $this->server;
     }
 
     /**
@@ -80,13 +104,13 @@ final class ServerFactory
         $gate = new ToolGate($this->authorizer(), $this->identity, $trusted);
         $events = new EventDispatcher();
         $events->listen(ResponseEvent::class, new ToolListFilter($gate));
-        if (McpConfig::get('schema.normalize') === true) {
+        if (McpConfig::get('schema.normalize', $this->server) === true) {
             // After the filter, on the tools the caller may see.
             $events->listen(ResponseEvent::class, new ToolSchemaNormalizer());
         }
         // The guard goes first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
-        $audit = AuditSettings::fromConfig();
+        $audit = AuditSettings::fromConfig($this->server);
         if ($audit->enabled) {
             // The audit needs to know which tools exist, to tell a denied tool from an unknown one: it keeps
             // the registry. Set before the host hook, which may still replace it (the audit then falls back
@@ -108,8 +132,8 @@ final class ServerFactory
         // Set after the host hook, so the hook cannot drop the tool list filter or replace these.
         $builder
             ->setServerInfo(
-                (string)McpConfig::get('server.name'),
-                (string)McpConfig::get('server.version'),
+                (string)McpConfig::get('server.name', $this->server),
+                (string)McpConfig::get('server.version', $this->server),
                 $this->optionalString('server.description'),
                 websiteUrl: $this->optionalString('server.websiteUrl'),
                 title: $this->optionalString('server.title'),
@@ -118,28 +142,28 @@ final class ServerFactory
             ->setLogger($logger)
             ->setEventDispatcher($events)
             ->setSession(new Psr16SessionStore(
-                Cache::pool((string)McpConfig::get('session.cache')),
-                'mcp-',
-                (int)McpConfig::get('session.ttl'),
+                Cache::pool((string)McpConfig::get('session.cache', $this->server)),
+                $this->server === McpConfig::DEFAULT_SERVER ? 'mcp-' : 'mcp-' . $this->server . '-',
+                (int)McpConfig::get('session.ttl', $this->server),
             ));
 
-        $cachePolicy = CacheHints::fromConfig(McpConfig::get('server.cache'));
+        $cachePolicy = CacheHints::fromConfig(McpConfig::get('server.cache', $this->server));
         if ($cachePolicy !== null) {
             $builder->setCachePolicy($cachePolicy);
         }
 
-        $instructions = McpConfig::get('server.instructions');
+        $instructions = McpConfig::get('server.instructions', $this->server);
         if (is_string($instructions) && $instructions !== '') {
             $builder->setInstructions($instructions);
         }
 
-        $scanDirs = $this->existingDirs((array)McpConfig::get('discovery.scanDirs'));
+        $scanDirs = $this->existingDirs((array)McpConfig::get('discovery.scanDirs', $this->server));
         if ($scanDirs !== []) {
-            $cache = McpConfig::discoveryCache();
+            $cache = McpConfig::discoveryCache($this->server);
             $builder->setDiscovery(
                 rtrim(ROOT, DS),
                 $scanDirs,
-                array_values(array_filter((array)McpConfig::get('discovery.excludeDirs'), 'is_string')),
+                array_values(array_filter((array)McpConfig::get('discovery.excludeDirs', $this->server), 'is_string')),
                 $cache !== null ? Cache::pool($cache) : null,
             );
         }
@@ -156,7 +180,7 @@ final class ServerFactory
      */
     private function configure(Builder $builder): void
     {
-        $configure = McpConfig::get('server.configure');
+        $configure = McpConfig::get('server.configure', $this->server);
         if ($configure === null) {
             return;
         }
@@ -175,7 +199,7 @@ final class ServerFactory
      */
     private function optionalString(string $path): ?string
     {
-        $value = McpConfig::get($path);
+        $value = McpConfig::get($path, $this->server);
 
         return is_string($value) && $value !== '' ? $value : null;
     }
@@ -278,12 +302,12 @@ final class ServerFactory
      */
     public function authorizer(): ToolAuthorizerInterface
     {
-        $authorizer = McpConfig::get('authorization.authorizer');
+        $authorizer = McpConfig::get('authorization.authorizer', $this->server);
         if ($authorizer instanceof ToolAuthorizerInterface) {
             return $authorizer;
         }
         if ($authorizer === RbacToolAuthorizer::class) {
-            return new RbacToolAuthorizer((array)McpConfig::get('authorization.rbac'));
+            return new RbacToolAuthorizer((array)McpConfig::get('authorization.rbac', $this->server));
         }
         if (is_string($authorizer) && is_subclass_of($authorizer, ToolAuthorizerInterface::class)) {
             $instance = (new ContainerBridge($this->container))->get($authorizer);

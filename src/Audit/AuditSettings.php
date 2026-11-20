@@ -34,18 +34,20 @@ final class AuditSettings
         public readonly bool $arguments,
         public readonly array $redact,
         public readonly int $maxLength,
+        public readonly string $server = McpConfig::DEFAULT_SERVER,
     ) {
     }
 
     /**
      * Reads and validates `Mcp.audit`.
      *
+     * @param string $server The MCP server whose audit settings to read.
      * @return self
      * @throws \InvalidArgumentException For an invalid setting, named in the message.
      */
-    public static function fromConfig(): self
+    public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER): self
     {
-        $audit = McpConfig::get('audit');
+        $audit = McpConfig::get('audit', $server);
         if (!is_array($audit)) {
             throw new InvalidArgumentException('"Mcp.audit" must be an array.');
         }
@@ -80,6 +82,7 @@ final class AuditSettings
             self::flag($audit['arguments'], 'arguments'),
             array_map('strtolower', $redact),
             $maxLength,
+            $server,
         );
     }
 

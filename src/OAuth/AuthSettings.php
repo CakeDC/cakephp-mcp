@@ -43,18 +43,20 @@ final class AuthSettings
         public readonly array $implies,
         public readonly ?Closure $identity,
         public readonly ?ExternalSettings $external,
+        public readonly string $server = McpConfig::DEFAULT_SERVER,
     ) {
     }
 
     /**
      * Reads and validates `Mcp.auth`.
      *
+     * @param string $server The MCP server whose settings to read.
      * @return self
      * @throws \InvalidArgumentException For an invalid setting, named in the message.
      */
-    public static function fromConfig(): self
+    public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER): self
     {
-        $auth = McpConfig::get('auth');
+        $auth = McpConfig::get('auth', $server);
         // A non-array (null included) is a typo, never a request for the defaults: fail closed.
         if (!is_array($auth)) {
             throw new InvalidArgumentException('"Mcp.auth" must be an array.');
@@ -85,7 +87,7 @@ final class AuthSettings
         if ($identity !== null && !is_callable($identity)) {
             throw new InvalidArgumentException('"Mcp.auth.identity" must be a callable or null.');
         }
-        $resource = $mode === self::HOST ? '' : self::resource($auth['resource'] ?? null);
+        $resource = $mode === self::HOST ? '' : self::resource($auth['resource'] ?? null, $server);
 
         return new self(
             $mode,
@@ -98,6 +100,7 @@ final class AuthSettings
             self::scopeMap($scopes['implies'], 'Mcp.auth.scopes.implies'),
             $identity === null ? null : Closure::fromCallable($identity),
             $mode === self::EXTERNAL ? ExternalSettings::fromArray($external, $resource) : null,
+            $server,
         );
     }
 
@@ -181,9 +184,10 @@ final class AuthSettings
      * The canonical resource URL: `Mcp.auth.resource`, or the base URL, base path and `Mcp.route`.
      *
      * @param mixed $configured `Mcp.auth.resource`.
+     * @param string $server The server, whose route the derived resource ends with.
      * @return string
      */
-    private static function resource(mixed $configured): string
+    private static function resource(mixed $configured, string $server): string
     {
         if ($configured !== null) {
             if (!is_string($configured)) {
@@ -193,7 +197,7 @@ final class AuthSettings
             return self::canonicalUrl($configured, '"Mcp.auth.resource"');
         }
         $base = Configure::read('App.base');
-        $route = McpConfig::get('route');
+        $route = McpConfig::get('route', $server);
 
         return self::canonicalUrl(
             rtrim((string)Configure::read('App.fullBaseUrl'), '/')
