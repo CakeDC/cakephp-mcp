@@ -29,12 +29,19 @@ find ambiguous. A few habits keep it clean:
 - Write arrays as `int[]` or `array<int>` in the docblock. The SDK does not
   resolve `list<int>` yet, so that form gives `"items": {}`, an array of
   anything.
-- Prefer `string $from = ''` to `?string $from = null` for an optional string.
-  The nullable form gives `"type": ["null", "string"]`, a type array that some
-  hosts (Gemini-based ones, for example) reject.
 - Use `#[Schema]` (`Mcp\Capability\Attribute\Schema`) on a parameter for what a
   PHP type cannot say: allowed values, a format, a range, or the type of the
   items of an array.
+- Give an optional parameter a default the schema accepts, because the model may
+  send it back. A free-text string can default to `''`. A string with a format
+  or allowed values cannot: `''` is not a date, so a model that sends it gets an
+  error. Make it nullable instead (`?string $from = null`) and say in its
+  description what leaving it out does, or default to one of the allowed values.
+- The nullable form gives `"type": ["null", "string"]`, a type array that some
+  hosts (Gemini-based ones, for example) reject. Set `Mcp.schema.normalize` to
+  `true` (see [Configuration](configuration.md#keys)) to advertise those
+  parameters as plain `"string"` without a default: the model leaves them out,
+  and a client that still sends `null` keeps working.
 
 ```php
 use Mcp\Capability\Attribute\McpTool;
@@ -43,13 +50,13 @@ use Mcp\Capability\Attribute\Schema;
 /**
  * Orders in a date range.
  *
- * @param string $from First day, YYYY-MM-DD. Empty: 30 days ago.
+ * @param string|null $from First day, YYYY-MM-DD. Leave it out for 30 days ago.
  * @param string $status Order status.
- * @param int[] $facilities Facility ids. Empty: all.
+ * @param int[] $facilities Facility ids. Leave it out for all.
  */
 #[McpTool(name: 'list_orders')]
 public function list(
-    #[Schema(format: 'date')] string $from = '',
+    #[Schema(format: 'date')] ?string $from = null,
     #[Schema(enum: ['open', 'closed'])] string $status = 'open',
     array $facilities = [],
 ): array {
@@ -57,11 +64,12 @@ public function list(
 }
 ```
 
-For existing tools written with nullable parameters, set
-`Mcp.schema.normalize` to `true` (see [Configuration](configuration.md#keys)):
-it removes the type arrays from `tools/list` without changing the code.
-`bin/cake mcp check` lists the schemas that still have type arrays, untyped
-arrays or parameters without a description.
+`Mcp.schema.normalize` only changes optional parameters whose default is
+`null`: it removes `null` from their types. A required nullable parameter, a
+nullable one with another default (`?string $status = 'open'`, where `null` is a
+value of its own) and a wider union (`int|string`) keep their type arrays.
+`bin/cake mcp check` lists what is left: type arrays, untyped arrays and
+parameters without a description.
 
 ## Example returning structured data
 
