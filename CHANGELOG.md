@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- MCP Apps (`Mcp.apps.enabled`): `AppView::render()` turns a Cake template into an app page, in a layout that inlines the official MCP Apps client (`@modelcontextprotocol/ext-apps` 2.0.4, vendored in `resources/ext-apps` with its license); `#[McpApp]` links a tool to its app; app-only tools are left out of `tools/list` for clients that do not render apps, and their audit records carry `app=1`; `mcp check` reports apps on a new `Apps` line; `bake mcp_app` creates an app. See `docs/apps.md`.
 - Tool catalog (`Mcp.catalog`): chosen tools leave `tools/list` and are reached with `find_tools` and `call_tools`; every inner call goes through the authorizer, the tool scopes (a `403 insufficient_scope` over HTTP), the input schema and the audit (`via=call_tools`). `mcp check` reports it on a new `Catalog` line, and its `Tool schemas` line covers catalogued tools.
 - `McpTestTrait` runs tools that report progress or log through the SDK's `ClientGateway` (they used to get no response in tests) and records their notifications: `mcpNotifications()`, `assertMcpProgressSent()`, `assertMcpNotificationSent()`. A tool that asks the client something fails with a clear message.
 - Docs: progress and logs from a tool, and what buffers server-sent events (PHP output buffering, compression, proxies).

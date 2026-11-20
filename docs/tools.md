@@ -272,10 +272,12 @@ With `cakephp/bake` installed, three bake commands create a class in
 bin/cake bake mcp_tool ListOrders        # src/Mcp/ListOrdersTool.php, tool list_orders
 bin/cake bake mcp_resource OrderGuide    # src/Mcp/OrderGuideResource.php, app://order-guide
 bin/cake bake mcp_prompt WeeklyReport    # src/Mcp/WeeklyReportPrompt.php, prompt weekly_report
+bin/cake bake mcp_app Inbox              # src/Mcp/InboxApp.php and templates/Mcp/inbox.php, see MCP Apps
 ```
 
 Each class is invokable, with the attribute on the class and the work in
-`__invoke()`, one class per tool. The generated tool is read-only, has every
+`__invoke()`, one class per tool. `mcp_app` creates an [MCP App](apps.md): a
+class with the page resource and its tool, and the page template. The generated tool is read-only, has every
 parameter described and passes the `Tool schemas` line of `bin/cake mcp check`.
 Replace the placeholder description: the model reads it to decide when to call
 the tool. `--plugin Shop` bakes into a plugin, `--no-test` skips the test, and

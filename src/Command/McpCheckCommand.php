@@ -42,6 +42,7 @@ use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\CacheScope;
+use Mcp\Schema\Extension\Apps\McpApps;
 use ReflectionClass;
 use ReflectionProperty;
 use Symfony\Component\Finder\Finder;
@@ -247,6 +248,7 @@ class McpCheckCommand extends Command
             'Tool schemas' => fn(): array => $this->toolSchemas(),
             'Conditions' => fn(): array => $this->conditions(),
             'Catalog' => fn(): array => $this->catalog(),
+            'Apps' => fn(): array => $this->apps(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
             'Tool scopes' => fn(): array => $this->toolScopes(),
             'Cache hints' => fn(): array => $this->cacheHints(),
@@ -280,6 +282,57 @@ class McpCheckCommand extends Command
     private function toolNames(): array
     {
         return array_map(fn(array $tool): string => (string)$tool['name'], $this->toolDefinitions());
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function apps(): array
+    {
+        $links = [];
+        foreach ($this->factory()->registeredToolDefinitions() as $tool) {
+            $uri = $tool['_meta']['ui']['resourceUri'] ?? null;
+            if (is_string($uri)) {
+                $links[(string)$tool['name']] = $uri;
+            }
+        }
+        ksort($links);
+        $enabled = McpConfig::get('apps.enabled', $this->server) === true;
+        if (!$enabled) {
+            return $links === []
+                ? ['pass', 'off']
+                : ['fail', sprintf(
+                    '%s link to apps but Mcp.apps.enabled is off, so clients are not told about apps, see %s',
+                    implode(', ', array_keys($links)),
+                    self::DOCS . 'apps.md',
+                )];
+        }
+        $apps = [];
+        foreach ($this->factory()->registeredResourceDefinitions() as $resource) {
+            if (($resource['mimeType'] ?? null) === McpApps::MIME_TYPE) {
+                $apps[] = (string)$resource['uri'];
+            }
+        }
+        sort($apps);
+        $missing = [];
+        foreach ($links as $tool => $uri) {
+            if (!in_array($uri, $apps, true)) {
+                $missing[] = sprintf('%s links to %s, which is not an app resource', $tool, $uri);
+            }
+        }
+        if ($missing !== []) {
+            return ['fail', implode('; ', $missing) . sprintf(
+                ' (a ui:// resource with MIME type %s), see %s',
+                McpApps::MIME_TYPE,
+                self::DOCS . 'apps.md',
+            )];
+        }
+
+        return ['pass', $apps === [] ? 'on, no app resources' : sprintf(
+            '%d app resources: %s',
+            count($apps),
+            implode(', ', $apps),
+        )];
     }
 
     /**

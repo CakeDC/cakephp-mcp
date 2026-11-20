@@ -20,6 +20,7 @@ use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
+use Mcp\Server\Builder;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
 use TestApp\Authenticator\ApiTokenAuthenticator;
@@ -647,6 +648,43 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
 
         $this->assertOutputContains('[WARN] Tool schemas: report.date_from: type union null|string');
+    }
+
+    public function testAppsLine(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Apps: off');
+
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Apps: inbox_rows, show_inbox link to apps but Mcp.apps.enabled is off');
+
+        Configure::write('Mcp.apps.enabled', true);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Apps: 2 app resources: ui://test/broken, ui://test/inbox');
+
+        Configure::write('Mcp.servers.apps', [
+            'route' => '/mcp/apps',
+            'discovery' => ['scanDirs' => ['src/McpApps'], 'excludeDirs' => []],
+            'apps' => ['enabled' => true],
+        ]);
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp']);
+        $this->exec('mcp check --server default');
+        $this->assertOutputContains('[PASS] Apps: on, no app resources');
+    }
+
+    public function testAppsLineFailsOnAMissingResource(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.discovery.excludeDirs', []);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(fn(): string => 'x', 'orphan', meta: ['ui' => ['resourceUri' => 'ui://test/missing']]);
+        });
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Apps: orphan links to ui://test/missing, which is not an app resource');
     }
 
     public function testCatalogLine(): void

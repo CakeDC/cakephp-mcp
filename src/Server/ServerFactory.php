@@ -421,6 +421,26 @@ final class ServerFactory
     }
 
     /**
+     * Every resource registered on this server (not templates), decoded from JSON.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<array<string, mixed>> Each has a string `uri`.
+     */
+    public function registeredResourceDefinitions(): array
+    {
+        $this->build(true, $this->quietLogger());
+        $resources = [];
+        foreach ($this->lastRegistry?->getResources()->references ?? [] as $resource) {
+            $definition = json_decode((string)json_encode($resource), true);
+            if (is_array($definition) && is_string($definition['uri'] ?? null)) {
+                $resources[] = $definition;
+            }
+        }
+
+        return $resources;
+    }
+
+    /**
      * What `#[McpWhen]` leaves out of this server, as a trusted client would see it.
      *
      * @internal Used by `bin/cake mcp check`; not part of the public API.

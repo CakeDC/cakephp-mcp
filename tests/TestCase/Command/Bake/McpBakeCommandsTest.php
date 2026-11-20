@@ -29,6 +29,9 @@ class McpBakeCommandsTest extends TestCase
         'tests/TestCase/Mcp/ListOrdersToolTest.php',
         'tests/TestCase/Mcp/OrderGuideResourceTest.php',
         'tests/TestCase/Mcp/WeeklyReportPromptTest.php',
+        'src/Mcp/InboxApp.php',
+        'templates/Mcp/inbox.php',
+        'tests/TestCase/Mcp/InboxAppTest.php',
     ];
 
     protected function setUp(): void
@@ -46,7 +49,7 @@ class McpBakeCommandsTest extends TestCase
                 unlink(self::PLUGIN . $file);
             }
         }
-        foreach (['src/Mcp', 'tests/TestCase/Mcp', 'tests/TestCase'] as $dir) {
+        foreach (['src/Mcp', 'tests/TestCase/Mcp', 'tests/TestCase', 'templates/Mcp', 'templates'] as $dir) {
             if (is_dir(self::PLUGIN . $dir)) {
                 rmdir(self::PLUGIN . $dir);
             }
@@ -100,6 +103,40 @@ class McpBakeCommandsTest extends TestCase
         $this->assertExitSuccess();
         $this->assertStringContainsString("name: 'weekly_report'", $this->baked('src/Mcp/WeeklyReportPrompt.php'));
         $this->assertFileExists(self::PLUGIN . 'tests/TestCase/Mcp/WeeklyReportPromptTest.php');
+    }
+
+    public function testBakesAnApp(): void
+    {
+        $this->exec('bake mcp_app Inbox --plugin BakeTarget --force');
+
+        $this->assertExitSuccess();
+        $class = $this->baked('src/Mcp/InboxApp.php');
+        $this->assertStringContainsString("uri: 'ui://app/inbox'", $class);
+        $this->assertStringContainsString("#[McpApp(resource: 'ui://app/inbox')]", $class);
+        $this->assertStringContainsString("name: 'show_inbox'", $class);
+        $this->assertStringContainsString("'BakeTarget.Mcp/inbox'", $class);
+        $this->assertStringContainsString('new McpApps.App(', $this->baked('templates/Mcp/inbox.php'));
+        $this->assertFileExists(self::PLUGIN . 'tests/TestCase/Mcp/InboxAppTest.php');
+
+        require_once self::PLUGIN . 'src/Mcp/InboxApp.php';
+        $transport = new RecordingTransport(array_map('json_encode', [
+            ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
+                'protocolVersion' => '2025-06-18',
+                'capabilities' => new stdClass(),
+                'clientInfo' => ['name' => 'test', 'version' => '1'],
+            ]],
+            ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
+            ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'resources/read', 'params' => ['uri' => 'ui://app/inbox']],
+        ]));
+        Server::builder()
+            ->setServerInfo('bake', '1')
+            ->setDiscovery(rtrim(self::PLUGIN, DS), ['src/Mcp'])
+            ->build()
+            ->run($transport);
+
+        $contents = $transport->responseFor(2)['result']['contents'][0] ?? [];
+        $this->assertSame('text/html;profile=mcp-app', $contents['mimeType'] ?? null, (string)json_encode($transport->responseFor(2)));
+        $this->assertStringContainsString('globalThis.McpApps={', (string)($contents['text'] ?? ''));
     }
 
     public function testNoTestOption(): void

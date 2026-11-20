@@ -53,6 +53,7 @@ want to change; everything else keeps its default. These are the defaults
 - `catalog.enabled`: `true` turns on the tool catalog for this server (see [Tool catalog](tools.md#tool-catalog)). Default `false`.
 - `catalog.tools`: the tools behind the catalog, as names or `fnmatch()` patterns (`report_*`). They leave `tools/list` and are reached with `find_tools` and `call_tools`.
 - `catalog.maxCalls`: how many tools one `call_tools` may run, a positive integer. Default `5`.
+- `apps.enabled`: `true` tells clients this server serves MCP Apps (the `io.modelcontextprotocol/ui` extension). Default `false`. See [MCP Apps](apps.md).
 - `server.configure`: optional callable that receives the SDK `Mcp\Server\Builder` before the server is built. See [Using the SDK builder](#using-the-sdk-builder).
 - `discovery.scanDirs`: directories (relative to `ROOT`) scanned for attributes. Missing directories are skipped.
 - `discovery.excludeDirs`: directories to skip while scanning.

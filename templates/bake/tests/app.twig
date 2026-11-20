@@ -1,0 +1,30 @@
+{{ element('Bake.file_header', {
+    namespace: testNamespace,
+    classImports: [
+        'Cake\\TestSuite\\TestCase',
+        'CakeDC\\Mcp\\TestSuite\\McpTestTrait',
+        "#{namespace}\\Mcp\\#{className}",
+    ],
+}) }}
+
+class {{ className }}Test extends TestCase
+{
+    use McpTestTrait;
+
+    public function testThePageRenders(): void
+    {
+        $page = (new {{ className }}())->page();
+
+        $this->assertSame('text/html;profile=mcp-app', $page->mimeType);
+        $this->assertStringContainsString('McpApps', $page->text);
+    }
+
+    public function testTheToolAnswers(): void
+    {
+        $this->mcpActingAs(['id' => 1]);
+
+        $this->mcpCallTool('show_{{ mcpName }}');
+
+        $this->assertMcpToolSucceeded();
+    }
+}
