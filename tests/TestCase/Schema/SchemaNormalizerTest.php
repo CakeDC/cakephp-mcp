@@ -52,6 +52,16 @@ class SchemaNormalizerTest extends TestCase
         $this->assertSame(['type' => 'string', 'format' => 'date'], $out['properties']['date_from']);
     }
 
+    public function testNullableWithARealDefaultKeepsNull(): void
+    {
+        // ?string $status = 'open', where null means "any status": null stays a value the client can send.
+        $schema = ['type' => 'object', 'properties' => [
+            'status' => ['type' => ['null', 'string'], 'enum' => ['open', 'closed', null], 'default' => 'open'],
+        ]];
+
+        $this->assertSame($schema, SchemaNormalizer::normalize($schema));
+    }
+
     public function testRealDefaultsAreKept(): void
     {
         $schema = ['type' => 'object', 'properties' => ['field' => ['type' => 'string', 'default' => 'signed']]];

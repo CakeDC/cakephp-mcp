@@ -6,9 +6,11 @@ namespace CakeDC\Mcp\Schema;
 /**
  * Simplifies the optional parameters of a tool input schema, for hosts that reject type arrays.
  *
- * Only top-level properties that are not required change: `"null"` leaves a `type` list (a single type left
- * becomes a plain string), `null` leaves an `enum`, and a `default` of `null` is dropped. Leaving out an optional
- * argument already means "no value", so the advertised schema loses nothing a client needs.
+ * Only top-level properties that are not required and whose default is `null` (or absent) change: `"null"` leaves
+ * a `type` list (a single type left becomes a plain string), `null` leaves an `enum`, and the `default` of `null` is
+ * dropped. Leaving out such an argument already gives `null`, so the advertised schema loses nothing a client needs.
+ * A nullable parameter with another default (`?string $status = 'open'`) keeps its union: there `null` is a value
+ * of its own, and `bin/cake mcp check` keeps reporting it.
  */
 final class SchemaNormalizer
 {
@@ -25,7 +27,7 @@ final class SchemaNormalizer
         $required = is_array($inputSchema['required'] ?? null) ? $inputSchema['required'] : [];
 
         foreach ($properties as $name => $property) {
-            if (!is_array($property) || in_array($name, $required, true)) {
+            if (!is_array($property) || in_array($name, $required, true) || ($property['default'] ?? null) !== null) {
                 continue;
             }
             $properties[$name] = self::optional($property);
