@@ -521,6 +521,33 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Authenticators');
     }
 
+    public function testCacheHintsOffPass(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Cache hints: off (private, not cached)');
+    }
+
+    public function testPublicToolListWithAnAuthorizerWarns(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Cache hints: tools/list is public');
+        $this->assertOutputContains('resources/read is public');
+    }
+
+    public function testPublicHintsOnlyForMethodsThatAreTheSameForEveryonePass(): void
+    {
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'methods' => ['prompts/list' => ['scope' => 'public']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Cache hints: ttl 60000 ms');
+    }
+
     public function testDiscoveryPassesWithFinder(): void
     {
         $this->exec('mcp check');

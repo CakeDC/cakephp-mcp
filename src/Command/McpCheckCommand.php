@@ -33,9 +33,11 @@ use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Schema\SchemaLint;
+use CakeDC\Mcp\Server\CacheHints;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
+use Mcp\Schema\Enum\CacheScope;
 use ReflectionProperty;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -125,6 +127,7 @@ class McpCheckCommand extends Command
             'Tool schemas' => fn(): array => $this->toolSchemas(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
             'Tool scopes' => fn(): array => $this->toolScopes(),
+            'Cache hints' => fn(): array => $this->cacheHints(),
             'Logging' => fn(): array => $this->logging(),
             'Audit' => fn(): array => $this->audit(),
         ];
@@ -716,6 +719,32 @@ class McpCheckCommand extends Command
         }
 
         return false;
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function cacheHints(): array
+    {
+        $policy = CacheHints::fromConfig(McpConfig::get('server.cache'));
+        if ($policy === null) {
+            return ['pass', 'off (private, not cached)'];
+        }
+        $warnings = [];
+        $perUser = !$this->factory()->authorizer() instanceof AllowAllToolAuthorizer;
+        if ($perUser && $policy->scopeFor('tools/list') === CacheScope::Public) {
+            $warnings[] = 'tools/list is public, but the authorizer can give each user different tools, so a shared '
+                . 'cache could show one user the tool list of another';
+        }
+        if ($policy->scopeFor('resources/read') === CacheScope::Public) {
+            $warnings[] = 'resources/read is public: only right when every resource reads the same for every user';
+        }
+        if ($warnings !== []) {
+            return ['warn', implode('; ', $warnings) . '. Set those methods to private in Mcp.server.cache.methods, see '
+                . self::DOCS . 'configuration.md#keys'];
+        }
+
+        return ['pass', sprintf('ttl %d ms', $policy->ttlFor('tools/list'))];
     }
 
     /**
