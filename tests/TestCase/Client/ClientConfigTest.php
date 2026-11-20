@@ -163,6 +163,12 @@ class ClientConfigTest extends TestCase
         $this->expectError(['url' => 'https://a.example.com', 'headers' => ['X' => 1]], 'headers');
     }
 
+    public function testUnknownToolKeysFail(): void
+    {
+        // A misspelled deny list would otherwise allow every tool.
+        $this->expectError(['url' => 'https://a.example.com', 'tools' => ['exclude' => ['delete_*']]], 'tools.exclude');
+    }
+
     public function testNamesAndUserMode(): void
     {
         Configure::write('Mcp.clients', [

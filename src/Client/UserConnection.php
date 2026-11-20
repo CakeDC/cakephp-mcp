@@ -6,6 +6,7 @@ namespace CakeDC\Mcp\Client;
 use Cake\I18n\DateTime;
 use Cake\Routing\Router;
 use CakeDC\Mcp\Client\Exception\NotConnectedException;
+use CakeDC\Mcp\Client\OAuth\Discovery;
 use CakeDC\Mcp\Client\OAuth\OAuthException;
 use CakeDC\Mcp\Client\Store\StoredConnection;
 use Mcp\Exception\ExceptionInterface;
@@ -59,7 +60,7 @@ final class UserConnection
      */
     public function isConnected(): bool
     {
-        $stored = $this->registry->store()->get($this->config->name, $this->userId);
+        $stored = $this->stored();
 
         return $stored !== null
             && ($stored->refreshToken !== null || !$stored->expiresWithin(0, DateTime::now()->getTimestamp()));
@@ -138,14 +139,26 @@ final class UserConnection
     }
 
     /**
+     * The user's grant, unless it was made for another server than the one configured now (the `url` changed):
+     * its token is never sent elsewhere.
+     *
+     * @return \CakeDC\Mcp\Client\Store\StoredConnection|null
+     */
+    private function stored(): ?StoredConnection
+    {
+        $stored = $this->registry->store()->get($this->config->name, $this->userId);
+
+        return $stored !== null && Discovery::covers($stored->resource, (string)$this->config->url) ? $stored : null;
+    }
+
+    /**
      * @param bool $rejected Whether the server just refused the stored access token.
      * @return string An access token to send.
      * @throws \CakeDC\Mcp\Client\Exception\NotConnectedException
      */
     private function accessToken(bool $rejected): string
     {
-        $store = $this->registry->store();
-        $stored = $store->get($this->config->name, $this->userId);
+        $stored = $this->stored();
         if ($stored === null) {
             throw $this->notConnected();
         }
@@ -184,7 +197,7 @@ final class UserConnection
                 throw $e;
             }
             // Another request may have refreshed (and rotated) the grant meanwhile.
-            $again = $store->get($this->config->name, $this->userId);
+            $again = $this->stored();
             if ($again !== null && $again->accessToken !== $stored->accessToken) {
                 return $again->accessToken;
             }

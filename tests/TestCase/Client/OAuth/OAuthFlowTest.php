@@ -12,6 +12,7 @@ use CakeDC\Mcp\Client\OAuth\OAuthFlow;
 use CakeDC\Mcp\Client\OAuth\PendingAuthorization;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\Test\Support\FakeOAuthServer;
+use Throwable;
 
 class OAuthFlowTest extends TestCase
 {
@@ -130,6 +131,42 @@ class OAuthFlowTest extends TestCase
         $this->expectException(OAuthException::class);
 
         $this->flow()->complete($pending, ['code' => 'good-code', 'state' => $query['state']]);
+    }
+
+    public function testConfiguredEndpointsAcceptTheIssOfAServerWithAPath(): void
+    {
+        $this->configureEndpoints();
+        [$pending, $query] = $this->start();
+
+        try {
+            $this->flow()->complete($pending, [
+                'code' => 'good-code',
+                'state' => $query['state'],
+                'iss' => FakeOAuthServer::ISSUER . '/realms/corp',
+            ]);
+        } catch (Throwable $e) {
+            // The test's trusted double does not serve the token endpoint; only the iss check matters here.
+            $this->assertStringNotContainsString('another authorization server', $e->getMessage());
+        }
+    }
+
+    public function testAConfiguredIssuerIsCompared(): void
+    {
+        $this->configureEndpoints();
+        Configure::write('Mcp.clients.linear.issuer', FakeOAuthServer::ISSUER . '/realms/corp');
+        [$pending, $query] = $this->start();
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('another authorization server');
+
+        $this->flow()->complete($pending, ['code' => 'good-code', 'state' => $query['state'], 'iss' => 'https://evil.example.com']);
+    }
+
+    private function configureEndpoints(): void
+    {
+        Configure::write('Mcp.clients.linear.authorizationUrl', FakeOAuthServer::ISSUER . '/authorize');
+        Configure::write('Mcp.clients.linear.tokenUrl', FakeOAuthServer::ISSUER . '/token');
+        Configure::write('Mcp.clients.linear.clientId', 'given id');
     }
 
     public function testAWrongStateIsRefused(): void

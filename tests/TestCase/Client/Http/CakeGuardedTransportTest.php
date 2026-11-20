@@ -108,6 +108,19 @@ class CakeGuardedTransportTest extends TestCase
         }
     }
 
+    public function testATrailingDotHostIsRefused(): void
+    {
+        $adapter = $this->adapter();
+        $pin = new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34');
+
+        try {
+            (new CakeGuardedTransport($adapter))->send(new HttpRequest('GET', 'https://auth.example.com./x'), $pin, 100);
+            $this->fail('Not refused');
+        } catch (BlockedUrlException) {
+            $this->assertNull($adapter->request);
+        }
+    }
+
     public function testABodyOverTheCapIsRefused(): void
     {
         $adapter = $this->adapter(str_repeat('x', 101));

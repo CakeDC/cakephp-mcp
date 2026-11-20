@@ -38,7 +38,7 @@ final class CakeGuardedTransport implements GuardedTransportInterface
     {
         $parts = parse_url($request->url);
         $host = is_array($parts) ? strtolower(trim((string)($parts['host'] ?? ''), '[]')) : '';
-        $host = str_ends_with($host, '.') ? substr($host, 0, -1) : $host;
+        // Compared as written: "host." would not match the pin in curl and be resolved again.
         $port = is_array($parts) ? (int)($parts['port'] ?? 443) : 0;
         $scheme = is_array($parts) ? strtolower((string)($parts['scheme'] ?? '')) : '';
         if ($scheme !== 'https' || $host !== $pin->host || $port !== $pin->port) {

@@ -31,9 +31,6 @@ final class EndpointGuard
     {
         $parts = parse_url($url);
         $host = is_array($parts) ? strtolower(trim((string)($parts['host'] ?? ''), '[]')) : '';
-        if (str_ends_with($host, '.')) {
-            $host = substr($host, 0, -1);
-        }
         if (
             !is_array($parts)
             || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
@@ -55,6 +52,7 @@ final class EndpointGuard
             // curl reads 2130706433, 127.1 or 0x7f000001 as an IP address; learned URLs are reached by name only.
             throw new BlockedUrlException($notPublic);
         }
+        // A trailing dot is refused by isHostName(): curl would not match the pin to "host." and resolve again.
         if (!self::isHostName($host) || !str_contains($host, '.')) {
             // A single label could go through the server's DNS search domains.
             throw new BlockedUrlException($notPublic);

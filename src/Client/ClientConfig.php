@@ -48,6 +48,7 @@ final class ClientConfig
     public const KEYS = [
         'url', 'token', 'headers', 'command', 'args', 'env', 'cwd', 'auth', 'timeout', 'tools', 'protocolVersion',
         'allowInsecure', 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl',
+        'issuer',
     ];
 
     /**
@@ -70,6 +71,8 @@ final class ClientConfig
      * @param string|null $authorizationUrl A configured authorization endpoint.
      * @param string|null $tokenUrl A configured token endpoint.
      * @param string|null $revocationUrl A configured revocation endpoint.
+     * @param string|null $issuer With configured endpoints, the issuer the authorization server names itself by,
+     *   compared with the `iss` of its sign-in responses; null to skip that comparison.
      */
     public function __construct(
         public readonly string $name,
@@ -91,6 +94,7 @@ final class ClientConfig
         public readonly ?string $authorizationUrl = null,
         public readonly ?string $tokenUrl = null,
         public readonly ?string $revocationUrl = null,
+        public readonly ?string $issuer = null,
     ) {
     }
 
@@ -241,7 +245,9 @@ final class ClientConfig
         }
 
         if ($auth === self::APP) {
-            $oauthKeys = ['clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl'];
+            $oauthKeys = [
+                'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl', 'issuer',
+            ];
             foreach ($oauthKeys as $oauth) {
                 if (array_key_exists($oauth, $config)) {
                     throw new InvalidArgumentException(sprintf(
@@ -263,7 +269,14 @@ final class ClientConfig
         if ($clientId === null && self::optionalString($config, 'clientSecret', $key) !== null) {
             throw new InvalidArgumentException(sprintf('"%s" needs "clientId".', $key('clientSecret')));
         }
+        $issuer = self::optionalString($config, 'issuer', $key);
         $configured = array_filter($endpoints, fn(?string $value): bool => $value !== null) !== [];
+        if ($issuer !== null && !$configured) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" goes with "authorizationUrl" and "tokenUrl"; discovery reads the issuer from the server.',
+                $key('issuer'),
+            ));
+        }
         if (
             $configured
             && ($endpoints['authorizationUrl'] === null || $endpoints['tokenUrl'] === null || $clientId === null)
@@ -295,6 +308,15 @@ final class ClientConfig
             throw new InvalidArgumentException(
                 sprintf('"%s" must be an array with "only" and "except".', $key('tools')),
             );
+        }
+        foreach (array_keys($tools) as $toolKey) {
+            if ($toolKey !== 'only' && $toolKey !== 'except') {
+                // A misspelled deny list would otherwise allow every tool.
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is not a setting; "tools" takes "only" and "except".',
+                    $key('tools.' . $toolKey),
+                ));
+            }
         }
 
         $env = $config['env'] ?? [];
@@ -329,6 +351,7 @@ final class ClientConfig
             $endpoints['authorizationUrl'],
             $endpoints['tokenUrl'],
             $endpoints['revocationUrl'],
+            $issuer,
         );
     }
 

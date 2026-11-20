@@ -102,6 +102,21 @@ class UserConnectionTest extends TestCase
         $this->assertSame([], $this->server->tokenRequests);
     }
 
+    public function testAGrantForAnotherServerIsNotSent(): void
+    {
+        $this->seed();
+        // The developer points the client at another server: the old grant is for the old one.
+        Configure::write('Mcp.clients.linear.url', 'https://other.example.com/mcp');
+        McpClients::reset();
+        McpClients::setRegistry($this->server->registry($this->store));
+
+        $connection = McpClients::get('linear')->for(7);
+
+        $this->assertFalse($connection->isConnected());
+        $this->expectException(NotConnectedException::class);
+        $connection->listTools();
+    }
+
     public function testRefreshesBeforeExpiry(): void
     {
         $this->seed('7', 30);

@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Test\TestCase\Client\Store;
 
 use Cake\Datasource\ConnectionManager;
 use Cake\TestSuite\TestCase;
+use Cake\Utility\Security;
 use CakeDC\Mcp\Client\Store\Registration;
 use CakeDC\Mcp\Client\Store\StoredConnection;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
@@ -121,6 +122,19 @@ class TableConnectionStoreTest extends TestCase
         $other = new TableConnectionStore(str_repeat('another-key-', 4));
 
         $this->assertNull($other->get('linear', '7'));
+    }
+
+    public function testAnOwnKeySurvivesASaltChange(): void
+    {
+        $key = str_repeat('own-key-', 5);
+        (new TableConnectionStore($key))->save(self::connection());
+        $salt = Security::getSalt();
+        Security::setSalt(str_repeat('another-salt-', 4));
+        try {
+            $this->assertSame('access-abc', (new TableConnectionStore($key))->get('linear', '7')?->accessToken);
+        } finally {
+            Security::setSalt($salt);
+        }
     }
 
     public function testExpiresWithin(): void

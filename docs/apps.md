@@ -94,7 +94,9 @@ a strict policy by default, so declare every outside domain the page uses.
 `#[McpApp]` writes `_meta.ui` into the tool's entry of `tools/list`:
 `resourceUri`, and `visibility`, by default `['model', 'app']`. A tool with
 `visibility: ['app']` is for the app only: hosts keep it from the model, and
-clients that do not render apps do not get it in `tools/list` at all.
+clients that do not render apps do not get it in `tools/list` at all. The tool
+catalog leaves app-only tools out too: `find_tools` does not offer them and
+`call_tools` does not run them.
 
 Visibility is a hint for the host, not access control. An app-only tool can
 still be called by anyone who knows its name and holds a valid token, so it is

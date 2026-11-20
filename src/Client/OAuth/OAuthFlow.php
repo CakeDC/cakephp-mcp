@@ -104,7 +104,9 @@ final class OAuthFlow
             throw new OAuthException(sprintf('The authorization server answered %s.', $error), $error);
         }
         $iss = $query['iss'] ?? null;
-        if (($iss !== null && $iss !== $pending->issuer) || ($iss === null && $pending->issParameter)) {
+        // With configured endpoints and no configured issuer, the issuer is not known: nothing to compare `iss` with.
+        $issuerKnown = !$pending->trusted || $this->config->issuer !== null;
+        if (($issuerKnown && $iss !== null && $iss !== $pending->issuer) || ($iss === null && $pending->issParameter)) {
             // RFC 9207: the response must come from the server the flow started with (mix-up).
             throw new OAuthException('The sign-in response came from another authorization server.');
         }

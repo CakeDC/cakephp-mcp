@@ -182,12 +182,23 @@ class TableConnectionStore implements ConnectionStoreInterface
     }
 
     /**
+     * The HMAC salt, derived from the key: by default Security mixes in the application's salt, and changing that
+     * would make every stored grant unreadable even with `Mcp.client.encryptionKey` set.
+     *
+     * @return string
+     */
+    private function hmacSalt(): string
+    {
+        return hash('sha256', 'cakedc-mcp-client:' . $this->key);
+    }
+
+    /**
      * @param string|null $plain A secret.
      * @return string|null It encrypted and base64 encoded.
      */
     private function encrypt(?string $plain): ?string
     {
-        return $plain === null ? null : base64_encode(Security::encrypt($plain, $this->key));
+        return $plain === null ? null : base64_encode(Security::encrypt($plain, $this->key, $this->hmacSalt()));
     }
 
     /**
@@ -201,7 +212,7 @@ class TableConnectionStore implements ConnectionStoreInterface
         }
         $binary = base64_decode($stored, true);
 
-        return $binary === false ? null : Security::decrypt($binary, $this->key);
+        return $binary === false ? null : Security::decrypt($binary, $this->key, $this->hmacSalt());
     }
 
     /**

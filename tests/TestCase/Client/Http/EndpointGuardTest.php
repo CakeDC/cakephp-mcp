@@ -24,12 +24,20 @@ class EndpointGuardTest extends TestCase
 
     public function testAPublicHostIsPinnedToItsFirstAddress(): void
     {
-        $checked = $this->guard->check('https://Auth.Example.com./oauth/token?x=1');
+        $checked = $this->guard->check('https://Auth.Example.com/oauth/token?x=1');
 
         $this->assertSame('https://auth.example.com', $checked->origin);
         $this->assertSame('auth.example.com', $checked->host);
         $this->assertSame(443, $checked->port);
         $this->assertSame('93.184.216.34', $checked->ip);
+    }
+
+    public function testATrailingDotIsRefused(): void
+    {
+        // curl would not match the pin for "auth.example.com" against "auth.example.com." and resolve again.
+        $this->expectException(BlockedUrlException::class);
+
+        $this->guard->check('https://auth.example.com./oauth/token');
     }
 
     public function testThePortIsKept(): void

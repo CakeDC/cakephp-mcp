@@ -263,6 +263,7 @@ is refused):
 - `clients.<name>.clientSecret`: user mode: that client's secret, if it has one.
 - `clients.<name>.scopes`: user mode: the scopes to ask for. Default: the ones the server names.
 - `clients.<name>.authorizationUrl`, `clients.<name>.tokenUrl`, `clients.<name>.revocationUrl`: user mode: the authorization server's endpoints, to skip discovery (for example on your own network). `authorizationUrl`, `tokenUrl` and `clientId` go together. They are trusted like `url`.
+- `clients.<name>.issuer`: with configured endpoints, the issuer the authorization server names itself by (for Keycloak, `https://sso.example.com/realms/<realm>`). When set, the `iss` of each sign-in response must match it. Default `null`: the client does not know the issuer and does not compare `iss`.
 
 Shared settings:
 

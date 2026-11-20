@@ -58,7 +58,7 @@ final class Discovery
             $parts = (array)parse_url((string)$config->tokenUrl);
 
             return new AuthServer(
-                (string)($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '')
+                $config->issuer ?? (string)($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '')
                     . (isset($parts['port']) ? ':' . $parts['port'] : ''),
                 (string)$config->authorizationUrl,
                 (string)$config->tokenUrl,
@@ -264,6 +264,19 @@ final class Discovery
         }
 
         return [$origin . self::OAUTH_SERVER . $path, $origin . self::OPENID . $path, $origin . $path . self::OPENID];
+    }
+
+    /**
+     * Whether a grant made for $resource may be sent to $server: the same resource, or a path prefix of it, as
+     * discovery accepts.
+     *
+     * @param string $resource The `resource` the grant was made for.
+     * @param string $server The configured server URL.
+     * @return bool
+     */
+    public static function covers(string $resource, string $server): bool
+    {
+        return self::resourceMatches($resource, $server, true);
     }
 
     /**

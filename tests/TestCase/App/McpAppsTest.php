@@ -110,6 +110,28 @@ class McpAppsTest extends TestCase
         $this->assertArrayHasKey('inbox_rows', $this->toolsFor(self::APPS_CLIENT));
     }
 
+    public function testTheCatalogNeitherFindsNorRunsAppOnlyTools(): void
+    {
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['*']]);
+
+        $transport = $this->serve([
+            ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [
+                'name' => 'find_tools',
+                'arguments' => ['query' => 'inbox'],
+            ]],
+            ['jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call', 'params' => [
+                'name' => 'call_tools',
+                'arguments' => ['calls' => [['name' => 'inbox_rows', 'arguments' => new stdClass()]]],
+            ]],
+        ], self::APPS_CLIENT);
+
+        $found = array_column($transport->responseFor(2)['result']['structuredContent']['tools'] ?? [], 'name');
+        $this->assertContains('show_inbox', $found);
+        $this->assertNotContains('inbox_rows', $found);
+        $result = $transport->responseFor(3)['result']['structuredContent']['results'][0] ?? [];
+        $this->assertTrue($result['isError'] ?? false, (string)json_encode($transport->responseFor(3)));
+    }
+
     public function testAppOnlyToolsAreStillGatedWhenCalledDirectly(): void
     {
         Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {

@@ -173,8 +173,8 @@ bin/cake migrations migrate -p CakeDC/Mcp
 Access tokens, refresh tokens and client secrets are stored encrypted with
 `Security::encrypt()`, keyed with `Mcp.client.encryptionKey` or, when it is not
 set, your `Security.salt`. Changing that key disconnects every user (their
-grants can no longer be read, so they sign in again). Set your own key if you
-rotate the salt.
+grants can no longer be read, so they sign in again). With your own key, the
+salt can change without that.
 
 To keep grants elsewhere, implement
 `CakeDC\Mcp\Client\Store\ConnectionStoreInterface` and set its class in
@@ -208,8 +208,14 @@ are then trusted like `url` and nothing is discovered:
     'revocationUrl' => 'https://sso.intranet.example/oauth/revoke',
     'clientId' => 'cake-app',
     'clientSecret' => env('SSO_CLIENT_SECRET'),
+    // What the server names itself in its metadata, so the client can check sign-in responses.
+    'issuer' => 'https://sso.intranet.example/realms/corp',
 ],
 ```
+
+Without `issuer`, the client cannot know which server a sign-in response comes
+from and does not check its `iss`; with configured endpoints that is the
+server you wrote, so set it when you know it.
 
 ## Which addresses the client calls
 
