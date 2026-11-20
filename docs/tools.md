@@ -481,3 +481,7 @@ public function reserve(string $sku, int $quantity): array
 ```
 
 Pass `newRecord: false` to apply the validator's `'update'` rules.
+
+Prompts take arguments too. `ToolValidation::checkPrompt()` runs the same
+check in a prompt method, and the client gets the same lines as the error of
+`prompts/get`.

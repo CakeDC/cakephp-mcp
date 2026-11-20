@@ -94,6 +94,7 @@ $service->loadAuthenticator('Authentication.Token', [
 
 ## Documentation
 
+- [Features](docs/features.md)
 - [Installation](docs/installation.md)
 - [Configuration](docs/configuration.md)
 - [Writing tools](docs/tools.md)

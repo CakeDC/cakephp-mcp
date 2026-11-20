@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Tool;
 
 use Cake\Validation\Validator;
+use Mcp\Exception\PromptGetException;
 
 /**
  * Validates the arguments of a tool with a Cake Validator.
@@ -32,6 +33,28 @@ final class ToolValidation
         $errors = $validator->validate($arguments, $newRecord);
         if ($errors !== []) {
             throw ToolError::invalid($errors, $message);
+        }
+    }
+
+    /**
+     * The same check for the arguments of a prompt: the client gets the lines as the error of `prompts/get`.
+     *
+     * @param array<string, mixed> $arguments The prompt's arguments.
+     * @param \Cake\Validation\Validator $validator The rules.
+     * @param string $message The first line of the error.
+     * @param bool $newRecord False to apply the validator's update rules.
+     * @return void
+     * @throws \Mcp\Exception\PromptGetException When a rule fails.
+     */
+    public static function checkPrompt(
+        array $arguments,
+        Validator $validator,
+        string $message = 'The arguments are invalid.',
+        bool $newRecord = true,
+    ): void {
+        $errors = $validator->validate($arguments, $newRecord);
+        if ($errors !== []) {
+            throw new PromptGetException(ToolError::invalid($errors, $message)->getMessage());
         }
     }
 }

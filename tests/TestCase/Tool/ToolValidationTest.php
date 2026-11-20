@@ -5,8 +5,12 @@ namespace CakeDC\Mcp\Test\TestCase\Tool;
 
 use Cake\TestSuite\TestCase;
 use Cake\Validation\Validator;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
 use CakeDC\Mcp\Tool\ToolValidation;
+use Mcp\Exception\PromptGetException;
 use Mcp\Exception\ToolCallException;
+use Mcp\Server;
+use stdClass;
 
 class ToolValidationTest extends TestCase
 {
@@ -28,6 +32,44 @@ class ToolValidationTest extends TestCase
             $this->assertContains('- quantity: Between 1 and 100', $lines);
             $this->assertStringStartsWith('- email: ', $lines[2]);
         }
+    }
+
+    public function testPromptArgumentsThrowAPromptError(): void
+    {
+        $this->expectException(PromptGetException::class);
+        $this->expectExceptionMessage("The report was not prepared.\n- quantity: Between 1 and 100");
+
+        ToolValidation::checkPrompt(['quantity' => 500], $this->validator(), 'The report was not prepared.');
+    }
+
+    public function testThePromptErrorReachesTheClient(): void
+    {
+        $transport = new RecordingTransport(array_map(fn(array $m): string => (string)json_encode($m), [
+            ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
+                'protocolVersion' => '2025-06-18',
+                'capabilities' => new stdClass(),
+                'clientInfo' => ['name' => 'test', 'version' => '1'],
+            ]],
+            ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
+            ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'prompts/get', 'params' => [
+                'name' => 'order_report',
+                'arguments' => ['quantity' => '500'],
+            ]],
+        ]));
+        Server::builder()
+            ->setServerInfo('test', '1')
+            ->addPrompt(function (string $quantity): array {
+                ToolValidation::checkPrompt(['quantity' => (int)$quantity], $this->validator());
+
+                return [['role' => 'user', 'content' => 'Report ' . $quantity]];
+            }, 'order_report')
+            ->build()
+            ->run($transport);
+
+        $this->assertStringContainsString(
+            '- quantity: Between 1 and 100',
+            (string)($transport->responseFor(2)['error']['message'] ?? ''),
+        );
     }
 
     public function testCustomFirstLine(): void
