@@ -137,6 +137,16 @@ class ClientConfigTest extends TestCase
         $this->assertSame(['read', 'write'], $config->scopes);
     }
 
+    public function testOAuthSettingsOnlyInUserMode(): void
+    {
+        $this->expectError(['url' => 'https://a.example.com', 'clientId' => 'x'], 'only for user mode');
+        $this->expectError(['url' => 'https://a.example.com', 'scopes' => ['read']], 'only for user mode');
+        $this->expectError(
+            ['url' => 'https://a.example.com', 'auth' => 'user', 'clientSecret' => 's'],
+            '"Mcp.clients.broken.clientSecret" needs "clientId"',
+        );
+    }
+
     public function testProtocolVersionMustBeKnown(): void
     {
         $this->expectError(['url' => 'https://a.example.com', 'protocolVersion' => '2020-01-01'], 'protocolVersion');

@@ -73,6 +73,7 @@ want to change; everything else keeps its default. These are the defaults
 - `stdio.identity`: closure returning the identity for `bin/cake mcp server`.
 - `stdio.trusted`: skip per-tool authorization for stdio.
 - `audit`: the audit log of MCP calls, off by default. See [Audit log](#audit-log).
+- `clients`, `client`: other MCP servers your application calls. See [MCP clients](#mcp-clients).
 
 ## Mcp.auth
 
@@ -216,6 +217,53 @@ outer path; `bin/cake mcp check` reports such authenticators.
 `bin/cake mcp check` checks every server and fails when two share a route or a
 resource. `mcp check`, `mcp server` and `mcp inspector` take
 `--server <name>`, and tests pick a server with `mcpUseServer('admin')`.
+
+## MCP clients
+
+`Mcp.clients` names the MCP servers your application calls, and `Mcp.client`
+holds settings shared by all of them. They are not per server: `Mcp.servers`
+does not change them. The guide is [Calling other MCP servers](client.md).
+
+```php
+'Mcp' => [
+    'clients' => [
+        'github' => ['url' => 'https://api.githubcopilot.com/mcp/', 'token' => env('GITHUB_MCP_TOKEN')],
+        'linear' => ['url' => 'https://mcp.linear.app/mcp', 'auth' => 'user'],
+    ],
+    'client' => ['route' => '/mcp-client'],
+],
+```
+
+Each client (a mistake fails with a message naming the key, and an unknown key
+is refused):
+
+- `clients.<name>.url`: the server's HTTP address. https, or plain http for this machine or with `allowInsecure`. Set `url` or `command`, not both.
+- `clients.<name>.command`: a local server to start, spoken to over stdio.
+- `clients.<name>.args`: the command's arguments, a list of strings.
+- `clients.<name>.env`: environment variables for the command, on top of `PATH`, `HOME`, `USER`, the locale and the temp directories (nothing else of your environment is passed).
+- `clients.<name>.cwd`: the command's working directory.
+- `clients.<name>.token`: sent as `Authorization: Bearer <token>`. Set but empty fails.
+- `clients.<name>.headers`: headers sent with every HTTP request, name => value.
+- `clients.<name>.auth`: `app` (the default, the application's own credentials) or `user` (each user signs in with OAuth; needs `url`, takes no token).
+- `clients.<name>.timeout`: seconds for the connection and each request. Default `30`.
+- `clients.<name>.tools.only`: patterns (`fnmatch()`) of the tools the client may list and call. Empty allows all.
+- `clients.<name>.tools.except`: patterns of the tools it may not. Wins over `only`.
+- `clients.<name>.protocolVersion`: the protocol revision to ask for, such as `2025-06-18`. Default: the SDK's.
+- `clients.<name>.allowInsecure`: `true` accepts plain http to a host other than this machine for the configured addresses. Default `false`.
+- `clients.<name>.clientId`: user mode: the OAuth client id the authorization server's owner gave you. Without it, the application registers itself (dynamic client registration).
+- `clients.<name>.clientSecret`: user mode: that client's secret, if it has one.
+- `clients.<name>.scopes`: user mode: the scopes to ask for. Default: the ones the server names.
+- `clients.<name>.authorizationUrl`, `clients.<name>.tokenUrl`, `clients.<name>.revocationUrl`: user mode: the authorization server's endpoints, to skip discovery (for example on your own network). `authorizationUrl`, `tokenUrl` and `clientId` go together. They are trusted like `url`.
+
+Shared settings:
+
+- `client.route`: the path under which user mode clients get their connect and callback routes (`<route>/<name>/connect`, `<route>/<name>/callback`). Default `/mcp-client`. Connected only when a client uses user mode.
+- `client.store`: the class of the `ConnectionStoreInterface` that keeps user grants. Default `TableConnectionStore` (the plugin's tables; run `bin/cake migrations migrate -p CakeDC/Mcp`).
+- `client.encryptionKey`: the key tokens and client secrets are encrypted with, at least 32 bytes. Default `null`: `Security.salt`.
+- `client.name`, `client.version`: how the application introduces itself to servers and authorization servers. Default `CakePHP MCP Client`, `1.0.0`.
+- `client.refreshLeeway`: seconds before expiry when an access token is refreshed. Default `60`.
+- `client.maxResponseBytes`: the largest answer read from an address a remote server named. Default `1048576` (1 MiB).
+- `client.identityAttribute`: the request attribute that holds the logged-in user on the connect and callback routes. Default `identity`.
 
 ## Caches
 

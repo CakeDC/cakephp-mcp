@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase;
 
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\McpConfig;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -49,6 +50,22 @@ class DocsTest extends TestCase
             $this->assertStringContainsString('`audit.' . $key . '`', $configuration, 'audit.' . $key . ' is not documented');
         }
         $this->assertStringContainsString('Mcp.audit', $configuration);
+    }
+
+    public function testEveryClientSettingIsDocumented(): void
+    {
+        $configuration = (string)file_get_contents(self::ROOT . 'docs/configuration.md');
+        foreach (ClientConfig::KEYS as $key) {
+            $documented = $key === 'tools' ? ['clients.<name>.tools.only', 'clients.<name>.tools.except'] : ['clients.<name>.' . $key];
+            foreach ($documented as $name) {
+                $this->assertStringContainsString('`' . $name . '`', $configuration, $name . ' is not documented');
+            }
+        }
+        foreach (array_keys(ClientConfig::SETTINGS) as $key) {
+            $this->assertStringContainsString('`client.' . $key . '`', $configuration, 'client.' . $key . ' is not documented');
+        }
+        $this->assertFileExists(self::ROOT . 'docs/client.md');
+        $this->assertStringContainsString('(docs/client.md)', (string)file_get_contents(self::ROOT . 'README.md'));
     }
 
     public function testRelativeLinksResolve(): void

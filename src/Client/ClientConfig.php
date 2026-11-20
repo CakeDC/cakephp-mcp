@@ -45,7 +45,7 @@ final class ClientConfig
      *
      * @var list<string>
      */
-    private const KEYS = [
+    public const KEYS = [
         'url', 'token', 'headers', 'command', 'args', 'env', 'cwd', 'auth', 'timeout', 'tools', 'protocolVersion',
         'allowInsecure', 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl',
     ];
@@ -240,6 +240,18 @@ final class ClientConfig
             }
         }
 
+        if ($auth === self::APP) {
+            $oauthKeys = ['clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl'];
+            foreach ($oauthKeys as $oauth) {
+                if (array_key_exists($oauth, $config)) {
+                    throw new InvalidArgumentException(sprintf(
+                        '"%s" is only for user mode; add "auth" => "user" if each user should sign in.',
+                        $key($oauth),
+                    ));
+                }
+            }
+        }
+
         $endpoints = [];
         foreach (['authorizationUrl', 'tokenUrl', 'revocationUrl'] as $endpoint) {
             $endpoints[$endpoint] = self::optionalString($config, $endpoint, $key);
@@ -248,6 +260,9 @@ final class ClientConfig
             }
         }
         $clientId = self::optionalString($config, 'clientId', $key);
+        if ($clientId === null && self::optionalString($config, 'clientSecret', $key) !== null) {
+            throw new InvalidArgumentException(sprintf('"%s" needs "clientId".', $key('clientSecret')));
+        }
         $configured = array_filter($endpoints, fn(?string $value): bool => $value !== null) !== [];
         if (
             $configured

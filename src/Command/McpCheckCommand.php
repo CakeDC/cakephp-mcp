@@ -30,6 +30,9 @@ use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
+use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
+use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
@@ -129,6 +132,9 @@ class McpCheckCommand extends Command
         if (count($all) > 1 && !is_string($only)) {
             $failed = $this->runChecks(['Servers' => fn(): array => $this->serversCheck($all)], $io) || $failed;
         }
+        if (!is_string($only)) {
+            $failed = $this->runChecks(['Clients' => fn(): array => $this->clients()], $io) || $failed;
+        }
 
         return $failed ? static::CODE_ERROR : static::CODE_SUCCESS;
     }
@@ -166,6 +172,92 @@ class McpCheckCommand extends Command
         }
 
         return $failed;
+    }
+
+    /**
+     * The MCP clients of `Mcp.clients`: each config valid, and for user mode the connect and callback routes and the
+     * token store's tables.
+     *
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function clients(): array
+    {
+        $names = ClientConfig::names();
+        if ($names === []) {
+            return ['pass', 'none'];
+        }
+        $problems = [];
+        $described = [];
+        $userMode = false;
+        foreach ($names as $name) {
+            try {
+                $config = ClientConfig::fromConfig($name);
+            } catch (InvalidArgumentException $e) {
+                $problems[] = $e->getMessage();
+                continue;
+            }
+            if (!$config->isUser()) {
+                $described[] = sprintf('%s (%s)', $name, $config->isStdio() ? 'stdio' : 'app');
+                continue;
+            }
+            $userMode = true;
+            try {
+                $connect = Router::url([
+                    'plugin' => 'CakeDC/Mcp',
+                    'controller' => 'McpClient',
+                    'action' => 'connect',
+                    'prefix' => false,
+                    $name,
+                ]);
+                $described[] = sprintf('%s (user, connect at %s)', $name, $connect);
+            } catch (MissingRouteException) {
+                $problems[] = 'the connect and callback routes of user mode clients are not connected: load the '
+                    . 'plugin routes';
+                $described[] = sprintf('%s (user)', $name);
+            }
+        }
+        if ($userMode) {
+            $problems = array_merge($problems, $this->clientStore());
+        }
+        if ($problems !== []) {
+            return ['fail', implode('; ', array_unique($problems)) . ', see ' . self::DOCS . 'client.md'];
+        }
+
+        return ['pass', implode(', ', $described)];
+    }
+
+    /**
+     * @return list<string> What keeps user mode from storing tokens.
+     */
+    private function clientStore(): array
+    {
+        $store = ClientConfig::setting('store');
+        if (!is_string($store) || !is_subclass_of($store, ConnectionStoreInterface::class)) {
+            return [sprintf('"Mcp.client.store" must be a class implementing %s', ConnectionStoreInterface::class)];
+        }
+        if ($store !== TableConnectionStore::class) {
+            return [];
+        }
+        try {
+            new TableConnectionStore();
+        } catch (InvalidArgumentException $e) {
+            return [$e->getMessage()];
+        }
+        $tables = $this->fetchTable('CakeDC/Mcp.McpClientConnections')
+            ->getConnection()
+            ->getSchemaCollection()
+            ->listTables();
+        $problems = [];
+        foreach (['mcp_client_connections', 'mcp_client_registrations'] as $table) {
+            if (!in_array($table, $tables, true)) {
+                $problems[] = sprintf(
+                    'the table %s is missing: run bin/cake migrations migrate -p CakeDC/Mcp',
+                    $table,
+                );
+            }
+        }
+
+        return $problems;
     }
 
     /**

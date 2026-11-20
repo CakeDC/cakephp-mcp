@@ -11,6 +11,7 @@ use Cake\Console\TestSuite\StubConsoleInput;
 use Cake\Console\TestSuite\StubConsoleOutput;
 use Cake\Core\Configure;
 use Cake\Core\Plugin;
+use Cake\Datasource\ConnectionManager;
 use Cake\Http\ServerRequest;
 use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
@@ -700,6 +701,59 @@ class McpCheckCommandTest extends TestCase
         Configure::write('Mcp.catalog.tools', ['order_*', 'nope_*']);
         $this->exec('mcp check');
         $this->assertOutputContains('[WARN] Catalog: nope_* matches no tool');
+    }
+
+    public function testClientsLine(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Clients: none');
+
+        Configure::write('Mcp.clients', [
+            'github' => ['url' => 'https://api.example.com/mcp', 'token' => 't'],
+            'local' => ['command' => 'php', 'args' => ['server.php']],
+            'linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user'],
+        ]);
+        $this->exec('mcp check');
+        $this->assertExitSuccess();
+        $this->assertOutputContains(
+            '[PASS] Clients: github (app), local (stdio), linear (user, connect at /mcp-client/linear/connect)',
+        );
+    }
+
+    public function testClientsLineFailsOnABadClient(): void
+    {
+        Configure::write('Mcp.clients', ['plain' => ['url' => 'http://mcp.example.com/mcp']]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Clients: "Mcp.clients.plain.url" uses plain http');
+        $this->assertOutputContains('docs/client.md');
+    }
+
+    public function testClientsLineFailsWithoutTheRoutes(): void
+    {
+        Configure::write('TestApp.mcpRoutes', false);
+        Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Clients: the connect and callback routes of user mode clients are not connected');
+    }
+
+    public function testClientsLineFailsWithoutTheTables(): void
+    {
+        Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+        $db = ConnectionManager::get('test');
+        $db->execute('ALTER TABLE mcp_client_registrations RENAME TO mcp_client_registrations_away');
+        try {
+            $this->exec('mcp check');
+        } finally {
+            $db->execute('ALTER TABLE mcp_client_registrations_away RENAME TO mcp_client_registrations');
+        }
+
+        $this->assertOutputContains('[FAIL] Clients: the table mcp_client_registrations is missing');
+        $this->assertOutputContains('bin/cake migrations migrate -p CakeDC/Mcp');
     }
 
     public function testConditionsListSkippedElements(): void

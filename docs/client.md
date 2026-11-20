@@ -1,0 +1,325 @@
+# Calling other MCP servers
+
+The plugin is also an MCP client. Your application can list and call the tools,
+resources and prompts of other MCP servers: a SaaS server with your own API key,
+a local server started as a process, or a server where each of your users signs
+in with their own account.
+
+Clients are named in `Mcp.clients` and reached with `McpClients::get()`:
+
+```php
+use CakeDC\Mcp\Client\McpClients;
+
+$result = McpClients::get('github')->callTool('search_issues', ['query' => 'is:open label:bug']);
+```
+
+The client is built on the SDK's client (`Mcp\Client`) and its HTTP and stdio
+transports. HTTP goes through Cake's HTTP client, so nothing else needs
+installing.
+
+(For connecting Claude and other clients to your own MCP server, see
+[Connecting clients](clients.md).)
+
+## App mode: one set of credentials
+
+The application calls the server as itself, with a token or headers you
+configure:
+
+```php
+// config/app_local.php
+'Mcp' => [
+    'clients' => [
+        'github' => [
+            'url' => 'https://api.githubcopilot.com/mcp/',
+            'token' => env('GITHUB_MCP_TOKEN'),
+        ],
+        'stripe' => [
+            'url' => 'https://mcp.stripe.com',
+            'headers' => ['Authorization' => 'Bearer ' . env('STRIPE_SECRET_KEY')],
+            'timeout' => 20,
+        ],
+    ],
+],
+```
+
+`token` is sent as `Authorization: Bearer <token>`; `headers` are sent as they
+are. A `token` that is set but empty (an `env()` that is not defined) fails
+with a message instead of sending no credentials.
+
+```php
+$github = McpClients::get('github');
+
+foreach ($github->listTools() as $tool) {
+    echo $tool->name, ': ', $tool->description, "\n";
+}
+$result = $github->callTool('get_issue', ['owner' => 'cakephp', 'repo' => 'cakephp', 'issue_number' => 1]);
+if ($result->isError) {
+    // The tool failed; $result->content says why.
+}
+```
+
+The calls:
+
+- `listTools()`: the server's tools (every page), without the ones your tool filters leave out.
+- `callTool($name, $arguments)`: a `Mcp\Schema\Result\CallToolResult` (`content`, `structuredContent`, `isError`).
+- `listResources()`, `readResource($uri)`: resources and their contents.
+- `listPrompts()`, `getPrompt($name, $arguments)`: prompts and their messages.
+- `close()`: ends the connection now. It is opened on the first call and kept for the rest of the request (or the command).
+
+Results are the SDK's classes. A server or network error is thrown as the SDK's
+exception (`Mcp\Exception\ExceptionInterface`, for example
+`Mcp\Exception\RequestException` or `ConnectionException`).
+
+## A local server over stdio
+
+`command` starts the server as a process and talks to it on stdin and stdout:
+
+```php
+'Mcp' => [
+    'clients' => [
+        'files' => [
+            'command' => 'npx',
+            'args' => ['-y', '@modelcontextprotocol/server-filesystem', ROOT . 'webroot' . DS . 'files'],
+            'env' => ['NODE_ENV' => 'production'],
+        ],
+    ],
+],
+```
+
+The process gets `PATH`, `HOME`, `USER`, the locale and temp directory
+variables, and what you put in `env`. Nothing else of your application's
+environment (database passwords, keys) is passed on. `cwd` sets its working
+directory.
+
+## User mode: each user signs in
+
+With `auth` set to `user`, the server is called on behalf of each user, with
+the access token that user got by signing in to the server's own authorization
+server (OAuth 2.1). This is how servers like Linear, Notion or Sentry work.
+
+```php
+'Mcp' => [
+    'clients' => [
+        'linear' => [
+            'url' => 'https://mcp.linear.app/mcp',
+            'auth' => 'user',
+        ],
+    ],
+],
+```
+
+```php
+$linear = McpClients::get('linear')->for($this->Authentication->getIdentity());
+
+if (!$linear->isConnected()) {
+    return $this->redirect($linear->connectUrl('/settings/integrations'));
+}
+$issues = $linear->callTool('list_issues', ['assignee' => 'me']);
+```
+
+`for()` takes a user id, an identity (`getIdentifier()`), or a user entity or
+array with an `id`. The connection offers the same calls as app mode, plus:
+
+- `isConnected()`: whether the user has a grant the client can use.
+- `connectUrl($redirect)`: the plugin's connect page for this client. Send the logged-in user there; after signing in they come back to `$redirect` (a path on your site) with a flash message.
+- `disconnect()`: revokes the user's tokens at the authorization server and deletes them.
+
+When the user is not connected, or the server stopped accepting their grant, a
+call throws `CakeDC\Mcp\Client\Exception\NotConnectedException`: catch it and
+offer `connectUrl()` again.
+
+### What happens when a user connects
+
+1. `GET /mcp-client/linear/connect` (the path is `Mcp.client.route`) needs a
+   logged-in user (the `identity` request attribute of cakephp/authentication;
+   `Mcp.client.identityAttribute` to change it). It finds the server's
+   authorization server: the server's `401` challenge and its protected
+   resource metadata (RFC 9728), then the authorization server's metadata
+   (RFC 8414). The issuer must name itself exactly as the server said, and
+   PKCE with S256 must be supported.
+2. Without a `clientId`, the application registers itself there once (dynamic
+   client registration, RFC 7591) as a public client, and keeps the
+   registration for every user.
+3. The browser goes to the authorization server with PKCE, a `state` and the
+   `resource` parameter (RFC 8707). The sign-in in progress is kept in the
+   user's session.
+4. The authorization server sends the browser to
+   `GET /mcp-client/linear/callback`. The `state` must match the one in the
+   session (it is used once), the same user must still be logged in, the
+   response must come from the same issuer (`iss`, RFC 9207), and the sign-in
+   must finish within 10 minutes. The code is exchanged and the tokens are
+   stored.
+
+Calls then send the user's access token. It is refreshed when it expires
+within `Mcp.client.refreshLeeway` seconds (60), and once more if the server
+answers `401`. When the refresh is refused, the grant is deleted and the user
+connects again.
+
+The connect and callback routes are only connected when a client uses user
+mode. With cakedc/users, `McpConfig::rbacPermissions()` then also lets any
+logged-in user reach them, so add it to `config/permissions.php` as the
+[OAuth guide](oauth.md) shows for the endpoint.
+
+### Storing tokens
+
+By default grants are stored in two tables of the plugin,
+`mcp_client_connections` and `mcp_client_registrations`. Create them when you
+use user mode:
+
+```
+bin/cake migrations migrate -p CakeDC/Mcp
+```
+
+Access tokens, refresh tokens and client secrets are stored encrypted with
+`Security::encrypt()`, keyed with `Mcp.client.encryptionKey` or, when it is not
+set, your `Security.salt`. Changing that key disconnects every user (their
+grants can no longer be read, so they sign in again). Set your own key if you
+rotate the salt.
+
+To keep grants elsewhere, implement
+`CakeDC\Mcp\Client\Store\ConnectionStoreInterface` and set its class in
+`Mcp.client.store`. Keep tokens and secrets unreadable at rest.
+
+### A server whose owner gave you a client
+
+Some authorization servers do not register clients automatically. Register
+the callback URL with them (`https://your-app.example.com/mcp-client/<name>/callback`)
+and set what they give you:
+
+```php
+'notion' => [
+    'url' => 'https://mcp.notion.com/mcp',
+    'auth' => 'user',
+    'clientId' => env('NOTION_CLIENT_ID'),
+    'clientSecret' => env('NOTION_CLIENT_SECRET'),
+    'scopes' => ['read'],
+],
+```
+
+For an authorization server on your own network, set its endpoints too. They
+are then trusted like `url` and nothing is discovered:
+
+```php
+'intranet' => [
+    'url' => 'https://mcp.intranet.example/mcp',
+    'auth' => 'user',
+    'authorizationUrl' => 'https://sso.intranet.example/oauth/authorize',
+    'tokenUrl' => 'https://sso.intranet.example/oauth/token',
+    'revocationUrl' => 'https://sso.intranet.example/oauth/revoke',
+    'clientId' => 'cake-app',
+    'clientSecret' => env('SSO_CLIENT_SECRET'),
+],
+```
+
+## Which addresses the client calls
+
+There are two levels of trust:
+
+- **Addresses you write in `Mcp.clients`** (`url`, `authorizationUrl`,
+  `tokenUrl`, `revocationUrl`, and the well-known metadata paths of `url`) are
+  trusted, internal hosts included. Plain `http` is accepted only for this
+  machine (`localhost`, a `.localhost` name, a loopback address); for another
+  host set `'allowInsecure' => true` on the client, and only on a network you
+  trust, since tokens travel in the clear.
+- **Addresses a remote server hands the client** (the metadata URL in its
+  challenge, the authorization server, its token, registration and revocation
+  endpoints, and any redirect) go through a guard against server-side request
+  forgery: https only, a host name (not an IP address) whose every address is
+  public, the connection pinned to the address that was checked, no proxy,
+  and answers capped at `Mcp.client.maxResponseBytes` (1 MiB). A redirect is
+  followed only for metadata, and checked again; requests that carry a code,
+  a secret or a token never follow one.
+
+An authorization server on a private address is therefore refused when it is
+discovered. Configure its endpoints, as above, to use it.
+
+## Tool filters, timeouts and protocol version
+
+```php
+'github' => [
+    'url' => 'https://api.githubcopilot.com/mcp/',
+    'token' => env('GITHUB_MCP_TOKEN'),
+    'tools' => [
+        'only' => ['get_*', 'list_*', 'search_*'],
+        'except' => ['get_secret_*'],
+    ],
+    'timeout' => 15,
+    'protocolVersion' => '2025-06-18',
+],
+```
+
+- `tools.only` and `tools.except` are shell patterns (`fnmatch()`, case sensitive). `except` wins. A tool they leave out is not listed, and calling it throws `CakeDC\Mcp\Client\Exception\ClientException` without sending anything.
+- `timeout` is in seconds, for the connection and for each request (default 30).
+- `protocolVersion` asks for a revision of the protocol; leave it out to let the SDK negotiate.
+
+## Presets for well-known servers
+
+These snippets are starting points; check each provider's documentation for
+its current address, scopes and how to get a token.
+
+```php
+'Mcp' => [
+    'clients' => [
+        // GitHub: a personal access token or a GitHub App token.
+        'github' => ['url' => 'https://api.githubcopilot.com/mcp/', 'token' => env('GITHUB_MCP_TOKEN')],
+        // Stripe: a restricted API key.
+        'stripe' => ['url' => 'https://mcp.stripe.com', 'token' => env('STRIPE_RESTRICTED_KEY')],
+        // Linear, Sentry and Notion: each user signs in.
+        'linear' => ['url' => 'https://mcp.linear.app/mcp', 'auth' => 'user'],
+        'sentry' => ['url' => 'https://mcp.sentry.dev/mcp', 'auth' => 'user'],
+        'notion' => ['url' => 'https://mcp.notion.com/mcp', 'auth' => 'user'],
+        // A filesystem server on this machine.
+        'files' => [
+            'command' => 'npx',
+            'args' => ['-y', '@modelcontextprotocol/server-filesystem', ROOT . 'storage'],
+        ],
+    ],
+],
+```
+
+## Checking the setup
+
+`bin/cake mcp check` lists the clients on its `Clients` line, and fails when a
+client config is invalid, when a user mode client is configured but the
+plugin routes are not loaded, or when the default store's tables are missing.
+
+## Testing code that uses a client
+
+Give `McpClients` a registry built on test doubles, and reset it after the
+test. The HTTP client comes from a `CakeDC\Mcp\Client\HttpClientFactoryInterface`,
+so a PSR-18 double can answer for the server:
+
+```php
+use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\ClientRegistry;
+use CakeDC\Mcp\Client\HttpClientFactoryInterface;
+use CakeDC\Mcp\Client\McpClients;
+use Psr\Http\Client\ClientInterface;
+
+protected function setUp(): void
+{
+    parent::setUp();
+    $double = $this->myPsr18Double(); // answers the JSON-RPC requests your code makes
+    McpClients::setRegistry(new ClientRegistry(new class ($double) implements HttpClientFactoryInterface {
+        public function __construct(private ClientInterface $client)
+        {
+        }
+
+        public function create(ClientConfig $config): ClientInterface
+        {
+            return $this->client;
+        }
+    }));
+}
+
+protected function tearDown(): void
+{
+    McpClients::reset();
+    parent::tearDown();
+}
+```
+
+`ClientRegistry` also takes a `ConnectionStoreInterface` (an in-memory store
+for user mode tests) and the `GuardedHttp` layer, whose transport
+(`GuardedTransportInterface`) and DNS (`HostResolverInterface`) can be doubles
+too, so tests never reach the network.
