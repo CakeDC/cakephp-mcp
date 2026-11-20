@@ -224,6 +224,7 @@ class McpCheckCommand extends Command
             'Discovery' => fn(): array => $this->discovery(),
             'Tools' => fn(): array => $this->toolsCheck(),
             'Tool schemas' => fn(): array => $this->toolSchemas(),
+            'Conditions' => fn(): array => $this->conditions(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
             'Tool scopes' => fn(): array => $this->toolScopes(),
             'Cache hints' => fn(): array => $this->cacheHints(),
@@ -257,6 +258,16 @@ class McpCheckCommand extends Command
     private function toolNames(): array
     {
         return array_map(fn(array $tool): string => (string)$tool['name'], $this->toolDefinitions());
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function conditions(): array
+    {
+        $skipped = $this->factory()->skippedElements();
+
+        return ['pass', $skipped === [] ? 'nothing skipped' : 'skipped: ' . implode('; ', $skipped)];
     }
 
     /**

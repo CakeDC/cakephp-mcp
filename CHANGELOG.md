@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `#[McpWhen]` registers a tool, resource, resource template or prompt only when a config value is on or a callback (given the server name) returns true; `mcp check` lists what was skipped on a new `Conditions` line.
 - Several MCP servers in one application (`Mcp.servers`): each with its route, metadata route, tools, auth and authorizer; security sections are replaced whole, the rest inherited key by key. `mcp check` checks every server and fails on a shared route or resource; `mcp check`, `mcp server` and `mcp inspector` take `--server`; `McpTestTrait::mcpUseServer()`.
 - `bin/cake mcp check` warns, on a new `Cache hints` line, when `tools/list` is public with a per-user authorizer or `resources/read` is public.
 - `Mcp.schema.normalize`, off by default: when on, `tools/list` drops `"null"` from the `type` and `enum` of optional parameters whose default is `null`, and that default, for hosts that reject type arrays. Arguments are still validated against the original schema. See Input schemas in `docs/tools.md`.

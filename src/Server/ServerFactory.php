@@ -44,6 +44,13 @@ use Stringable;
 final class ServerFactory
 {
     /**
+     * What #[McpWhen] removed in the last build.
+     *
+     * @var list<string>
+     */
+    private array $skipped = [];
+
+    /**
      * @param \Psr\Container\ContainerInterface $container The host container.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The shared current identity.
      * @param string $server The MCP server this factory builds: `default` or a key of `Mcp.servers`.
@@ -110,13 +117,12 @@ final class ServerFactory
         }
         // The guard goes first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
+        // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
+        // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
+        $registry = new Registry($events, $logger);
+        $builder->setRegistry($registry);
         $audit = AuditSettings::fromConfig($this->server);
         if ($audit->enabled) {
-            // The audit needs to know which tools exist, to tell a denied tool from an unknown one: it keeps
-            // the registry. Set before the host hook, which may still replace it (the audit then falls back
-            // to asking the gate only).
-            $registry = new Registry($events, $logger);
-            $builder->setRegistry($registry);
             $listener = new AuditListener(
                 $audit,
                 new AuditWriter($audit),
@@ -168,7 +174,10 @@ final class ServerFactory
             );
         }
 
-        return $builder->build();
+        $server = $builder->build();
+        $this->skipped = Conditions::prune($registry, $this->server);
+
+        return $server;
     }
 
     /**
@@ -262,18 +271,7 @@ final class ServerFactory
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
                 (string)json_encode($list),
             ]);
-            // Only warnings and worse: the SDK's info lines would land among the output of `mcp check`.
-            $this->build(true, new class extends AbstractLogger {
-                /**
-                 * @inheritDoc
-                 */
-                public function log(mixed $level, string|Stringable $message, array $context = []): void
-                {
-                    if (!in_array($level, [LogLevel::INFO, LogLevel::DEBUG, LogLevel::NOTICE], true)) {
-                        (new McpLogger())->log($level, $message, $context);
-                    }
-                }
-            })->run($transport);
+            $this->build(true, $this->quietLogger())->run($transport);
             $result = $transport->responseFor(2)['result'] ?? null;
             if (!is_array($result) || !is_array($result['tools'] ?? null)) {
                 throw new RuntimeException(
@@ -292,6 +290,39 @@ final class ServerFactory
         }
 
         return $tools;
+    }
+
+    /**
+     * What `#[McpWhen]` leaves out of this server, as a trusted client would see it.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<string> `<kind> <name> (<why>)`.
+     */
+    public function skippedElements(): array
+    {
+        $this->build(true, $this->quietLogger());
+
+        return $this->skipped;
+    }
+
+    /**
+     * Only warnings and worse: the SDK's info lines would land among the output of `mcp check`.
+     *
+     * @return \Psr\Log\LoggerInterface
+     */
+    private function quietLogger(): LoggerInterface
+    {
+        return new class extends AbstractLogger {
+            /**
+             * @inheritDoc
+             */
+            public function log(mixed $level, string|Stringable $message, array $context = []): void
+            {
+                if (!in_array($level, [LogLevel::INFO, LogLevel::DEBUG, LogLevel::NOTICE], true)) {
+                    (new McpLogger())->log($level, $message, $context);
+                }
+            }
+        };
     }
 
     /**

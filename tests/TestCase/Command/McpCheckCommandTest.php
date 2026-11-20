@@ -587,6 +587,17 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('share the resource ' . OAuthTestConfig::MCP);
     }
 
+    public function testConditionsListSkippedElements(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Conditions: nothing skipped');
+
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpWhen']);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Conditions: skipped: tool beta_tool (');
+        $this->assertOutputContains('tool monthly_report (TestApp.reports is off)');
+    }
+
     public function testCacheHintsOffPass(): void
     {
         $this->exec('mcp check');

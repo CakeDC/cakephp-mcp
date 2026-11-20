@@ -155,6 +155,41 @@ public function summary(): CallToolResult
 tool error ("Invalid structured output for tool ..."), not as data. Test the
 tool's result with `assertMcpStructuredContent()` (see [Testing](testing.md)).
 
+## Registering only when
+
+`#[McpWhen]` (`CakeDC\Mcp\Attribute\McpWhen`) registers a tool, resource,
+resource template or prompt only when a condition holds. Put it next to the
+SDK attribute, on the method or on an invokable class:
+
+```php
+use CakeDC\Mcp\Attribute\McpWhen;
+
+#[McpWhen(config: 'Features.reports')]
+#[McpTool(name: 'monthly_report')]
+public function report(): array
+{
+    // ...
+}
+
+#[McpWhen(callback: [Flags::class, 'beta'])]
+#[McpTool(name: 'beta_search')]
+class BetaSearchTool
+{
+    // ...
+}
+```
+
+With `config`, the element exists when that Configure value is truthy. With
+`callback`, a static method decides; it receives the name of the server being
+built (see [Several servers](configuration.md#several-servers)). The condition is
+read every time the server is built, so a config change applies on the next
+request. A skipped element does not exist for clients: it is not listed, and a
+call to it answers like a call to an unknown tool. `bin/cake mcp check` lists
+what was skipped on its `Conditions` line.
+
+Use it for configuration and feature flags. What depends on who is calling
+belongs in the authorizer (see [Authorization](authorization.md)).
+
 ## Generating classes with bake
 
 With `cakephp/bake` installed, three bake commands create a class in
