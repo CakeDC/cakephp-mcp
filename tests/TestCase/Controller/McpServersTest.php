@@ -6,6 +6,8 @@ namespace CakeDC\Mcp\Test\TestCase\Controller;
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
@@ -94,6 +96,53 @@ class McpServersTest extends TestCase
         $this->assertResponseCode(404);
     }
 
+    public function testANamedServerChecksItsOwnScopes(): void
+    {
+        Configure::write('Mcp.servers.admin.auth', [
+            'mode' => 'external',
+            'scopes' => ['tools' => ['find_order' => ['orders:read']]],
+            'external' => ['issuer' => TestJwt::ISSUER, 'cache' => 'mcp_oauth_test', 'httpClient' => TestJwt::client()],
+        ]);
+        $token = TestJwt::token(['aud' => 'http://localhost/mcp/admin']);
+
+        $this->modernCall('/mcp/admin', 'find_order', ['number' => 'A-1'], $token);
+        $this->assertResponseCode(403);
+        $header = $this->_response->getHeaderLine('WWW-Authenticate');
+        $this->assertStringContainsString('error="insufficient_scope"', $header);
+        $this->assertStringContainsString(
+            'resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp/admin"',
+            $header,
+        );
+
+        $this->modernCall('/mcp/admin', 'find_order', ['number' => 'A-1'], TestJwt::token([
+            'aud' => 'http://localhost/mcp/admin',
+            'scope' => 'orders:read',
+        ]));
+        $this->assertResponseOk();
+
+        // A token for the default server's resource is not one for the admin server.
+        $this->modernCall('/mcp/admin', 'find_order', ['number' => 'A-1'], TestJwt::token(['scope' => 'orders:read']));
+        $this->assertResponseCode(401);
+    }
+
+    public function testANamedServerAuditsWithItsName(): void
+    {
+        Log::setConfig('audit_servers', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
+        Configure::write('Mcp.servers.admin.audit', ['enabled' => true]);
+        try {
+            $headers = $this->session('/mcp/admin');
+            $this->mcp('/mcp/admin', $this->call(3, 'find_order', ['number' => 'A-1']), $headers);
+
+            $engine = Log::engine('audit_servers');
+            $lines = $engine instanceof ArrayLog ? $engine->read() : [];
+            $this->assertCount(1, $lines);
+            $this->assertStringContainsString('MCP tools/call find_order ok', (string)$lines[0]);
+            $this->assertStringContainsString(' server=admin', (string)$lines[0]);
+        } finally {
+            Log::drop('audit_servers');
+        }
+    }
+
     public function testA21ConfigStillServesMcp(): void
     {
         Configure::delete('Mcp.servers');
@@ -103,6 +152,32 @@ class McpServersTest extends TestCase
         $this->mcp('/mcp/admin', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list']);
         $this->assertResponseError();
         $this->assertArrayNotHasKey('jsonrpc', $this->json());
+    }
+
+    /**
+     * A stateless 2026-07-28 tools/call with a bearer token.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function modernCall(string $path, string $tool, array $arguments, string $token): void
+    {
+        $this->configRequest(['headers' => [
+            'Host' => 'localhost',
+            'Accept' => 'application/json, text/event-stream',
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $token,
+            'MCP-Protocol-Version' => '2026-07-28',
+            'Mcp-Method' => 'tools/call',
+            'Mcp-Name' => $tool,
+        ]]);
+        $this->post($path, (string)json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call', 'params' => [
+            'name' => $tool,
+            'arguments' => $arguments,
+            '_meta' => [
+                'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+                'io.modelcontextprotocol/clientCapabilities' => new stdClass(),
+            ],
+        ]]));
     }
 
     /**

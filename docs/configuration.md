@@ -183,11 +183,31 @@ server, in two ways:
   `audit`, `schema`) is merged key by key, so `'server' => ['name' => ...]`
   keeps the default server's version and instructions.
 
+Because a replaced section starts again from the plugin's defaults, set every
+key that matters in it. `'authorization' => ['rbac' => $rules]` alone leaves the
+default `AllowAllToolAuthorizer`, and `'auth' => ['scopes' => ...]` alone leaves
+host mode, where scopes are not checked: set `authorizer` and `mode` too.
+`bin/cake mcp check` warns about both. A named server whose security section is
+`null` or `[]` (an unset `env()` value, for example) fails instead of falling
+back to the defaults.
+
 Every server gets its endpoint and, in `oauth` and `external` modes, its
 protected resource metadata at `/.well-known/oauth-protected-resource` plus its
-route. Its resource defaults to its own URL, so a token issued for one server is
-not accepted by another. Sessions are kept apart, and audit records of a named
-server carry a `server` field (`server=admin` on the log line).
+route. Its resource defaults to its own URL; in `oauth` mode declare that URL in
+`OAuthServer.resources` as well. Keep tokens apart:
+
+- In `oauth` mode the authorization server issues each token for one resource,
+  so a token for one server is not accepted by another, unless two servers set
+  the same `auth.resource`.
+- In `external` mode tokens are accepted by audience. A named server that does
+  not set `auth` inherits the default server's, `external.audience` included,
+  and then accepts its tokens. Give each server its own audience.
+
+`bin/cake mcp check` fails on a shared route, resource or external audience.
+Sessions are kept apart, and audit records of a named server carry a `server`
+field (`server=admin` on the log line). A server nested under another's route
+(`/mcp/admin` under `/mcp`) is also under any authenticator that covers the
+outer path; `bin/cake mcp check` reports such authenticators.
 
 `bin/cake mcp check` checks every server and fails when two share a route or a
 resource. `mcp check`, `mcp server` and `mcp inspector` take

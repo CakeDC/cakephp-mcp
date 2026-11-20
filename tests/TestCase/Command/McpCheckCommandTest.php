@@ -449,6 +449,28 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputNotContains('advertised URL path');
     }
 
+    public function testRbacRulesWithoutTheRbacAuthorizerWarn(): void
+    {
+        // Replaced whole: setting only the rules leaves the default AllowAllToolAuthorizer.
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/admin',
+            'authorization' => ['rbac' => ['permissions' => [['role' => 'admin']]]],
+        ]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertOutputContains('[WARN] Authorizer: authorization.rbac has rules, but the authorizer is');
+    }
+
+    public function testScopesInHostModeWarn(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['scopes' => ['default' => ['admin']]]]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertOutputContains('[WARN] Tool scopes: auth.scopes is set, but host mode does not check scopes');
+    }
+
     public function testSharedExternalAudienceFails(): void
     {
         Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);

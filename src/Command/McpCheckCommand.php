@@ -40,6 +40,7 @@ use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\CacheScope;
+use ReflectionClass;
 use ReflectionProperty;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -340,6 +341,16 @@ class McpCheckCommand extends Command
     private function authorizerCheck(): array
     {
         $authorizer = $this->factory()->authorizer();
+        $rbac = McpConfig::get('authorization.rbac', $this->server);
+        if (is_array($rbac) && $rbac !== [] && !$authorizer instanceof RbacToolAuthorizer) {
+            return ['warn', sprintf(
+                'authorization.rbac has rules, but the authorizer is %s, so they are ignored. Set '
+                . 'authorization.authorizer to RbacToolAuthorizer (a server that sets authorization replaces the '
+                . 'whole section), see %s',
+                (new ReflectionClass($authorizer))->getShortName(),
+                self::DOCS . 'configuration.md#several-servers',
+            )];
+        }
         if ($authorizer instanceof AllowAllToolAuthorizer) {
             return ['pass', 'AllowAllToolAuthorizer: every identified caller may call every tool'];
         }
@@ -424,6 +435,13 @@ class McpCheckCommand extends Command
     {
         $settings = AuthSettings::fromConfig($this->server);
         if ($settings->mode === AuthSettings::HOST) {
+            $scopes = (array)McpConfig::get('auth.scopes', $this->server);
+            if (array_filter($scopes, fn(mixed $value): bool => $value !== []) !== []) {
+                return ['warn', 'auth.scopes is set, but host mode does not check scopes. Set auth.mode to oauth or '
+                    . 'external (a server that sets auth replaces the whole section), see '
+                    . self::DOCS . 'configuration.md#several-servers'];
+            }
+
             return ['pass', 'host mode, access tokens and their scopes do not apply'];
         }
         $tools = $this->toolNames();
