@@ -10,6 +10,7 @@ use Cake\Core\BasePlugin;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
 use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Command\McpInspectorCommand;
 use CakeDC\Mcp\Command\McpServerCommand;
@@ -84,6 +85,17 @@ class McpPlugin extends BasePlugin
                 McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
                 ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'] + $param,
             )->setMethods(['GET', 'OPTIONS']);
+        }
+
+        // The sign-in of user mode clients (Mcp.clients with `auth` `user`), only when one is configured.
+        if (ClientConfig::anyUserMode()) {
+            $base = '/' . trim((string)ClientConfig::setting('route'), '/');
+            foreach (['connect', 'callback'] as $action) {
+                $routes->connect(
+                    $base . '/{client}/' . $action,
+                    ['plugin' => 'CakeDC/Mcp', 'controller' => 'McpClient', 'action' => $action],
+                )->setPass(['client'])->setPatterns(['client' => '[A-Za-z0-9_-]+'])->setMethods(['GET']);
+            }
         }
     }
 

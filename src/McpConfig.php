@@ -7,6 +7,7 @@ use Cake\Core\Configure;
 use Cake\Http\ServerRequest;
 use Cake\Utility\Hash;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use CakeDC\Mcp\Client\ClientConfig;
 use InvalidArgumentException;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -327,11 +328,14 @@ final class McpConfig
      * it an anonymous request is redirected to the login page instead of receiving the plugin's 401 and its
      * metadata. The plugin decides access itself (authentication, scopes, then the tool authorizer).
      *
+     * With a user mode client in `Mcp.clients`, a second rule lets logged-in users reach its connect and callback
+     * routes.
+     *
      * @return list<array<string, mixed>>
      */
     public static function rbacPermissions(): array
     {
-        return [
+        $rules = [
             [
                 'role' => '*',
                 'plugin' => 'CakeDC/Mcp',
@@ -340,6 +344,17 @@ final class McpConfig
                 'bypassAuth' => true,
             ],
         ];
+        if (ClientConfig::anyUserMode()) {
+            // The sign-in routes of user mode clients: any logged-in user (the controller checks the rest).
+            $rules[] = [
+                'role' => '*',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => ['McpClient'],
+                'action' => ['connect', 'callback'],
+            ];
+        }
+
+        return $rules;
     }
 
     /**

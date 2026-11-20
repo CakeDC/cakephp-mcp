@@ -47,6 +47,18 @@ final class OutboundHttp
     }
 
     /**
+     * Checks a learned URL with the guard, without sending anything.
+     *
+     * @param string $url An absolute URL.
+     * @return void
+     * @throws \CakeDC\Mcp\Client\Http\BlockedUrlException
+     */
+    public function check(string $url): void
+    {
+        $this->guarded->check($url);
+    }
+
+    /**
      * A request that may carry credentials; a redirect is refused.
      *
      * @param \CakeDC\Mcp\Client\Http\HttpRequest $request The request.

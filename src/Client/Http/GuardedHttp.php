@@ -61,6 +61,18 @@ final class GuardedHttp
     }
 
     /**
+     * Checks a learned URL without sending anything, so a bad endpoint fails as soon as it is read.
+     *
+     * @param string $url An absolute URL.
+     * @return void
+     * @throws \CakeDC\Mcp\Client\Http\BlockedUrlException
+     */
+    public function check(string $url): void
+    {
+        $this->guard->check($url);
+    }
+
+    /**
      * A request that may carry credentials. Never follows a redirect.
      *
      * @param \CakeDC\Mcp\Client\Http\HttpRequest $request The request, sent to its exact URL.

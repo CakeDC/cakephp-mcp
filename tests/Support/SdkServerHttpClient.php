@@ -35,6 +35,18 @@ final class SdkServerHttpClient implements ClientInterface
      */
     public ?array $tokens = null;
 
+    /**
+     * The challenge a refused request gets.
+     */
+    public string $challenge = 'Bearer error="invalid_token"';
+
+    /**
+     * JSON documents answered to a GET of their exact URL, before the MCP server sees the request.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    public array $documents = [];
+
     private InMemorySessionStore $sessions;
 
     private string $currentToken = '';
@@ -75,11 +87,22 @@ final class SdkServerHttpClient implements ClientInterface
             'body' => $body,
         ];
 
+        $url = (string)$request->getUri();
+        if ($request->getMethod() === 'GET' && isset($this->documents[$url])) {
+            return new ClientResponse(
+                ['HTTP/1.1 200 OK', 'Content-Type: application/json'],
+                (string)json_encode($this->documents[$url], JSON_UNESCAPED_SLASHES),
+            );
+        }
+        if ($request->getMethod() === 'GET' && str_contains($url, '/.well-known/')) {
+            return new ClientResponse(['HTTP/1.1 404 Not Found'], '');
+        }
+
         $authorization = $headers['authorization'] ?? '';
         $this->currentToken = str_starts_with($authorization, 'Bearer ') ? substr($authorization, 7) : '';
         if ($this->tokens !== null && !in_array($this->currentToken, $this->tokens, true)) {
             return new ClientResponse(
-                ['HTTP/1.1 401 Unauthorized', 'WWW-Authenticate: Bearer error="invalid_token"'],
+                ['HTTP/1.1 401 Unauthorized', 'WWW-Authenticate: ' . $this->challenge],
                 '',
             );
         }
