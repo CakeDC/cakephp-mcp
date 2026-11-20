@@ -46,7 +46,7 @@ final class SchemaNormalizer
             $property['type'] = count($types) === 1 ? $types[0] : $types;
         }
         if (is_array($property['enum'] ?? null) && in_array(null, $property['enum'], true)) {
-            $property['enum'] = array_values(array_filter($property['enum'], fn(mixed $value): bool => $value !== null));
+            $property['enum'] = array_values(array_filter($property['enum'], fn(mixed $v): bool => $v !== null));
         }
         if (array_key_exists('default', $property) && $property['default'] === null) {
             unset($property['default']);
