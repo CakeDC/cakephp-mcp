@@ -5,6 +5,8 @@
 - `Mcp.schema.normalize`, off by default: when on, `tools/list` drops `"null"` from the `type` and `enum` of optional parameters whose default is `null`, and that default, for hosts that reject type arrays. Arguments are still validated against the original schema. See Input schemas in `docs/tools.md`.
 - `bin/cake mcp check` warns, on a new `Tool schemas` line, about type arrays, arrays without an item type and optional parameters without a description.
 - `bin/cake mcp check` fails, on a new `Discovery` line, when `Mcp.discovery.scanDirs` is set and `symfony/finder` is missing: the SDK then skips discovery and the server has no tools.
+- `ToolError::message()` builds the error a tool throws to send the model a message it can act on.
+- Docs: Results in `docs/tools.md`: what a string, an array, a list and a `CallToolResult` become, `outputSchema` and `structuredContent`, and a compact JSON text for large results.
 - Docs: Input schemas in `docs/tools.md` (`int[]` rather than `list<int>`, `#[Schema]`, optional strings), and why `symfony/finder` is required in `docs/installation.md`.
 
 ## 2.1.1 (2026-11-07)
