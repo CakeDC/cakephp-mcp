@@ -6,6 +6,7 @@ namespace CakeDC\Mcp\Test\TestCase\Client;
 use Cake\Core\Configure;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\ProtocolVersion;
 
@@ -173,6 +174,8 @@ class ClientConfigTest extends TestCase
     {
         Configure::delete('Mcp.client');
         $this->assertSame('/mcp-client', ClientConfig::setting('route'));
+        $this->assertSame(TableConnectionStore::class, ClientConfig::setting('store'));
+        $this->assertNull(ClientConfig::setting('encryptionKey'));
         $this->assertSame(60, ClientConfig::setting('refreshLeeway'));
         $this->assertSame(1024 * 1024, ClientConfig::setting('maxResponseBytes'));
 

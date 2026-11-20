@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Client;
 
 use Cake\Core\Configure;
+use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\ProtocolVersion;
 
@@ -30,6 +31,8 @@ final class ClientConfig
      */
     public const SETTINGS = [
         'route' => '/mcp-client',
+        'store' => TableConnectionStore::class,
+        'encryptionKey' => null,
         'name' => 'CakePHP MCP Client',
         'version' => '1.0.0',
         'refreshLeeway' => 60,

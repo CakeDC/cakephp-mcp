@@ -9,6 +9,7 @@ declare(strict_types=1);
 use Cake\Core\Configure;
 use Cake\Core\Plugin;
 use Cake\Datasource\ConnectionManager;
+use CakeDC\Mcp\McpPlugin;
 use CakeDC\OAuthServer\OAuthServerPlugin;
 use Migrations\TestSuite\Migrator;
 use TestApp\OAuthTestConfig;
@@ -34,4 +35,6 @@ ConnectionManager::alias('test', 'default');
 Configure::write('OAuthServer', OAuthTestConfig::SERVER);
 
 Plugin::getCollection()->add(new OAuthServerPlugin());
-(new Migrator())->runMany([['plugin' => 'CakeDC/OAuthServer'], []]);
+// The MCP client's user mode tables (config/Migrations of this plugin).
+Plugin::getCollection()->add(new McpPlugin());
+(new Migrator())->runMany([['plugin' => 'CakeDC/OAuthServer'], ['plugin' => 'CakeDC/Mcp'], []]);
