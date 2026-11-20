@@ -297,6 +297,105 @@ trait McpTestTrait
     }
 
     /**
+     * Asserts one value of the last result's `structuredContent`, found by a dot path
+     * (`order.lines.0.sku`). Value types matter. Fails when the path does not exist.
+     *
+     * @param string $path Dot path into the structured content.
+     * @param mixed $expected The expected value.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentPath(string $path, mixed $expected, string $message = ''): void
+    {
+        [$found, $value] = $this->mcpStructuredContentAt($path);
+        if (!$found) {
+            Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
+        }
+        Assert::assertSame($expected, $value, $message);
+    }
+
+    /**
+     * Asserts that a dot path exists in the last result's `structuredContent`, even with a `null` value.
+     *
+     * @param string $path Dot path into the structured content.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentHas(string $path, string $message = ''): void
+    {
+        Assert::assertTrue(
+            $this->mcpStructuredContentAt($path)[0],
+            $message ?: sprintf('The structuredContent has no "%s".', $path),
+        );
+    }
+
+    /**
+     * Asserts that another identity sees a tool in `tools/list`, with default scopes and no claims. The test's own
+     * identity, scopes and claims stay as they were.
+     *
+     * @param mixed $identity The identity to list the tools for.
+     * @param string $name The tool name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpToolListedFor(mixed $identity, string $name, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpToolListed(
+            $name,
+            $message ?: sprintf('Tool "%s" is not listed for that identity.', $name),
+        ));
+    }
+
+    /**
+     * Asserts that another identity does not see a tool in `tools/list` (and that the tool exists), with default
+     * scopes and no claims. The test's own identity, scopes and claims stay as they were.
+     *
+     * @param mixed $identity The identity to list the tools for.
+     * @param string $name The tool name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpToolNotListedFor(mixed $identity, string $name, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpToolNotListed($name, $message));
+    }
+
+    /**
+     * Runs $assertion as $identity, then puts back the test's identity, scopes and claims.
+     *
+     * @param mixed $identity The identity.
+     * @param callable(): void $assertion The assertion.
+     * @return void
+     */
+    private function mcpAs(mixed $identity, callable $assertion): void
+    {
+        $saved = [$this->_mcpIdentity, $this->_mcpScopes, $this->_mcpClaims];
+        $this->mcpActingAs($identity);
+        try {
+            $assertion();
+        } finally {
+            [$this->_mcpIdentity, $this->_mcpScopes, $this->_mcpClaims] = $saved;
+        }
+    }
+
+    /**
+     * @param string $path Dot path into the last result's structured content.
+     * @return array{0: bool, 1: mixed} Whether the path exists, and its value.
+     */
+    private function mcpStructuredContentAt(string $path): array
+    {
+        $value = $this->mcpResult()['structuredContent'] ?? null;
+        foreach (explode('.', $path) as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return [false, null];
+            }
+            $value = $value[$key];
+        }
+
+        return [true, $value];
+    }
+
+    /**
      * Asserts that the current identity sees a tool in `tools/list`.
      *
      * @param string $name The tool name.

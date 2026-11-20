@@ -51,6 +51,54 @@ class McpTestTraitTest extends TestCase
         $this->assertMcpStructuredContent(['subject' => '7', 'identifier' => 7]);
     }
 
+    public function testStructuredContentPath(): void
+    {
+        $this->mcpActingAs(['id' => 7]);
+        $this->mcpCallTool('whoami');
+
+        $this->assertMcpStructuredContentPath('identifier', 7);
+
+        $this->expectException(AssertionFailedError::class);
+        $this->assertMcpStructuredContentPath('identifier', '7');
+    }
+
+    public function testStructuredContentPathFailsWhenMissing(): void
+    {
+        $this->mcpCallTool('whoami');
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('nope.deeper');
+        $this->assertMcpStructuredContentPath('nope.deeper', null);
+    }
+
+    public function testStructuredContentHasSeesNullValues(): void
+    {
+        $this->mcpCallTool('whoami');
+
+        $this->assertMcpStructuredContentHas('identifier');
+
+        $this->expectException(AssertionFailedError::class);
+        $this->assertMcpStructuredContentHas('nope');
+    }
+
+    public function testListedForAnotherIdentityKeepsTheTestIdentity(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', $this->onlyForAdmins('admin_only'));
+        $this->mcpActingAs(['id' => 7, 'role' => 'admin'], ['mcp:tools']);
+
+        $this->assertMcpToolListedFor(['id' => 2, 'role' => 'admin'], 'admin_only');
+        $this->assertMcpToolNotListedFor(['id' => 1, 'role' => 'user'], 'admin_only');
+        try {
+            $this->assertMcpToolListedFor(['id' => 1, 'role' => 'user'], 'admin_only');
+            $this->fail('The assertion passed for a user.');
+        } catch (AssertionFailedError) {
+        }
+
+        $this->mcpCallTool('whoami');
+        $this->assertMcpStructuredContentPath('identifier', 7);
+        $this->assertSame(['mcp:tools'], $this->_mcpScopes);
+    }
+
     public function testAnonymousByDefault(): void
     {
         $this->mcpCallTool('whoami');

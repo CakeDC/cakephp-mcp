@@ -6,6 +6,7 @@
 - `bin/cake mcp check` warns, on a new `Tool schemas` line, about type arrays, arrays without an item type and optional parameters without a description.
 - `bin/cake mcp check` fails, on a new `Discovery` line, when `Mcp.discovery.scanDirs` is set and `symfony/finder` is missing: the SDK then skips discovery and the server has no tools.
 - `Mcp.server.cache` sets the cache hints (`ttlMs`, `cacheScope`) of the 2026-07-28 protocol, as a default and per method. Off by default (private, not cached).
+- `McpTestTrait`: `assertMcpStructuredContentPath()` and `assertMcpStructuredContentHas()` check one value of `structuredContent` by dot path; `assertMcpToolListedFor()` and `assertMcpToolNotListedFor()` check what another identity sees in `tools/list`.
 - `ToolValidation::check()` validates a tool's arguments with a Cake `Validator` and throws a tool error with one line per field.
 - `ToolError::message()` builds the error a tool throws to send the model a message it can act on.
 - Docs: Results in `docs/tools.md`: what a string, an array, a list and a `CallToolResult` become, `outputSchema` and `structuredContent`, and a compact JSON text for large results.

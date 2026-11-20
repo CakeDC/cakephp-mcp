@@ -117,11 +117,23 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 | `assertMcpInsufficientScope(?$scopes)` | was refused because the token lacks scopes, the way the endpoint answers `403 insufficient_scope`. With `$scopes` it also checks the scopes the call needs (any order). |
 | `assertMcpResultContains($text)` | returned text containing `$text`. |
 | `assertMcpStructuredContent($expected)` | returned this `structuredContent`. Key order does not matter, value types do. |
+| `assertMcpStructuredContentPath($path, $expected)` | returned `$expected` at a dot path of its `structuredContent` (`order.lines.0.sku`). Value types matter, and a missing path fails. |
+| `assertMcpStructuredContentHas($path)` | returned a `structuredContent` with that dot path, even with a `null` value. |
 
 `assertMcpToolListed($name)` and `assertMcpToolNotListed($name)` check what the
 current identity sees in `tools/list`. They make their own call.
 `assertMcpToolNotListed()` also checks that the tool exists, for the same
 reason as `assertMcpToolDenied()`.
+
+`assertMcpToolListedFor($identity, $name)` and
+`assertMcpToolNotListedFor($identity, $name)` do the same for another identity,
+with default scopes, and leave the test's own identity, scopes and claims as
+they were:
+
+```php
+$this->assertMcpToolListedFor(['id' => 1, 'role' => 'admin'], 'refund_order');
+$this->assertMcpToolNotListedFor(['id' => 2, 'role' => 'user'], 'refund_order');
+```
 
 ## Replacing services
 
