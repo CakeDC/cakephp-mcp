@@ -55,7 +55,9 @@ abstract class McpBakeCommand extends SimpleBakeCommand
      */
     public function templateData(Arguments $arguments): array
     {
-        $name = $this->baseName(Inflector::camelize((string)$arguments->getArgumentAt(0)));
+        // `Plugin.Name` names the plugin too; execute() already took the plugin from it.
+        [, $raw] = pluginSplit((string)$arguments->getArgumentAt(0));
+        $name = $this->baseName(Inflector::camelize($raw));
 
         return parent::templateData($arguments) + [
             'className' => $this->className($name),

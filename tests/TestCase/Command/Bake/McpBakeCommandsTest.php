@@ -69,6 +69,17 @@ class McpBakeCommandsTest extends TestCase
         $this->assertStringContainsString("mcpCallTool('list_orders'", $test);
     }
 
+    public function testThePluginDotNameForm(): void
+    {
+        $this->exec('bake mcp_tool BakeTarget.ListOrders --force');
+
+        $this->assertExitSuccess();
+        $class = $this->baked('src/Mcp/ListOrdersTool.php');
+        $this->assertStringContainsString('class ListOrdersTool', $class);
+        $this->assertStringContainsString("name: 'list_orders'", $class);
+        $this->assertFileExists(self::PLUGIN . 'tests/TestCase/Mcp/ListOrdersToolTest.php');
+    }
+
     public function testTheSuffixIsNotDoubled(): void
     {
         $this->exec('bake mcp_tool ListOrdersTool --plugin BakeTarget --force --no-test');
