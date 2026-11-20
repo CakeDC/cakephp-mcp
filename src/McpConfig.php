@@ -75,25 +75,140 @@ final class McpConfig
     ];
 
     /**
-     * @param string|null $path Dot path inside the `Mcp` config, or null for all of it.
-     * @return mixed
+     * The server the top-level `Mcp` config describes.
      */
-    public static function get(?string $path = null): mixed
+    public const DEFAULT_SERVER = 'default';
+
+    /**
+     * Sections a named server replaces whole when it sets them, so a narrower server never picks up the default
+     * server's scopes, rules or tools. `server.configure` follows the same rule.
+     *
+     * @var list<string>
+     */
+    private const REPLACED_SECTIONS = ['auth', 'authorization', 'discovery'];
+
+    /**
+     * @param string|null $path Dot path inside the server's config, or null for all of it.
+     * @param string $server The server: `default` (the top-level `Mcp` config) or a key of `Mcp.servers`.
+     * @return mixed
+     * @throws \InvalidArgumentException When the server is not configured or its config is invalid.
+     */
+    public static function get(?string $path = null, string $server = self::DEFAULT_SERVER): mixed
     {
-        $config = self::merge(self::DEFAULTS, (array)Configure::read('Mcp'));
+        $config = self::resolve($server);
 
         return $path === null ? $config : Hash::get($config, $path);
+    }
+
+    /**
+     * The configured servers: `default` first, then the keys of `Mcp.servers` in order.
+     *
+     * @return list<string>
+     * @throws \InvalidArgumentException When `Mcp.servers` is invalid.
+     */
+    public static function servers(): array
+    {
+        return [self::DEFAULT_SERVER, ...array_keys(self::named())];
+    }
+
+    /**
+     * The server whose route or protected resource metadata route $request is for, or null.
+     *
+     * @param \Psr\Http\Message\ServerRequestInterface $request The request.
+     * @return string|null
+     */
+    public static function serverFor(ServerRequestInterface $request): ?string
+    {
+        $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
+        $path = '/' . trim($path, '/');
+        foreach (self::servers() as $server) {
+            $route = self::get('route', $server);
+            if (!is_string($route) || trim($route, '/') === '') {
+                continue;
+            }
+            $route = '/' . trim($route, '/');
+            if ($path === $route || $path === self::METADATA_PREFIX . $route) {
+                return $server;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param string $server The server name.
+     * @return array<string, mixed> The resolved config of $server.
+     */
+    private static function resolve(string $server): array
+    {
+        $top = (array)Configure::read('Mcp');
+        unset($top['servers']);
+        $default = self::merge(self::DEFAULTS, $top);
+        if ($server === self::DEFAULT_SERVER) {
+            return $default;
+        }
+
+        $named = self::named()[$server] ?? null;
+        if ($named === null) {
+            throw new InvalidArgumentException(sprintf('"Mcp.servers.%s" is not configured.', $server));
+        }
+        $config = $default;
+        foreach (self::REPLACED_SECTIONS as $section) {
+            if (array_key_exists($section, $named)) {
+                $config[$section] = self::merge(self::DEFAULTS[$section], (array)$named[$section]);
+                unset($named[$section]);
+            }
+        }
+        $hasConfigure = is_array($named['server'] ?? null) && array_key_exists('configure', $named['server']);
+        if ($hasConfigure) {
+            $config['server']['configure'] = $named['server']['configure'];
+            unset($named['server']['configure']);
+        }
+
+        return self::merge($config, $named);
+    }
+
+    /**
+     * @return array<string, array<string, mixed>> The named servers, validated.
+     */
+    private static function named(): array
+    {
+        $servers = Configure::read('Mcp.servers') ?? [];
+        if (!is_array($servers)) {
+            throw new InvalidArgumentException('"Mcp.servers" must be an array of server name => config.');
+        }
+        foreach ($servers as $name => $config) {
+            if (!is_string($name) || $name === '' || !is_array($config)) {
+                throw new InvalidArgumentException('"Mcp.servers" must be an array of server name => config.');
+            }
+            if ($name === self::DEFAULT_SERVER) {
+                throw new InvalidArgumentException(
+                    '"Mcp.servers.default" is not allowed: the top-level "Mcp" config is the default server.',
+                );
+            }
+            if (!is_string($config['route'] ?? null) || trim($config['route'], '/') === '') {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.servers.%s.route" must be the path of the server, for example "/mcp/%s".',
+                    $name,
+                    $name,
+                ));
+            }
+        }
+
+        /** @var array<string, array<string, mixed>> $servers */
+        return $servers;
     }
 
     /**
      * The cache config used for the discovery cache, or null when it is disabled.
      * Always null in debug mode, so new tools show up without clearing caches.
      *
+     * @param string $server The server.
      * @return string|null
      */
-    public static function discoveryCache(): ?string
+    public static function discoveryCache(string $server = self::DEFAULT_SERVER): ?string
     {
-        $name = self::get('discovery.cache');
+        $name = self::get('discovery.cache', $server);
         if (Configure::read('debug') || !is_string($name) || $name === '') {
             return null;
         }
@@ -106,12 +221,13 @@ final class McpConfig
      * SDK's own limit). The same value goes to the SDK transport and to its AuthorizationMiddleware, and
      * BodyLimitMiddleware answers a larger body with 413 before either reads it.
      *
+     * @param string $server The server.
      * @return int
      * @throws \InvalidArgumentException When the setting is not a positive integer, so the endpoint fails closed.
      */
-    public static function maxBodyBytes(): int
+    public static function maxBodyBytes(string $server = self::DEFAULT_SERVER): int
     {
-        $value = self::get('http.maxBodyBytes');
+        $value = self::get('http.maxBodyBytes', $server);
         if (!is_int($value) || $value < 1) {
             throw new InvalidArgumentException('`Mcp.http.maxBodyBytes` must be a positive integer (bytes).');
         }
@@ -124,11 +240,12 @@ final class McpConfig
      * `App.fullBaseUrl` plus localhost; the SDK default (localhost only) would
      * reject every request to a real domain.
      *
+     * @param string $server The server.
      * @return list<string>
      */
-    public static function allowedHosts(): array
+    public static function allowedHosts(string $server = self::DEFAULT_SERVER): array
     {
-        $hosts = self::get('http.allowedHosts');
+        $hosts = self::get('http.allowedHosts', $server);
         if (is_array($hosts)) {
             return array_values(array_map(fn(mixed $host): string => strtolower((string)$host), $hosts));
         }
@@ -195,7 +312,7 @@ final class McpConfig
     }
 
     /**
-     * Whether $request is for the MCP endpoint or its protected resource metadata. Use it to skip
+     * Whether $request is for the endpoint of any MCP server or its protected resource metadata. Use it to skip
      * Cake's CSRF check there, and to keep other bearer-token authenticators off these paths.
      *
      * @param \Psr\Http\Message\ServerRequestInterface $request The request.
@@ -203,14 +320,6 @@ final class McpConfig
      */
     public static function isEndpoint(ServerRequestInterface $request): bool
     {
-        $route = self::get('route');
-        if (!is_string($route) || trim($route, '/') === '') {
-            return false;
-        }
-        $route = '/' . trim($route, '/');
-        $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
-        $path = '/' . trim($path, '/');
-
-        return $path === $route || $path === self::METADATA_PREFIX . $route;
+        return self::serverFor($request) !== null;
     }
 }

@@ -155,6 +155,116 @@ class McpConfigTest extends TestCase
         $this->assertSame(4194304, McpConfig::get('http.maxBodyBytes'));
     }
 
+    public function testWithoutServersOnlyDefaultExists(): void
+    {
+        $this->assertSame(['default'], McpConfig::servers());
+        $this->assertSame(McpConfig::get('route'), McpConfig::get('route', 'default'));
+        $this->assertArrayNotHasKey('servers', McpConfig::get());
+    }
+
+    public function testNamedServerMergesNonSecuritySectionsKeyByKey(): void
+    {
+        Configure::write('Mcp.server.version', '3.1.0');
+        Configure::write('Mcp.http.maxBodyBytes', 2048);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'server' => ['name' => 'Admin MCP']]);
+
+        $this->assertSame(['default', 'admin'], McpConfig::servers());
+        $this->assertSame('/mcp/admin', McpConfig::get('route', 'admin'));
+        $this->assertSame('Admin MCP', McpConfig::get('server.name', 'admin'));
+        $this->assertSame('3.1.0', McpConfig::get('server.version', 'admin'));
+        $this->assertSame(2048, McpConfig::maxBodyBytes('admin'));
+        $this->assertArrayNotHasKey('servers', McpConfig::get(null, 'admin'));
+    }
+
+    public function testSecuritySectionsAreReplacedWhole(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', 'App\\Mcp\\CustomAuthorizer');
+        Configure::write('Mcp.auth.scopes.tools', ['refund' => ['mcp:refund']]);
+        Configure::write('Mcp.discovery.excludeDirs', ['src/Mcp/Internal']);
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/admin',
+            'authorization' => ['rbac' => [['role' => 'admin']]],
+            'auth' => ['scopes' => ['default' => ['mcp:admin']]],
+            'discovery' => ['scanDirs' => ['src/Mcp/Admin']],
+        ]);
+
+        $this->assertSame(AllowAllToolAuthorizer::class, McpConfig::get('authorization.authorizer', 'admin'));
+        $this->assertSame([['role' => 'admin']], McpConfig::get('authorization.rbac', 'admin'));
+        $this->assertSame([], McpConfig::get('auth.scopes.tools', 'admin'));
+        $this->assertSame(['mcp:admin'], McpConfig::get('auth.scopes.default', 'admin'));
+        $this->assertSame([], McpConfig::get('discovery.excludeDirs', 'admin'));
+        $this->assertSame(['src/Mcp/Admin'], McpConfig::get('discovery.scanDirs', 'admin'));
+    }
+
+    public function testSecuritySectionsAreInheritedWhenNotSet(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', 'App\\Mcp\\CustomAuthorizer');
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+
+        $this->assertSame('App\\Mcp\\CustomAuthorizer', McpConfig::get('authorization.authorizer', 'admin'));
+        $this->assertSame(['src/Mcp'], McpConfig::get('discovery.scanDirs', 'admin'));
+    }
+
+    public function testServerConfigureIsReplacedOnlyWhenSet(): void
+    {
+        $hook = fn(): null => null;
+        $other = fn(): null => null;
+        Configure::write('Mcp.server.configure', $hook);
+        Configure::write('Mcp.servers.inherits', ['route' => '/mcp/a', 'server' => ['name' => 'A']]);
+        Configure::write('Mcp.servers.own', ['route' => '/mcp/b', 'server' => ['configure' => $other]]);
+        Configure::write('Mcp.servers.none', ['route' => '/mcp/c', 'server' => ['configure' => null]]);
+
+        $this->assertSame($hook, McpConfig::get('server.configure', 'inherits'));
+        $this->assertSame($other, McpConfig::get('server.configure', 'own'));
+        $this->assertNull(McpConfig::get('server.configure', 'none'));
+    }
+
+    public function testUnknownServerFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.servers.nope" is not configured.');
+
+        McpConfig::get('route', 'nope');
+    }
+
+    public function testNamedServerNeedsARoute(): void
+    {
+        Configure::write('Mcp.servers.admin', ['server' => ['name' => 'Admin']]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.servers.admin.route"');
+
+        McpConfig::get('route', 'admin');
+    }
+
+    public function testServersCannotBeNamedDefault(): void
+    {
+        Configure::write('Mcp.servers.default', ['route' => '/other']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.servers.default"');
+
+        McpConfig::servers();
+    }
+
+    public function testIsEndpointAndServerForMatchEveryServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+
+        $cases = [
+            '/mcp' => 'default',
+            '/.well-known/oauth-protected-resource/mcp' => 'default',
+            '/mcp/admin/' => 'admin',
+            '/.well-known/oauth-protected-resource/mcp/admin' => 'admin',
+            '/api/mcp' => null,
+        ];
+        foreach ($cases as $path => $server) {
+            $request = new ServerRequest(['url' => $path]);
+            $this->assertSame($server, McpConfig::serverFor($request), $path);
+            $this->assertSame($server !== null, McpConfig::isEndpoint($request), $path);
+        }
+    }
+
     public function testTheBodyLimitMustBeAPositiveInteger(): void
     {
         Configure::write('Mcp.http.maxBodyBytes', 1024);
