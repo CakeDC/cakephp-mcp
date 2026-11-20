@@ -71,7 +71,18 @@ value of its own) and a wider union (`int|string`) keep their type arrays.
 `bin/cake mcp check` lists what is left: type arrays, untyped arrays and
 parameters without a description.
 
-## Example returning structured data
+## Results
+
+What a tool returns decides what the client receives:
+
+| The tool returns | The client receives |
+|---|---|
+| a string | that text |
+| an associative array | the array as pretty-printed JSON text, and the same array as `structuredContent` |
+| a list (`['A-1', 'A-2']`) | the list as pretty-printed JSON text, without `structuredContent` |
+| a `Mcp\Schema\Result\CallToolResult` | exactly its content and `structuredContent` |
+
+An associative array is the quickest way to return data:
 
 ```php
 namespace App\Mcp;
@@ -102,6 +113,47 @@ class OrderTools
     }
 }
 ```
+
+The array travels twice, as text and as `structuredContent`, and the model may
+read both. That is fine for a small result. For a large one, return a single
+compact JSON text instead, so the model reads it once:
+
+```php
+use Mcp\Schema\Content\TextContent;
+use Mcp\Schema\Result\CallToolResult;
+
+return new CallToolResult([
+    new TextContent(json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)),
+]);
+```
+
+### Output schemas
+
+When a client parses the result (an agent framework, a script, a client that
+shows it as a table), declare its shape with `outputSchema` and return a
+`CallToolResult` with a short text for the model and the data as
+`structuredContent`:
+
+```php
+#[McpTool(name: 'order_summary', outputSchema: [
+    'type' => 'object',
+    'properties' => ['total' => ['type' => 'number'], 'count' => ['type' => 'integer']],
+    'required' => ['total'],
+])]
+public function summary(): CallToolResult
+{
+    return new CallToolResult(
+        [new TextContent('2 open orders, 25.50 in total.')],
+        false,
+        ['total' => 25.5, 'count' => 2],
+    );
+}
+```
+
+`tools/list` shows the `outputSchema`, and the SDK checks the
+`structuredContent` against it: a result that breaks it reaches the client as a
+tool error ("Invalid structured output for tool ..."), not as data. Test the
+tool's result with `assertMcpStructuredContent()` (see [Testing](testing.md)).
 
 ## Annotations
 
@@ -200,18 +252,20 @@ If a tool throws an unexpected exception, the client receives a JSON-RPC
 message never reaches the client, so internals do not leak. With the stateless
 2026-07-28 protocol revision the SDK answers that error with HTTP 400.
 
-To return a message to the client on purpose, throw
-`Mcp\Exception\ToolCallException`:
+To return a message to the client on purpose, throw the exception that
+`CakeDC\Mcp\Tool\ToolError::message()` builds (a
+`Mcp\Exception\ToolCallException`). The model reads the message and can try
+again:
 
 ```php
-use Mcp\Exception\ToolCallException;
+use CakeDC\Mcp\Tool\ToolError;
 
 #[McpTool(name: 'cancel_order')]
 public function cancel(string $number): string
 {
     $order = $this->fetchTable('Orders')->find()->where(['number' => $number])->first();
     if ($order === null) {
-        throw new ToolCallException(sprintf('Order "%s" does not exist.', $number));
+        throw ToolError::message(sprintf('Order "%s" does not exist.', $number));
     }
 
     return 'Cancelled.';
