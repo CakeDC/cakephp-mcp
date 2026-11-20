@@ -79,7 +79,7 @@ What a tool returns decides what the client receives:
 |---|---|
 | a string | that text |
 | an associative array | the array as pretty-printed JSON text, and the same array as `structuredContent` |
-| a list (`['A-1', 'A-2']`) | the list as pretty-printed JSON text, without `structuredContent` |
+| a list (`['A-1', 'A-2']`) | the list as pretty-printed JSON text. Clients of the 2026-07-28 protocol revision also get it as `structuredContent` (a JSON array); clients of the 2025 revisions do not, since that field had to be an object there |
 | a `Mcp\Schema\Result\CallToolResult` | exactly its content and `structuredContent` |
 
 An associative array is the quickest way to return data:
@@ -114,8 +114,8 @@ class OrderTools
 }
 ```
 
-The array travels twice, as text and as `structuredContent`, and the model may
-read both. That is fine for a small result. For a large one, return a single
+The array travels twice, as text and as `structuredContent` (a list too, for
+clients of the 2026-07-28 revision), and the model may read both. That is fine for a small result. For a large one, return a single
 compact JSON text instead, so the model reads it once:
 
 ```php

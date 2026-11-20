@@ -106,6 +106,20 @@ class McpControllerTest extends TestCase
         $this->assertArrayNotHasKey('ttlMs', $this->json()['result'] ?? []);
     }
 
+    public function testModernEraSendsAListAsStructuredContentToo(): void
+    {
+        // docs/tools.md, Results: under 2026-07-28 a list also travels as structuredContent.
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpDocs']);
+
+        $this->mcp(
+            $this->modern(1, 'tools/call', ['name' => 'order_numbers', 'arguments' => new stdClass()]),
+            $this->modernHeaders('tools/call', 'order_numbers'),
+        );
+
+        $this->assertResponseOk();
+        $this->assertSame(['A-1', 'A-2'], $this->json()['result']['structuredContent'] ?? null);
+    }
+
     public function testJsonBodyIsReadAfterBodyParserMiddleware(): void
     {
         $this->mcp(
