@@ -155,6 +155,24 @@ public function summary(): CallToolResult
 tool error ("Invalid structured output for tool ..."), not as data. Test the
 tool's result with `assertMcpStructuredContent()` (see [Testing](testing.md)).
 
+## Generating classes with bake
+
+With `cakephp/bake` installed, three bake commands create a class in
+`src/Mcp/` and its test in `tests/TestCase/Mcp/`:
+
+```bash
+bin/cake bake mcp_tool ListOrders        # src/Mcp/ListOrdersTool.php, tool list_orders
+bin/cake bake mcp_resource OrderGuide    # src/Mcp/OrderGuideResource.php, app://order-guide
+bin/cake bake mcp_prompt WeeklyReport    # src/Mcp/WeeklyReportPrompt.php, prompt weekly_report
+```
+
+Each class is invokable, with the attribute on the class and the work in
+`__invoke()`, one class per tool. The generated tool is read-only, has every
+parameter described and passes the `Tool schemas` line of `bin/cake mcp check`.
+Replace the placeholder description: the model reads it to decide when to call
+the tool. `--plugin Shop` bakes into a plugin, `--no-test` skips the test, and
+`--force` overwrites an existing file.
+
 ## Annotations
 
 Annotations tell the client how a tool behaves. Clients such as Claude use them

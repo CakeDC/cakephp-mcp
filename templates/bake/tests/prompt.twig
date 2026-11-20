@@ -1,0 +1,18 @@
+{{ element('Bake.file_header', {
+    namespace: testNamespace,
+    classImports: [
+        'Cake\\TestSuite\\TestCase',
+        "#{namespace}\\Mcp\\#{className}",
+    ],
+}) }}
+
+class {{ className }}Test extends TestCase
+{
+    public function testItBuildsMessages(): void
+    {
+        $messages = (new {{ className }}())('example');
+
+        $this->assertNotEmpty($messages);
+        $this->assertSame('user', $messages[0]['role']);
+    }
+}

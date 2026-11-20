@@ -1,0 +1,20 @@
+{{ element('Bake.file_header', {
+    namespace: "#{namespace}\\Mcp",
+    classImports: [
+        'Mcp\\Capability\\Attribute\\McpResource',
+    ],
+}) }}
+
+#[McpResource(uri: 'app://{{ uriName }}', name: '{{ mcpName }}', mimeType: 'text/markdown')]
+class {{ className }}
+{
+    /**
+     * Describe what this resource holds: clients show it when they list resources.
+     *
+     * @return string
+     */
+    public function __invoke(): string
+    {
+        return "# {{ className }}\n\nWrite the content here.\n";
+    }
+}

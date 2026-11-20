@@ -1,0 +1,21 @@
+{{ element('Bake.file_header', {
+    namespace: testNamespace,
+    classImports: [
+        'Cake\\TestSuite\\TestCase',
+        'CakeDC\\Mcp\\TestSuite\\McpTestTrait',
+    ],
+}) }}
+
+class {{ className }}Test extends TestCase
+{
+    use McpTestTrait;
+
+    public function testItAnswers(): void
+    {
+        $this->mcpActingAs(['id' => 1]);
+
+        $this->mcpCallTool('{{ mcpName }}', ['query' => 'example', 'limit' => 5]);
+
+        $this->assertMcpToolSucceeded();
+    }
+}
