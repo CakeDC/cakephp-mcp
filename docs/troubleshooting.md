@@ -9,9 +9,10 @@ them without a network call.
 
 ## The tool list is empty
 
-Run `bin/cake mcp check` first: its `Tools` line lists the tools the server
-offers, and its `Authorizer` line says when `RbacToolAuthorizer` has no rule
-that lets anyone call them. Other causes:
+Run `bin/cake mcp check` first: its `Discovery` line fails when
+`symfony/finder` is missing (the SDK then skips discovery), its `Tools` line
+lists the tools the server offers, and its `Authorizer` line says when
+`RbacToolAuthorizer` has no rule that lets anyone call them. Other causes:
 
 - A class in a scan directory fails to load (a syntax error, a missing
   parent class or interface). The SDK silently skips discovery and returns

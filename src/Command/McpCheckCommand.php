@@ -37,6 +37,7 @@ use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
 use ReflectionProperty;
+use Symfony\Component\Finder\Finder;
 use Throwable;
 
 /**
@@ -119,6 +120,7 @@ class McpCheckCommand extends Command
             'Allowed hosts' => fn(): array => $this->hosts(),
             'CSRF' => fn(): array => $this->csrf(),
             'Authenticators' => fn(): array => $this->authenticators(),
+            'Discovery' => fn(): array => $this->discovery(),
             'Tools' => fn(): array => $this->toolsCheck(),
             'Tool schemas' => fn(): array => $this->toolSchemas(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
@@ -724,6 +726,34 @@ class McpCheckCommand extends Command
     protected function oauthServerInstalled(): bool
     {
         return class_exists(OAuthServer::class);
+    }
+
+    /**
+     * Whether symfony/finder is installed: the SDK's attribute discovery needs it, and without it the SDK skips
+     * discovery with only a log warning.
+     *
+     * @return bool
+     */
+    protected function finderAvailable(): bool
+    {
+        return class_exists(Finder::class);
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function discovery(): array
+    {
+        $dirs = array_values(array_filter((array)McpConfig::get('discovery.scanDirs'), 'is_string'));
+        if ($dirs === []) {
+            return ['pass', 'off (no Mcp.discovery.scanDirs)'];
+        }
+        if (!$this->finderAvailable()) {
+            return ['fail', 'Mcp.discovery.scanDirs is set but symfony/finder is not installed, so the SDK skips '
+                . 'discovery and the server has no tools. Run: composer require symfony/finder'];
+        }
+
+        return ['pass', 'scans ' . implode(', ', $dirs)];
     }
 
     /**

@@ -521,6 +521,41 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Authenticators');
     }
 
+    public function testDiscoveryPassesWithFinder(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Discovery: scans src/Mcp');
+    }
+
+    public function testDiscoveryIsOffWithoutScanDirs(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Discovery: off (no Mcp.discovery.scanDirs)');
+    }
+
+    public function testDiscoveryFailsWithoutFinder(): void
+    {
+        $out = new StubConsoleOutput();
+        $command = new class extends McpCheckCommand {
+            protected function finderAvailable(): bool
+            {
+                return false;
+            }
+        };
+
+        $code = $command->run([], new ConsoleIo($out, new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame(McpCheckCommand::CODE_ERROR, $code);
+        $this->assertStringContainsString(
+            '[FAIL] Discovery: Mcp.discovery.scanDirs is set but symfony/finder is not installed',
+            $out->output(),
+        );
+    }
+
     public function testMissingOAuthPluginFailsWithTheInstallHint(): void
     {
         Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
