@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Event;
 
 use CakeDC\Mcp\Authorization\ToolGate;
+use Closure;
 use Mcp\Event\ResponseEvent;
 use Mcp\Schema\JsonRpc\Response;
 use Mcp\Schema\Result\ListToolsResult;
@@ -16,8 +17,9 @@ final class ToolListFilter
 {
     /**
      * @param \CakeDC\Mcp\Authorization\ToolGate $gate The gate.
+     * @param \Closure(string): bool|null $hidden Tools to leave out of the list even when allowed (the catalog's).
      */
-    public function __construct(private readonly ToolGate $gate)
+    public function __construct(private readonly ToolGate $gate, private readonly ?Closure $hidden = null)
     {
     }
 
@@ -35,7 +37,8 @@ final class ToolListFilter
 
         $tools = array_values(array_filter(
             $result->tools,
-            fn(Tool $tool): bool => $this->gate->allows($tool->name),
+            fn(Tool $tool): bool => $this->gate->allows($tool->name)
+                && ($this->hidden === null || !($this->hidden)($tool->name)),
         ));
         $event->setResponse(new Response($response->getId(), new ListToolsResult($tools, $result->nextCursor)));
     }

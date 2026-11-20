@@ -10,6 +10,8 @@ use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
 use CakeDC\Mcp\Authorization\ToolGate;
+use CakeDC\Mcp\Catalog\CatalogPatterns;
+use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Container\ContainerBridge;
 use CakeDC\Mcp\Event\AuditListener;
 use CakeDC\Mcp\Event\EventDispatcher;
@@ -21,10 +23,12 @@ use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
+use Mcp\Capability\Registry\ReferenceHandler;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
 use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
@@ -108,9 +112,21 @@ final class ServerFactory
      */
     private function build(bool $trusted, LoggerInterface $logger): Server
     {
-        $gate = new ToolGate($this->authorizer(), $this->identity, $trusted);
+        $catalog = (array)McpConfig::get('catalog', $this->server);
+        $catalogOn = ($catalog['enabled'] ?? false) === true;
+        $patterns = array_values(array_filter((array)($catalog['tools'] ?? []), 'is_string'));
+        // The catalog's own tools are always allowed: each tool they run goes through the gate instead.
+        $gate = new ToolGate(
+            $this->authorizer(),
+            $this->identity,
+            $trusted,
+            $catalogOn ? [ToolCatalog::FIND, ToolCatalog::CALL] : [],
+        );
         $events = new EventDispatcher();
-        $events->listen(ResponseEvent::class, new ToolListFilter($gate));
+        $events->listen(ResponseEvent::class, new ToolListFilter(
+            $gate,
+            $catalogOn ? fn(string $tool): bool => CatalogPatterns::matches($patterns, $tool) : null,
+        ));
         if (McpConfig::get('schema.normalize', $this->server) === true) {
             // After the filter, on the tools the caller may see.
             $events->listen(ResponseEvent::class, new ToolSchemaNormalizer());
@@ -121,6 +137,16 @@ final class ServerFactory
         // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
         $registry = new Registry($events, $logger);
         $builder->setRegistry($registry);
+        if ($catalogOn) {
+            $this->addCatalog($builder, new ToolCatalog(
+                $registry,
+                $gate,
+                $patterns,
+                $this->maxCalls($catalog['maxCalls'] ?? 5),
+                new ReferenceHandler(new ContainerBridge($this->container)),
+                $logger,
+            ));
+        }
         $audit = AuditSettings::fromConfig($this->server);
         if ($audit->enabled) {
             $listener = new AuditListener(
@@ -290,6 +316,49 @@ final class ServerFactory
         }
 
         return $tools;
+    }
+
+    /**
+     * Registers `find_tools` and `call_tools`.
+     *
+     * @param \Mcp\Server\Builder $builder The builder.
+     * @param \CakeDC\Mcp\Catalog\ToolCatalog $catalog The catalog.
+     * @return void
+     */
+    private function addCatalog(Builder $builder, ToolCatalog $catalog): void
+    {
+        $schemas = $catalog->inputSchemas();
+        $builder->addTool(
+            [$catalog, 'find'],
+            ToolCatalog::FIND,
+            'Find tools',
+            'Finds more tools of this server by what they do. Returns their names, descriptions and input schemas; '
+            . 'run them with call_tools.',
+            new ToolAnnotations(readOnlyHint: true, openWorldHint: false),
+            $schemas[ToolCatalog::FIND],
+        );
+        $builder->addTool(
+            [$catalog, 'call'],
+            ToolCatalog::CALL,
+            'Call tools',
+            'Runs tools found with find_tools, in order, and returns each result. Stops at the first error.',
+            null,
+            $schemas[ToolCatalog::CALL],
+        );
+    }
+
+    /**
+     * @param mixed $value `Mcp.catalog.maxCalls`.
+     * @return int
+     * @throws \InvalidArgumentException When it is not a positive integer.
+     */
+    private function maxCalls(mixed $value): int
+    {
+        if (!is_int($value) || $value < 1) {
+            throw new InvalidArgumentException('"Mcp.catalog.maxCalls" must be a positive integer.');
+        }
+
+        return $value;
     }
 
     /**
