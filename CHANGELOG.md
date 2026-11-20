@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tool catalog (`Mcp.catalog`): chosen tools leave `tools/list` and are reached with `find_tools` and `call_tools`; every inner call goes through the authorizer, the tool scopes (a `403 insufficient_scope` over HTTP), the input schema and the audit (`via=call_tools`). `mcp check` reports it on a new `Catalog` line, and its `Tool schemas` line covers catalogued tools.
 - `McpTestTrait` runs tools that report progress or log through the SDK's `ClientGateway` (they used to get no response in tests) and records their notifications: `mcpNotifications()`, `assertMcpProgressSent()`, `assertMcpNotificationSent()`. A tool that asks the client something fails with a clear message.
 - Docs: progress and logs from a tool, and what buffers server-sent events (PHP output buffering, compression, proxies).
 - `#[McpWhen]` registers a tool, resource, resource template or prompt only when a config value is on or a callback (given the server name) returns true; `mcp check` lists what was skipped on a new `Conditions` line.

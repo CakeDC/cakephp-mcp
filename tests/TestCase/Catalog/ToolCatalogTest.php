@@ -7,6 +7,8 @@ use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\Core\Container;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Identity\CurrentIdentity;
@@ -62,6 +64,19 @@ class ToolCatalogTest extends TestCase
         $this->assertSame('order_status', $tools[0]['name']);
         $this->assertSame(['number'], $tools[0]['inputSchema']['required']);
         $this->assertNotContains('orders_compact', array_column($tools, 'name'));
+    }
+
+    public function testFindToolsFollowsTheSchemaNormalizer(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+        Configure::write('Mcp.catalog.tools', ['report']);
+        Configure::write('Mcp.schema.normalize', true);
+
+        $this->mcpCallTool('find_tools', ['query' => 'report']);
+
+        $this->assertMcpToolSucceeded();
+        $schema = $this->mcpResult()['structuredContent']['tools'][0]['inputSchema'];
+        $this->assertSame('string', $schema['properties']['date_from']['type']);
     }
 
     public function testFindToolsWithAnEmptyQuery(): void
@@ -189,6 +204,31 @@ class ToolCatalogTest extends TestCase
         $result = $transport->responseFor(2)['result']['structuredContent']['results'][0] ?? [];
         $this->assertTrue($result['isError'] ?? false);
         $this->assertSame('Tool not found: "order_status".', $result['content'][0]['text'] ?? null);
+    }
+
+    public function testInnerCallsAreAuditedUnderTheirOwnName(): void
+    {
+        Log::setConfig('audit_catalog', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
+        Configure::write('Mcp.audit.enabled', true);
+        Configure::write('Mcp.authorization.authorizer', $this->denying('find_order'));
+        try {
+            $this->mcpCallTool('call_tools', ['calls' => [
+                ['name' => 'order_status', 'arguments' => ['number' => 'A-1']],
+                ['name' => 'find_order', 'arguments' => ['number' => 'A-1']],
+            ]]);
+
+            $engine = Log::engine('audit_catalog');
+            $lines = array_map('strval', $engine instanceof ArrayLog ? $engine->read() : []);
+            $this->assertCount(3, $lines);
+            $this->assertStringContainsString('MCP tools/call order_status ok', $lines[0]);
+            $this->assertStringContainsString(' via=call_tools', $lines[0]);
+            $this->assertStringContainsString('MCP tools/call find_order denied', $lines[1]);
+            $this->assertStringContainsString(' via=call_tools', $lines[1]);
+            $this->assertStringContainsString('MCP tools/call call_tools tool_error', $lines[2]);
+            $this->assertStringNotContainsString('via=', $lines[2]);
+        } finally {
+            Log::drop('audit_catalog');
+        }
     }
 
     public function testCatalogOffChangesNothing(): void

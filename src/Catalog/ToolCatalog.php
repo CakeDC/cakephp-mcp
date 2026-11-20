@@ -4,8 +4,12 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Catalog;
 
 use CakeDC\Mcp\Authorization\ToolGate;
+use CakeDC\Mcp\Schema\SchemaNormalizer;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandlerInterface;
+use Mcp\Event\ErrorEvent;
+use Mcp\Event\RequestEvent;
+use Mcp\Event\ResponseEvent;
 use Mcp\Exception\ToolCallException;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\JsonRpc\Error;
@@ -15,6 +19,7 @@ use Mcp\Schema\Tool;
 use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\RequestContext;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -29,6 +34,11 @@ final class ToolCatalog
     public const CALL = 'call_tools';
 
     /**
+     * Meta key of the calls the catalog makes, read by the audit (`via=call_tools`).
+     */
+    public const VIA_META = 'io.cakedc.mcp/via';
+
+    /**
      * @param \Mcp\Capability\Registry $registry The server's registry.
      * @param \CakeDC\Mcp\Authorization\ToolGate $gate The server's gate.
      * @param list<string> $patterns `Mcp.catalog.tools`.
@@ -37,6 +47,9 @@ final class ToolCatalog
      * @param \Psr\Log\LoggerInterface $logger The server's logger.
      * @param \Mcp\Server\Transport\Http\OAuth\ScopePolicy|null $policy The scope policy, null when tokens are not
      *   checked (host mode).
+     * @param \Psr\EventDispatcher\EventDispatcherInterface|null $events The server's events: each inner call is
+     *   announced like a direct one, so the audit records it.
+     * @param bool $normalize `Mcp.schema.normalize`: the schemas find_tools returns follow it, as tools/list does.
      */
     public function __construct(
         private readonly Registry $registry,
@@ -46,6 +59,8 @@ final class ToolCatalog
         private readonly ReferenceHandlerInterface $references,
         private readonly LoggerInterface $logger,
         private readonly ?ScopePolicy $policy = null,
+        private readonly ?EventDispatcherInterface $events = null,
+        private readonly bool $normalize = false,
     ) {
     }
 
@@ -89,7 +104,9 @@ final class ToolCatalog
                 'name' => $tool->name,
                 'title' => $tool->title,
                 'description' => $tool->description,
-                'inputSchema' => $tool->inputSchema,
+                'inputSchema' => $this->normalize
+                    ? SchemaNormalizer::normalize($tool->inputSchema)
+                    : $tool->inputSchema,
             ];
         }
 
@@ -225,15 +242,22 @@ final class ToolCatalog
         string $name,
         array $arguments,
     ): array {
+        $meta = [self::VIA_META => self::CALL] + ($context->getRequest()->getMeta() ?? []);
+        $request = (new CallToolRequest($name, $arguments))->withId($id)->withMeta($meta);
+        $session = $context->getSession();
+        $this->events?->dispatch(new RequestEvent($request, $session));
         if (!$this->callable($name, $context)) {
             // Like a direct call: a denied tool answers as an unknown one.
-            return $this->error($name, sprintf('Tool not found: "%s".', $name));
+            $response = Error::forInvalidParams(sprintf('Tool not found: "%s".', $name), $id);
+        } else {
+            $response = $handler->handle($request, $session);
         }
-        $request = (new CallToolRequest($name, $arguments))->withId($id)->withMeta($context->getRequest()->getMeta());
-        $response = $handler->handle($request, $context->getSession());
         if ($response instanceof Error) {
+            $this->events?->dispatch(new ErrorEvent($response, $request, $session, null));
+
             return $this->error($name, $response->message);
         }
+        $this->events?->dispatch(new ResponseEvent($response, $request, $session));
         $result = $response->result;
         if (!$result instanceof CallToolResult) {
             return $this->error($name, 'The tool returned no result.');

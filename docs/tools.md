@@ -192,6 +192,42 @@ them (see [Testing](testing.md)).
 (`elicit()`) something. Those need a client that supports them, and they
 cannot be answered in `McpTestTrait` tests.
 
+## Tool catalog
+
+A server with many tools sends every schema to the model on every turn. The tool
+catalog keeps chosen tools out of `tools/list` and gives the model two tools to
+reach them instead:
+
+```php
+'Mcp' => [
+    'catalog' => [
+        'enabled' => true,
+        'tools' => ['report_*', 'export_orders'],   // names or fnmatch() patterns
+        'maxCalls' => 5,                             // tools one call_tools may run
+    ],
+],
+```
+
+- `find_tools` takes a `query` (words to look for) and a `limit` (1 to 50,
+  default 10), and returns the matching tools with their descriptions and input
+  schemas, best matches first. It only returns tools the caller may call.
+- `call_tools` takes `calls`, a list of `{"name": ..., "arguments": {...}}`, runs
+  them in order and returns each result. It stops at the first error.
+
+Each tool `call_tools` runs is checked like a direct `tools/call`: the
+authorizer (a denied tool answers like an unknown one), the scopes of
+`Mcp.auth.scopes.tools`, and the tool's input schema. Over HTTP, a `call_tools`
+whose token lacks the scope of a tool it runs gets the same `403
+insufficient_scope` as a direct call, naming the missing scopes, so the client
+can ask for them. Each inner call writes its own audit record under its own
+name, with `via=call_tools`. `find_tools` and `call_tools` themselves are never
+refused by the authorizer: what they run is.
+
+Catalogued tools can still be called directly by name, so clients that already
+know them keep working. `bin/cake mcp check` lists the catalogued tools on its
+`Catalog` line, warns about patterns that match no tool, and checks their
+schemas on its `Tool schemas` line.
+
 ## Registering only when
 
 `#[McpWhen]` (`CakeDC\Mcp\Attribute\McpWhen`) registers a tool, resource,

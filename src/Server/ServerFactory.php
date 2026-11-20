@@ -21,6 +21,7 @@ use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
+use CakeDC\Mcp\Schema\SchemaNormalizer;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
@@ -55,6 +56,11 @@ final class ServerFactory
      * @var list<string>
      */
     private array $skipped = [];
+
+    /**
+     * The registry of the last build.
+     */
+    private ?Registry $lastRegistry = null;
 
     /**
      * @param \Psr\Container\ContainerInterface $container The host container.
@@ -148,6 +154,8 @@ final class ServerFactory
                 new ReferenceHandler(new ContainerBridge($this->container)),
                 $logger,
                 $this->scopePolicy(),
+                $events,
+                McpConfig::get('schema.normalize', $this->server) === true,
             ));
         }
         $audit = AuditSettings::fromConfig($this->server);
@@ -205,6 +213,7 @@ final class ServerFactory
 
         $server = $builder->build();
         $this->skipped = Conditions::prune($registry, $this->server);
+        $this->lastRegistry = $registry;
 
         return $server;
     }
@@ -372,6 +381,32 @@ final class ServerFactory
         }
 
         return $value;
+    }
+
+    /**
+     * Every tool registered on this server, including those the tool catalog keeps out of `tools/list`, as a
+     * trusted client would see them (schemas normalized when `schema.normalize` is on), decoded from JSON.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<array<string, mixed>> Each tool has a string `name`.
+     */
+    public function registeredToolDefinitions(): array
+    {
+        $this->build(true, $this->quietLogger());
+        $normalize = McpConfig::get('schema.normalize', $this->server) === true;
+        $tools = [];
+        foreach ($this->lastRegistry?->getTools()->references ?? [] as $tool) {
+            $definition = json_decode((string)json_encode($tool), true);
+            if (!is_array($definition) || !is_string($definition['name'] ?? null)) {
+                continue;
+            }
+            if ($normalize && is_array($definition['inputSchema'] ?? null)) {
+                $definition['inputSchema'] = SchemaNormalizer::normalize($definition['inputSchema']);
+            }
+            $tools[] = $definition;
+        }
+
+        return $tools;
     }
 
     /**

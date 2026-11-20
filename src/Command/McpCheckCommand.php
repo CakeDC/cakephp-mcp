@@ -28,6 +28,8 @@ use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Catalog\CatalogPatterns;
+use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
@@ -244,6 +246,7 @@ class McpCheckCommand extends Command
             'Tools' => fn(): array => $this->toolsCheck(),
             'Tool schemas' => fn(): array => $this->toolSchemas(),
             'Conditions' => fn(): array => $this->conditions(),
+            'Catalog' => fn(): array => $this->catalog(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
             'Tool scopes' => fn(): array => $this->toolScopes(),
             'Cache hints' => fn(): array => $this->cacheHints(),
@@ -282,6 +285,43 @@ class McpCheckCommand extends Command
     /**
      * @return array{0: 'pass'|'warn'|'fail', 1: string}
      */
+    private function catalog(): array
+    {
+        if (McpConfig::get('catalog.enabled', $this->server) !== true) {
+            return ['pass', 'off'];
+        }
+        $patterns = array_values(array_filter((array)McpConfig::get('catalog.tools', $this->server), 'is_string'));
+        $tools = array_diff(
+            array_column($this->factory()->registeredToolDefinitions(), 'name'),
+            [ToolCatalog::FIND, ToolCatalog::CALL],
+        );
+        $catalogued = array_values(array_filter($tools, fn(string $tool): bool => CatalogPatterns::matches(
+            $patterns,
+            $tool,
+        )));
+        sort($catalogued);
+        $unused = array_values(array_filter($patterns, fn(string $pattern): bool => array_filter(
+            $tools,
+            fn(string $tool): bool => fnmatch($pattern, $tool),
+        ) === []));
+        if ($unused !== []) {
+            return ['warn', sprintf(
+                '%s matches no tool (Mcp.catalog.tools), see %s',
+                implode(', ', $unused),
+                self::DOCS . 'tools.md#tool-catalog',
+            )];
+        }
+
+        return ['pass', sprintf(
+            '%d tools behind find_tools and call_tools: %s',
+            count($catalogued),
+            self::names($catalogued),
+        )];
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
     private function conditions(): array
     {
         $skipped = $this->factory()->skippedElements();
@@ -294,7 +334,8 @@ class McpCheckCommand extends Command
      */
     private function toolSchemas(): array
     {
-        $tools = $this->toolDefinitions();
+        // Registered tools, catalogued ones included: find_tools hands their schemas to the model too.
+        $tools = $this->factory()->registeredToolDefinitions();
         if ($tools === []) {
             return ['pass', 'no tools to check'];
         }

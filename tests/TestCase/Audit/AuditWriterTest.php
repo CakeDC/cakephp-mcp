@@ -110,6 +110,14 @@ class AuditWriterTest extends TestCase
         $this->assertSame('admin', $this->events[0]->getData()['server'] ?? null);
     }
 
+    public function testViaIsWrittenWhenSet(): void
+    {
+        $this->writer()->write($this->record(['via' => 'call_tools']));
+
+        $this->assertStringContainsString(' request=2 via=call_tools args=', $this->lines()[0]);
+        $this->assertSame('call_tools', $this->events[0]->getData()['via'] ?? null);
+    }
+
     public function testDefaultServerRecordsHaveNoServerField(): void
     {
         $this->writer()->write($this->record());

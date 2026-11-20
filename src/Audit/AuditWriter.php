@@ -126,6 +126,9 @@ final class AuditWriter
         if ($this->settings->server !== McpConfig::DEFAULT_SERVER) {
             $line .= ' server=' . $this->field($this->settings->server);
         }
+        if ($record->via !== null) {
+            $line .= ' via=' . $this->field($record->via);
+        }
         if ($this->settings->arguments) {
             $line .= ' args=' . json_encode((object)$record->arguments, self::JSON_FLAGS);
         }

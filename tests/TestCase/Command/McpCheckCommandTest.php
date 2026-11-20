@@ -639,6 +639,31 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('share the resource ' . OAuthTestConfig::MCP);
     }
 
+    public function testToolSchemasCoverCataloguedTools(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['report']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Tool schemas: report.date_from: type union null|string');
+    }
+
+    public function testCatalogLine(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Catalog: off');
+
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpDocs']);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['order_*', 'find_order']]);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Catalog: 4 tools behind find_tools and call_tools: find_order, order_numbers');
+
+        Configure::write('Mcp.catalog.tools', ['order_*', 'nope_*']);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[WARN] Catalog: nope_* matches no tool');
+    }
+
     public function testConditionsListSkippedElements(): void
     {
         $this->exec('mcp check');
