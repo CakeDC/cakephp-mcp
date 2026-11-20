@@ -105,7 +105,7 @@ $service->loadAuthenticator('Authentication.Token', [
 - [Testing your tools](docs/testing.md)
 - [stdio](docs/stdio.md)
 - [Connecting clients](docs/clients.md)
-- [Calling other MCP servers](docs/client.md)
+- [Calling other MCP servers](docs/mcp-client.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Protocol conformance](docs/conformance.md)
 

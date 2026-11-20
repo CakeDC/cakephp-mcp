@@ -220,7 +220,7 @@ class McpCheckCommand extends Command
             $problems = array_merge($problems, $this->clientStore());
         }
         if ($problems !== []) {
-            return ['fail', implode('; ', array_unique($problems)) . ', see ' . self::DOCS . 'client.md'];
+            return ['fail', implode('; ', array_unique($problems)) . ', see ' . self::DOCS . 'mcp-client.md'];
         }
 
         return ['pass', implode(', ', $described)];

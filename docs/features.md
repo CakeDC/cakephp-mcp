@@ -63,7 +63,7 @@ app-only tools: [MCP Apps](apps.md).
 
 Named clients that call other MCP servers, with an application credential or
 with each user's own account through OAuth, behind an SSRF guard for addresses
-remote servers name: [MCP client](client.md).
+remote servers name: [MCP client](mcp-client.md).
 
 ## Testing
 

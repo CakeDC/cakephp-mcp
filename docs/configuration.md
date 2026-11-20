@@ -231,7 +231,7 @@ resource. `mcp check`, `mcp server` and `mcp inspector` take
 
 `Mcp.clients` names the MCP servers your application calls, and `Mcp.client`
 holds settings shared by all of them. They are not per server: `Mcp.servers`
-does not change them. The guide is [Calling other MCP servers](client.md).
+does not change them. The guide is [Calling other MCP servers](mcp-client.md).
 
 ```php
 'Mcp' => [

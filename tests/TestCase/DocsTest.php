@@ -64,8 +64,8 @@ class DocsTest extends TestCase
         foreach (array_keys(ClientConfig::SETTINGS) as $key) {
             $this->assertStringContainsString('`client.' . $key . '`', $configuration, 'client.' . $key . ' is not documented');
         }
-        $this->assertFileExists(self::ROOT . 'docs/client.md');
-        $this->assertStringContainsString('(docs/client.md)', (string)file_get_contents(self::ROOT . 'README.md'));
+        $this->assertFileExists(self::ROOT . 'docs/mcp-client.md');
+        $this->assertStringContainsString('(docs/mcp-client.md)', (string)file_get_contents(self::ROOT . 'README.md'));
     }
 
     public function testRelativeLinksResolve(): void

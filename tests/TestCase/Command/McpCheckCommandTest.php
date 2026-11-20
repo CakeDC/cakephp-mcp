@@ -728,7 +728,7 @@ class McpCheckCommandTest extends TestCase
 
         $this->assertExitError();
         $this->assertOutputContains('[FAIL] Clients: "Mcp.clients.plain.url" uses plain http');
-        $this->assertOutputContains('docs/client.md');
+        $this->assertOutputContains('docs/mcp-client.md');
     }
 
     public function testClientsLineFailsWithoutTheRoutes(): void
