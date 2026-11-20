@@ -740,7 +740,8 @@ class McpCheckCommand extends Command
             $warnings[] = 'resources/read is public: only right when every resource reads the same for every user';
         }
         if ($warnings !== []) {
-            return ['warn', implode('; ', $warnings) . '. Set those methods to private in Mcp.server.cache.methods, see '
+            return ['warn', implode('; ', $warnings)
+                . '. Set those methods to private in Mcp.server.cache.methods, see '
                 . self::DOCS . 'configuration.md#keys'];
         }
 
