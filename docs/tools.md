@@ -223,6 +223,15 @@ can ask for them. Each inner call writes its own audit record under its own
 name, with `via=call_tools`. `find_tools` and `call_tools` themselves are never
 refused by the authorizer: what they run is.
 
+Hosts ask the user before running a tool they do not know to be safe, and an
+"always allow" for `call_tools` covers every tool in the catalog. `find_tools`
+returns each tool's annotations (`readOnlyHint`, `destructiveHint`) so the
+model knows what it is about to run, but keep tools that change or delete data
+out of the catalog unless that blanket approval is acceptable. A tool run by
+`call_tools` does not get the caller's progress token, and the audit record of
+the `call_tools` call itself names the failing tool, never the output of the
+tools it ran.
+
 Catalogued tools can still be called directly by name, so clients that already
 know them keep working. `bin/cake mcp check` lists the catalogued tools on its
 `Catalog` line, warns about patterns that match no tool, and checks their

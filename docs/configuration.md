@@ -150,6 +150,15 @@ the server info (a `setServerInfo()` call in the callable is ignored; use the
 discovery when `discovery.scanDirs` has a directory. The authorizer applies to
 every tool, including the ones added here.
 
+A registry set here (`setRegistry()`) must be an `Mcp\Capability\Registry`:
+the plugin removes `#[McpWhen]` elements from it, links `#[McpApp]` tools in it
+and runs the tool catalog on it, so the server refuses to start with another
+implementation. With the tool catalog on, request handlers, a reference
+handler or a schema validator added here would not apply to the tools
+`call_tools` runs, so the server refuses those too; put such rules in an
+authorizer. A tool added here cannot be called `find_tools` or `call_tools`
+while the catalog is on.
+
 If you set a cache policy, keep `tools/list` private unless every caller sees
 the same tools. With an authorizer, the list depends on who asks, and a
 `CacheScope::Public` hint lets shared caches serve one user's list to others.

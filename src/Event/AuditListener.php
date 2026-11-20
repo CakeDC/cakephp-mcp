@@ -8,7 +8,6 @@ use CakeDC\Mcp\Audit\AuditRecord;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\ToolGate;
-use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use Closure;
@@ -59,6 +58,7 @@ final class AuditListener
      * @param \Closure|null $toolExists `fn(string $name): ?bool`, whether the tool exists (null: unknown). Without
      *   it, every tool the gate refuses is recorded as denied.
      * @param \Closure|null $appOnly `fn(string $name): bool`, whether a tool is for MCP Apps only (`app=1` in records).
+     * @param \Closure|null $via `fn(Request $request): ?string`, the plugin tool that made a call (`call_tools`).
      */
     public function __construct(
         private readonly AuditSettings $settings,
@@ -68,6 +68,7 @@ final class AuditListener
         ?Closure $clock = null,
         ?Closure $toolExists = null,
         private readonly ?Closure $appOnly = null,
+        private readonly ?Closure $via = null,
     ) {
         $this->clock = $clock ?? fn(): float => microtime(true);
         $this->toolExists = $toolExists;
@@ -231,22 +232,9 @@ final class AuditListener
             $this->writer->arguments($arguments),
             $error === null ? null : mb_substr($error, 0, self::MAX_ERROR_LENGTH),
             $start === null ? null : (int)round((($this->clock)() - $start) * 1000),
-            self::viaOf($request),
+            $this->via === null ? null : ($this->via)($request),
             $request instanceof CallToolRequest && $this->appOnly !== null && ($this->appOnly)($request->name) === true,
         ));
-    }
-
-    /**
-     * The plugin tool that made this call (the tool catalog marks the calls it makes), or null.
-     *
-     * @param \Mcp\Schema\JsonRpc\Request $request The request.
-     * @return string|null
-     */
-    private static function viaOf(Request $request): ?string
-    {
-        $via = $request->getMeta()[ToolCatalog::VIA_META] ?? null;
-
-        return is_string($via) ? $via : null;
     }
 
     /**

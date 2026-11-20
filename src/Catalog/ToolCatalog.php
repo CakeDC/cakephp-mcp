@@ -13,6 +13,7 @@ use Mcp\Event\ResponseEvent;
 use Mcp\Exception\ToolCallException;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\JsonRpc\Error;
+use Mcp\Schema\JsonRpc\Request;
 use Mcp\Schema\Request\CallToolRequest;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Tool;
@@ -21,6 +22,7 @@ use Mcp\Server\RequestContext;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
+use WeakMap;
 
 /**
  * The tool catalog: tools left out of `tools/list` that a client finds with `find_tools` and runs with `call_tools`.
@@ -32,11 +34,6 @@ final class ToolCatalog
 {
     public const FIND = 'find_tools';
     public const CALL = 'call_tools';
-
-    /**
-     * Meta key of the calls the catalog makes, read by the audit (`via=call_tools`).
-     */
-    public const VIA_META = 'io.cakedc.mcp/via';
 
     /**
      * @param \Mcp\Capability\Registry $registry The server's registry.
@@ -62,6 +59,26 @@ final class ToolCatalog
         private readonly ?EventDispatcherInterface $events = null,
         private readonly bool $normalize = false,
     ) {
+        $this->made = new WeakMap();
+    }
+
+    /**
+     * The requests this catalog made for the tools it ran: the audit marks them `via=call_tools`. Kept out of
+     * band, so a client cannot claim it through the request's `_meta`.
+     *
+     * @var \WeakMap<\Mcp\Schema\JsonRpc\Request, true>
+     */
+    private WeakMap $made;
+
+    /**
+     * Whether $request is one this catalog made for a tool it ran.
+     *
+     * @param \Mcp\Schema\JsonRpc\Request $request A request.
+     * @return bool
+     */
+    public function made(Request $request): bool
+    {
+        return isset($this->made[$request]);
     }
 
     /**
@@ -104,6 +121,8 @@ final class ToolCatalog
                 'name' => $tool->name,
                 'title' => $tool->title,
                 'description' => $tool->description,
+                // A host asks before calling a tool it does not know to be read-only: tell the model what it is.
+                'annotations' => $tool->annotations?->jsonSerialize(),
                 'inputSchema' => $this->normalize
                     ? SchemaNormalizer::normalize($tool->inputSchema)
                     : $tool->inputSchema,
@@ -144,11 +163,11 @@ final class ToolCatalog
         }
         $data = ['results' => $results];
 
-        return new CallToolResult(
-            [new TextContent((string)json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))],
-            $failed,
-            $data,
-        );
+        // The summary comes first: it is what the audit records for this call, never the output of the tools.
+        return new CallToolResult([
+            new TextContent($this->summary($results, $failed)),
+            new TextContent((string)json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        ], $failed, $data);
     }
 
     /**
@@ -224,7 +243,7 @@ final class ToolCatalog
         // keeps find_tools from offering tools the token cannot call.
         $required = $this->policy->requiredFor(['method' => 'tools/call', 'params' => ['name' => $tool]]);
 
-        return array_diff($required, $token->getScopes()) === [];
+        return array_diff($required, $this->policy->expand($token->getScopes())) === [];
     }
 
     /**
@@ -242,8 +261,11 @@ final class ToolCatalog
         string $name,
         array $arguments,
     ): array {
-        $meta = [self::VIA_META => self::CALL] + ($context->getRequest()->getMeta() ?? []);
-        $request = (new CallToolRequest($name, $arguments))->withId($id)->withMeta($meta);
+        // Without the outer progress token: progress must increase, and each tool would start again from zero.
+        $meta = $context->getRequest()->getMeta() ?? [];
+        unset($meta['progressToken']);
+        $request = (new CallToolRequest($name, $arguments))->withId($id)->withMeta($meta === [] ? null : $meta);
+        $this->made[$request] = true;
         $session = $context->getSession();
         $this->events?->dispatch(new RequestEvent($request, $session));
         if (!$this->callable($name, $context)) {
@@ -275,6 +297,25 @@ final class ToolCatalog
         }
 
         return $entry;
+    }
+
+    /**
+     * @param list<array{name: string, isError: bool, content: array<mixed>}> $results The results so far.
+     * @param bool $failed Whether the last one failed.
+     * @return string `3 calls ok: a, b, c`, or `b failed: <its message>` after the ones that ran.
+     */
+    private function summary(array $results, bool $failed): string
+    {
+        if (!$failed) {
+            return sprintf('%d calls ok: %s', count($results), implode(', ', array_column($results, 'name')));
+        }
+        $last = end($results);
+        if ($last === false) {
+            return 'no calls';
+        }
+        $text = $last['content'][0]['text'] ?? '';
+
+        return sprintf('%s failed: %s', $last['name'], is_string($text) ? $text : '');
     }
 
     /**

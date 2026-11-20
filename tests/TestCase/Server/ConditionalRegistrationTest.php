@@ -13,6 +13,8 @@ use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
+use Mcp\Capability\Registry;
+use Mcp\Capability\RegistryInterface;
 use Mcp\Server\Builder;
 use stdClass;
 
@@ -112,6 +114,32 @@ class ConditionalRegistrationTest extends TestCase
         $this->expectExceptionMessage('#[McpWhen] needs either config or callback');
 
         new McpWhen();
+    }
+
+    public function testMcpWhenPrunesARegistryTheHookSet(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setRegistry(new Registry());
+        });
+
+        $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
+
+        $names = array_column($transport->responseFor(2)['result']['tools'] ?? [], 'name');
+        $this->assertContains('always', $names);
+        $this->assertNotContains('monthly_report', $names);
+        $this->assertNotContains('beta_tool', $names);
+    }
+
+    public function testAHookRegistryThatCannotBePrunedFails(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setRegistry($this->createStub(RegistryInterface::class));
+        });
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Mcp.server.configure');
+
+        $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
     }
 
     public function testCodeRegisteredToolsAreUntouched(): void

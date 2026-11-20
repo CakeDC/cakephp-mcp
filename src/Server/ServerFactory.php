@@ -33,6 +33,7 @@ use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
+use Mcp\Schema\JsonRpc\Request;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
@@ -42,6 +43,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
+use ReflectionProperty;
 use RuntimeException;
 use stdClass;
 use Stringable;
@@ -153,8 +155,36 @@ final class ServerFactory
         if (McpConfig::get('apps.enabled', $this->server) === true) {
             $builder->enableExtension(new McpApps());
         }
+        /** @var \CakeDC\Mcp\Catalog\ToolCatalog|null $toolCatalog Set after the host hook. */
+        $toolCatalog = null;
+        $audit = AuditSettings::fromConfig($this->server);
+        if ($audit->enabled) {
+            $listener = new AuditListener(
+                $audit,
+                new AuditWriter($audit),
+                $gate,
+                $this->identity,
+                // By reference: the host hook may still replace the registry.
+                toolExists: function (string $name) use (&$registry): ?bool {
+                    return $registry->hasTools() ? $registry->hasTool($name) : null;
+                },
+                appOnly: function (string $name) use (&$registry): bool {
+                    return $registry->hasTool($name) && AppTools::appOnly($registry->getTool($name)->tool);
+                },
+                via: function (Request $request) use (&$toolCatalog): ?string {
+                    return $toolCatalog?->made($request) ? ToolCatalog::CALL : null;
+                },
+            );
+            $events->listen(RequestEvent::class, $listener->onRequest(...));
+            $events->listen(ResponseEvent::class, $listener->onResponse(...));
+            $events->listen(ErrorEvent::class, $listener->onError(...));
+        }
+        $this->configure($builder);
+        // The registry the server will use, the plugin's or one the hook set.
+        $registry = $this->registryOf($builder);
         if ($catalogOn) {
-            $this->addCatalog($builder, new ToolCatalog(
+            $this->assertCatalogCanRunEverything($builder);
+            $toolCatalog = new ToolCatalog(
                 $registry,
                 $gate,
                 $patterns,
@@ -164,24 +194,9 @@ final class ServerFactory
                 $this->scopePolicy(),
                 $events,
                 McpConfig::get('schema.normalize', $this->server) === true,
-            ));
-        }
-        $audit = AuditSettings::fromConfig($this->server);
-        if ($audit->enabled) {
-            $listener = new AuditListener(
-                $audit,
-                new AuditWriter($audit),
-                $gate,
-                $this->identity,
-                toolExists: fn(string $name): ?bool => $registry->hasTools() ? $registry->hasTool($name) : null,
-                appOnly: fn(string $name): bool => $registry->hasTool($name)
-                    && AppTools::appOnly($registry->getTool($name)->tool),
             );
-            $events->listen(RequestEvent::class, $listener->onRequest(...));
-            $events->listen(ResponseEvent::class, $listener->onResponse(...));
-            $events->listen(ErrorEvent::class, $listener->onError(...));
+            $this->addCatalog($builder, $toolCatalog);
         }
-        $this->configure($builder);
         // Set after the host hook, so the hook cannot drop the tool list filter or replace these.
         $builder
             ->setServerInfo(
@@ -224,6 +239,9 @@ final class ServerFactory
         $server = $builder->build();
         $this->skipped = Conditions::prune($registry, $this->server);
         AppTools::link($registry);
+        if ($toolCatalog !== null) {
+            $this->assertCatalogOwnsItsTools($registry, $toolCatalog);
+        }
         $this->lastRegistry = $registry;
 
         return $server;
@@ -339,6 +357,88 @@ final class ServerFactory
         }
 
         return $tools;
+    }
+
+    /**
+     * The registry the builder holds after the host hook.
+     *
+     * @param \Mcp\Server\Builder $builder The builder.
+     * @return \Mcp\Capability\Registry
+     * @throws \InvalidArgumentException When the hook set a registry the plugin cannot prune.
+     */
+    private function registryOf(Builder $builder): Registry
+    {
+        $registry = (new ReflectionProperty(Builder::class, 'registry'))->getValue($builder);
+        if (!$registry instanceof Registry) {
+            throw new InvalidArgumentException(sprintf(
+                'Mcp.server.configure set a registry that is not %s. The plugin needs one it can change: '
+                . '#[McpWhen] removes elements from it, #[McpApp] links tools in it and the tool catalog runs on it.',
+                Registry::class,
+            ));
+        }
+
+        return $registry;
+    }
+
+    /**
+     * Inner calls of `call_tools` run through the plugin's gate, scopes, validation and audit, not through request
+     * handlers, a reference handler or a schema validator the host hook added: refuse the combination.
+     *
+     * @param \Mcp\Server\Builder $builder The builder, after the host hook.
+     * @return void
+     * @throws \InvalidArgumentException When the hook added one of them, or a tool named like the catalog's.
+     */
+    private function assertCatalogCanRunEverything(Builder $builder): void
+    {
+        $read = fn(string $property): mixed => (new ReflectionProperty(Builder::class, $property))->getValue($builder);
+        $handlers = $read('requestHandlers');
+        $added = [];
+        if (is_array($handlers) && count($handlers) > 1) {
+            $added[] = 'request handlers';
+        }
+        if ($read('referenceHandler') !== null) {
+            $added[] = 'a reference handler';
+        }
+        if ($read('schemaValidator') !== null) {
+            $added[] = 'a schema validator';
+        }
+        if ($added !== []) {
+            throw new InvalidArgumentException(sprintf(
+                'Mcp.server.configure added %s, and with Mcp.catalog on, a tool run by call_tools would not go '
+                . 'through it. Turn the catalog off for this server, or do the same in an authorizer.',
+                implode(' and ', $added),
+            ));
+        }
+        foreach ((array)$read('tools') as $tool) {
+            $name = is_array($tool) ? $tool['name'] ?? null : null;
+            if ($name === ToolCatalog::FIND || $name === ToolCatalog::CALL) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is the tool catalog\'s own tool: Mcp.server.configure cannot add a tool with that name.',
+                    $name,
+                ));
+            }
+        }
+    }
+
+    /**
+     * After the build: the catalog's tools are its own, not a discovered tool with the same name.
+     *
+     * @param \Mcp\Capability\Registry $registry The registry.
+     * @param \CakeDC\Mcp\Catalog\ToolCatalog $catalog The catalog.
+     * @return void
+     * @throws \InvalidArgumentException When another tool took one of the names.
+     */
+    private function assertCatalogOwnsItsTools(Registry $registry, ToolCatalog $catalog): void
+    {
+        foreach ([ToolCatalog::FIND => 'find', ToolCatalog::CALL => 'call'] as $name => $method) {
+            $handler = $registry->hasTool($name) ? $registry->getTool($name)->handler : null;
+            if (!is_array($handler) || $handler[0] !== $catalog || $handler[1] !== $method) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is the tool catalog\'s own tool: rename the tool of this server that has that name.',
+                    $name,
+                ));
+            }
+        }
     }
 
     /**

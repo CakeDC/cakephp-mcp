@@ -6,6 +6,7 @@ namespace TestApp\McpDocs;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
+use Mcp\Schema\ToolAnnotations;
 
 /**
  * The examples of the Results section of docs/tools.md, kept in step with it.
@@ -46,7 +47,7 @@ class ResultTools
      *
      * @param string $number The order number.
      */
-    #[McpTool(name: 'order_status')]
+    #[McpTool(name: 'order_status', annotations: new ToolAnnotations(readOnlyHint: true))]
     public function status(string $number): string
     {
         return 'open';

@@ -15,7 +15,11 @@ use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
+use InvalidArgumentException;
+use Mcp\Capability\Registry\ReferenceHandlerInterface;
 use Mcp\Server\Authorization\AccessToken;
+use Mcp\Server\Builder;
+use Mcp\Server\Handler\Request\RequestHandlerInterface;
 use stdClass;
 
 /**
@@ -226,9 +230,94 @@ class ToolCatalogTest extends TestCase
             $this->assertStringContainsString(' via=call_tools', $lines[1]);
             $this->assertStringContainsString('MCP tools/call call_tools tool_error', $lines[2]);
             $this->assertStringNotContainsString('via=', $lines[2]);
+            // The outer record names the failing call, never the output of the calls that ran.
+            $this->assertStringContainsString('find_order', $lines[2]);
+            $this->assertStringNotContainsString('results', $lines[2]);
         } finally {
             Log::drop('audit_catalog');
         }
+    }
+
+    public function testFindToolsReturnsAnnotations(): void
+    {
+        $this->mcpCallTool('find_tools', ['query' => 'status']);
+
+        $this->assertMcpToolSucceeded();
+        $this->assertSame(['readOnlyHint' => true], $this->mcpResult()['structuredContent']['tools'][0]['annotations'] ?? null);
+    }
+
+    public function testHostExtensionsWithTheCatalogFail(): void
+    {
+        foreach (['addRequestHandler', 'setReferenceHandler'] as $method) {
+            Configure::write('Mcp.server.configure', function (Builder $builder) use ($method): void {
+                $method === 'addRequestHandler'
+                    ? $builder->addRequestHandler($this->createStub(RequestHandlerInterface::class))
+                    : $builder->setReferenceHandler($this->createStub(ReferenceHandlerInterface::class));
+            });
+            try {
+                $this->mcpListTools();
+                $this->fail('The server was built with ' . $method);
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('call_tools would not go through it', $e->getMessage(), $method);
+            }
+        }
+    }
+
+    public function testAHookToolNamedLikeTheCatalogFails(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(fn(): string => 'mine', 'call_tools');
+        });
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"call_tools" is the tool catalog\'s own tool');
+
+        $this->mcpListTools();
+    }
+
+    public function testInnerCallsDoNotReuseTheProgressToken(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpProgress']);
+        Configure::write('Mcp.catalog.tools', ['import_orders']);
+
+        $this->mcpCallTool('call_tools', ['calls' => [['name' => 'import_orders', 'arguments' => new stdClass()]]]);
+
+        $this->assertMcpToolSucceeded();
+        $this->assertSame([], $this->mcpNotifications('notifications/progress'));
+    }
+
+    public function testViaCannotBeSpoofed(): void
+    {
+        Log::setConfig('audit_spoof', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
+        Configure::write('Mcp.audit.enabled', true);
+        try {
+            $this->direct([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [
+                'name' => 'order_status',
+                'arguments' => ['number' => 'A-1'],
+                '_meta' => ['io.cakedc.mcp/via' => 'call_tools'],
+            ]]]);
+
+            $engine = Log::engine('audit_spoof');
+            $lines = array_map('strval', $engine instanceof ArrayLog ? $engine->read() : []);
+            $this->assertCount(1, $lines);
+            $this->assertStringNotContainsString('via=', $lines[0]);
+        } finally {
+            Log::drop('audit_spoof');
+        }
+    }
+
+    public function testImpliedScopesSatisfyTheServerCheck(): void
+    {
+        $this->scoped();
+        Configure::write('Mcp.auth.scopes.implies', ['orders:admin' => ['orders:read']]);
+
+        $transport = $this->direct([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => [
+            'name' => 'call_tools',
+            'arguments' => ['calls' => [['name' => 'order_status', 'arguments' => ['number' => 'A-1']]]],
+        ]]], new AccessToken(['orders:admin'], ['sub' => '1']));
+
+        $result = $transport->responseFor(2)['result']['structuredContent']['results'][0] ?? [];
+        $this->assertFalse($result['isError'] ?? true, (string)json_encode($result));
     }
 
     public function testCatalogOffChangesNothing(): void
@@ -239,6 +328,31 @@ class ToolCatalogTest extends TestCase
 
         $this->assertContains('order_status', $names);
         $this->assertNotContains('find_tools', $names);
+    }
+
+    /**
+     * Straight to the server, past the HTTP step and the trait's simulation.
+     *
+     * @param list<array<string, mixed>> $requests
+     */
+    private function direct(array $requests, ?AccessToken $token = null): RecordingTransport
+    {
+        $container = new Container();
+        $identity = new CurrentIdentity();
+        $container->addShared(CurrentIdentity::class, $identity);
+        $identity->set(['id' => 1]);
+        $transport = new RecordingTransport(array_map(fn(array $message): string => (string)json_encode($message), [
+            ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
+                'protocolVersion' => '2025-06-18',
+                'capabilities' => new stdClass(),
+                'clientInfo' => ['name' => 'test', 'version' => '1.0'],
+            ]],
+            ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
+            ...$requests,
+        ]), $token);
+        (new ServerFactory($container, $identity))->create()->run($transport);
+
+        return $transport;
     }
 
     private function scoped(): void
