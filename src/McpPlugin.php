@@ -33,10 +33,14 @@ class McpPlugin extends BasePlugin
     {
         parent::bootstrap($app);
 
-        $caches = [McpConfig::get('discovery.cache'), McpConfig::get('session.cache')];
-        if (McpConfig::get('auth.mode') === AuthSettings::EXTERNAL) {
-            // Discovery metadata and signing keys of the external authorization server.
-            $caches[] = McpConfig::get('auth.external.cache');
+        $caches = [];
+        foreach (McpConfig::servers() as $server) {
+            $caches[] = McpConfig::get('discovery.cache', $server);
+            $caches[] = McpConfig::get('session.cache', $server);
+            if (McpConfig::get('auth.mode', $server) === AuthSettings::EXTERNAL) {
+                // Discovery metadata and signing keys of the external authorization server.
+                $caches[] = McpConfig::get('auth.external.cache', $server);
+            }
         }
         foreach ($caches as $name) {
             if (!is_string($name) || $name === '' || Cache::getConfig($name) !== null) {
@@ -60,20 +64,25 @@ class McpPlugin extends BasePlugin
      */
     public function routes(RouteBuilder $routes): void
     {
-        $path = McpConfig::get('route');
-        if (!is_string($path) || $path === '') {
-            return;
+        foreach (McpConfig::servers() as $server) {
+            $path = McpConfig::get('route', $server);
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            // The default server keeps the 2.1 routes, without a `server` param, so reverse routing to them still
+            // matches; the controllers read a missing param as `default`.
+            $param = $server === McpConfig::DEFAULT_SERVER ? [] : ['server' => $server];
+            $routes->connect(
+                $path,
+                ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'] + $param,
+            )->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
+            // Always connected: routes are cached, and a mode switch must not need a cache clear.
+            // In host mode the controller answers 404.
+            $routes->connect(
+                McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
+                ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'] + $param,
+            )->setMethods(['GET', 'OPTIONS']);
         }
-
-        $routes->connect($path, ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'])
-            ->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
-
-        // Always connected: routes are cached, and a mode switch must not need a cache clear.
-        // In host mode the controller answers 404.
-        $routes->connect(
-            McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
-            ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'],
-        )->setMethods(['GET', 'OPTIONS']);
     }
 
     /**

@@ -36,6 +36,7 @@ use Throwable;
  */
 class McpController extends Controller
 {
+    use ResolvesServerTrait;
     use SkipsHostAuthorizationTrait;
 
     /**
@@ -48,16 +49,21 @@ class McpController extends Controller
         $this->skipHostAuthorization();
         // A long-running worker reuses the container: no request starts with the previous one's identity.
         $identity->set(null);
+        $server = $this->mcpServer();
+        if ($server === null) {
+            return $this->response->withStatus(404);
+        }
+        $factory = $factory->forServer($server);
         $responseFactory = new ResponseFactory();
         $streamFactory = new StreamFactory();
 
         try {
-            $maxBodyBytes = McpConfig::maxBodyBytes();
-            $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins'), 'is_string'));
+            $maxBodyBytes = McpConfig::maxBodyBytes($server);
+            $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins', $server), 'is_string'));
             $middleware = [
                 new CorsMiddleware($origins),
                 new DnsRebindingProtectionMiddleware(
-                    McpConfig::allowedHosts(),
+                    McpConfig::allowedHosts($server),
                     $origins,
                     $responseFactory,
                     $streamFactory,
@@ -66,12 +72,12 @@ class McpController extends Controller
                 // Bearer challenge.
                 new BodyLimitMiddleware($maxBodyBytes, $responseFactory, $streamFactory),
             ];
-            $audit = AuditSettings::fromConfig();
+            $audit = AuditSettings::fromConfig($server);
             if ($audit->enabled) {
                 // Right before authentication, to record the calls it refuses.
                 $middleware[] = new AuditRefusalMiddleware($audit, new AuditWriter($audit), $identity);
             }
-            $middleware[] = $this->authentication($identity, $responseFactory, $streamFactory, $maxBodyBytes);
+            $middleware[] = $this->authentication($server, $identity, $responseFactory, $streamFactory, $maxBodyBytes);
             $transport = new StreamableHttpTransport(
                 $this->request,
                 $responseFactory,
@@ -94,6 +100,7 @@ class McpController extends Controller
      * The middleware that identifies the caller: the host's identity in host mode, an OAuth access
      * token otherwise. Invalid settings throw, so the endpoint fails closed.
      *
+     * @param string $server The MCP server.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
      * @param \Cake\Http\ResponseFactory $responseFactory For its responses.
      * @param \Cake\Http\StreamFactory $streamFactory For their bodies.
@@ -101,12 +108,13 @@ class McpController extends Controller
      * @return \Psr\Http\Server\MiddlewareInterface
      */
     private function authentication(
+        string $server,
         CurrentIdentity $identity,
         ResponseFactory $responseFactory,
         StreamFactory $streamFactory,
         int $maxBodyBytes,
     ): MiddlewareInterface {
-        $settings = AuthSettings::fromConfig();
+        $settings = AuthSettings::fromConfig($server);
         if ($settings->mode !== AuthSettings::HOST) {
             return (new ResourceServer($settings))->middleware(
                 $identity,
@@ -115,14 +123,14 @@ class McpController extends Controller
                 $maxBodyBytes,
             );
         }
-        $scopes = McpConfig::get('identity.scopes');
+        $scopes = McpConfig::get('identity.scopes', $server);
 
         return new IdentityMiddleware(
             $identity,
             $responseFactory,
             $streamFactory,
-            McpConfig::get('identity.required') !== false,
-            (string)McpConfig::get('identity.attribute'),
+            McpConfig::get('identity.required', $server) !== false,
+            (string)McpConfig::get('identity.attribute', $server),
             is_callable($scopes) ? Closure::fromCallable($scopes) : null,
         );
     }

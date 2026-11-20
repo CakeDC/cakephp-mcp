@@ -18,6 +18,7 @@ use Throwable;
  */
 class ProtectedResourceController extends Controller
 {
+    use ResolvesServerTrait;
     use SkipsHostAuthorizationTrait;
 
     private const CORS = [
@@ -42,8 +43,9 @@ class ProtectedResourceController extends Controller
         }
 
         try {
-            $settings = AuthSettings::fromConfig();
-            if ($settings->mode === AuthSettings::HOST) {
+            $server = $this->mcpServer();
+            $settings = $server === null ? null : AuthSettings::fromConfig($server);
+            if ($settings === null || $settings->mode === AuthSettings::HOST) {
                 return $response->withStatus(404)
                     ->withType('application/json')
                     ->withStringBody((string)json_encode(['error' => 'not_found']));
