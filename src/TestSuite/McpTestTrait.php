@@ -61,6 +61,20 @@ trait McpTestTrait
     protected string $_mcpServer = McpConfig::DEFAULT_SERVER;
 
     /**
+     * The notifications the server sent during the last `mcpCallTool()`.
+     *
+     * @var list<array<string, mixed>>
+     */
+    protected array $_mcpNotifications = [];
+
+    /**
+     * The notifications of the last request, whatever it was.
+     *
+     * @var list<array<string, mixed>>
+     */
+    protected array $_mcpLastNotifications = [];
+
+    /**
      * The JSON-RPC response to the last `mcpCallTool()`.
      *
      * @var array<string, mixed>|null
@@ -127,7 +141,10 @@ trait McpTestTrait
         $this->_mcpResponse = $this->mcpRequest('tools/call', [
             'name' => $name,
             'arguments' => $arguments === [] ? new stdClass() : $arguments,
+            // As clients that show progress do: the tool's progress notifications are then sent and recorded.
+            '_meta' => ['progressToken' => 'mcp-test'],
         ], log: $this->_mcpLog);
+        $this->_mcpNotifications = $this->_mcpLastNotifications;
 
         return $this->_mcpResponse;
     }
@@ -412,6 +429,54 @@ trait McpTestTrait
     }
 
     /**
+     * The notifications the server sent during the last `mcpCallTool()`, all of them or those of one method
+     * (`notifications/progress`, `notifications/message`...).
+     *
+     * @param string|null $method A notification method, or null for all.
+     * @return list<array<string, mixed>>
+     */
+    public function mcpNotifications(?string $method = null): array
+    {
+        return array_values(array_filter(
+            $this->_mcpNotifications,
+            fn(array $notification): bool => $method === null || ($notification['method'] ?? null) === $method,
+        ));
+    }
+
+    /**
+     * Asserts that the last call sent a notification of $method.
+     *
+     * @param string $method The notification method, for example `notifications/message`.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpNotificationSent(string $method, string $message = ''): void
+    {
+        Assert::assertNotEmpty(
+            $this->mcpNotifications($method),
+            $message ?: sprintf('The last call sent no %s notification.', $method),
+        );
+    }
+
+    /**
+     * Asserts that the last call reported progress: at least once, or exactly $count times.
+     *
+     * @param int|null $count The expected number of progress notifications, or null for at least one.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpProgressSent(?int $count = null, string $message = ''): void
+    {
+        $sent = count($this->mcpNotifications('notifications/progress'));
+        if ($count === null) {
+            Assert::assertGreaterThan(0, $sent, $message ?: 'The last call reported no progress.');
+
+            return;
+        }
+        Assert::assertSame($count, $sent, $message ?: sprintf('The last call reported progress %d times.', $sent));
+    }
+
+    /**
      * Asserts that the current identity sees a tool in `tools/list`.
      *
      * @param string $name The tool name.
@@ -550,6 +615,13 @@ trait McpTestTrait
                     'clientInfo' => ['name' => 'McpTestTrait', 'version' => '1.0'],
                 ]]),
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
+                // So the log notifications of a tool are sent and recorded.
+                (string)json_encode([
+                    'jsonrpc' => '2.0',
+                    'id' => 'mcp-test-log-level',
+                    'method' => 'logging/setLevel',
+                    'params' => ['level' => 'debug'],
+                ]),
                 (string)json_encode($request),
             ],
             $token,
@@ -569,9 +641,19 @@ trait McpTestTrait
             Log::drop($logConfig);
         }
 
+        $this->_mcpLastNotifications = array_values(array_filter(
+            $transport->sent,
+            fn(array $message): bool => !array_key_exists('id', $message) && isset($message['method']),
+        ));
         $response = $transport->responseFor(2);
         if ($response === null) {
-            Assert::fail(sprintf('The server sent no response to `%s`.', $method));
+            Assert::fail($transport->waitsOnClient()
+                ? sprintf(
+                    'The tool asked the client something (sampling or elicitation), which McpTestTrait cannot '
+                    . 'answer, so `%s` got no response.',
+                    $method,
+                )
+                : sprintf('The server sent no response to `%s`.', $method));
         }
 
         return $response;

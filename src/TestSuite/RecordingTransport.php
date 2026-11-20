@@ -22,6 +22,11 @@ class RecordingTransport extends InMemoryTransport
     public array $sent = [];
 
     /**
+     * Set when the last handler stopped on a request to the client.
+     */
+    private bool $waitingOnClient = false;
+
+    /**
      * @param list<string> $messages The JSON-RPC messages to feed, in order.
      * @param \Mcp\Server\Authorization\AccessToken|null $accessToken Sent with every message, as the HTTP endpoint does.
      */
@@ -36,6 +41,59 @@ class RecordingTransport extends InMemoryTransport
     protected function handleMessage(string $payload, ?Uuid $sessionId, ?AccessToken $accessToken = null): void
     {
         parent::handleMessage($payload, $sessionId, $accessToken ?? $this->accessToken);
+        $this->driveFiber();
+    }
+
+    /**
+     * Whether the last tool stopped on a request to the client (sampling, elicitation), which nothing here answers.
+     *
+     * @return bool
+     */
+    public function waitsOnClient(): bool
+    {
+        return $this->waitingOnClient;
+    }
+
+    /**
+     * Runs a handler that suspended itself to notify the client, as the SDK's stdio transport does: sends what it
+     * queued and resumes it until it ends, then sends its result. A handler that waits on an answer from the
+     * client is left suspended.
+     *
+     * @return void
+     */
+    private function driveFiber(): void
+    {
+        $this->waitingOnClient = false;
+        // A bound, in case a handler suspends forever without asking anything.
+        for ($step = 0; $step < 10000 && $this->sessionFiber !== null; $step++) {
+            $fiber = $this->sessionFiber;
+            $this->flushOutgoing();
+            if ($fiber->isTerminated()) {
+                $this->sessionFiber = null;
+                $this->send((string)json_encode($fiber->getReturn()), []);
+
+                return;
+            }
+            if (!$fiber->isSuspended()) {
+                return;
+            }
+            if ($this->getPendingRequests($this->sessionId, $fiber) !== []) {
+                $this->waitingOnClient = true;
+
+                return;
+            }
+            $this->handleFiberYield($fiber->resume(), $this->sessionId, $fiber);
+        }
+    }
+
+    /**
+     * @return void
+     */
+    private function flushOutgoing(): void
+    {
+        foreach ($this->getOutgoingMessages($this->sessionId) as $message) {
+            $this->send($message['message'], $message['context']);
+        }
     }
 
     /**

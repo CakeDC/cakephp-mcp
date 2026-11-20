@@ -119,6 +119,16 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 | `assertMcpStructuredContent($expected)` | returned this `structuredContent`. Key order does not matter, value types do. |
 | `assertMcpStructuredContentPath($path, $expected)` | returned `$expected` at a dot path of its `structuredContent` (`order.lines.0.sku`). Value types matter, and a missing path fails. |
 | `assertMcpStructuredContentHas($path)` | returned a `structuredContent` with that dot path, even with a `null` value. |
+| `assertMcpProgressSent(?$count)` | reported progress (`notifications/progress`): at least once, or exactly `$count` times. |
+| `assertMcpNotificationSent($method)` | sent a notification of `$method`, for example `notifications/message` for a log line. |
+
+`mcpCallTool()` asks for progress (it sends a `progressToken`) and the test
+session sets the log level to `debug`, so a tool that calls
+`$client->progress()` or `$client->log()` on its `Mcp\Server\ClientGateway`
+runs to the end and its notifications are kept: `mcpNotifications()` returns
+them, all or those of one method. A tool that asks the client something
+(`$client->sample()`, `$client->elicit()`) cannot be answered in a test, and
+the call fails with a message saying so.
 
 `assertMcpToolListed($name)` and `assertMcpToolNotListed($name)` check what the
 current identity sees in `tools/list`. They make their own call.
