@@ -319,3 +319,28 @@ array returned by `Validator::validate()` or `getErrors()`, or a simple
 catch `Cake\ORM\Exception\PersistenceFailedException` and pass
 `$exception->getEntity()`. The messages are your validation messages as they
 are, so write them for someone who has to fix the data.
+
+To check the arguments themselves before doing any work, pass them and a
+`Cake\Validation\Validator` to `CakeDC\Mcp\Tool\ToolValidation::check()`. It
+throws the same kind of error when a rule fails. Keep the shape and the types in
+the input schema (`#[Schema]`, PHP types) and put in the validator what a schema
+cannot say: limits that depend on your data, rules across fields, or a validator
+your application already has.
+
+```php
+use Cake\Validation\Validator;
+use CakeDC\Mcp\Tool\ToolValidation;
+
+#[McpTool(name: 'reserve_stock')]
+public function reserve(string $sku, int $quantity): array
+{
+    $available = $this->stock->available($sku);
+    $validator = (new Validator())
+        ->range('quantity', [1, $available], sprintf('Between 1 and %d, the stock of %s.', $available, $sku));
+    ToolValidation::check(['sku' => $sku, 'quantity' => $quantity], $validator, 'Nothing was reserved.');
+
+    // ...
+}
+```
+
+Pass `newRecord: false` to apply the validator's `'update'` rules.
