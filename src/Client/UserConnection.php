@@ -5,6 +5,8 @@ namespace CakeDC\Mcp\Client;
 
 use Cake\I18n\DateTime;
 use Cake\Routing\Router;
+use Cake\Utility\Text;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Exception\NotConnectedException;
 use CakeDC\Mcp\Client\OAuth\Discovery;
 use CakeDC\Mcp\Client\OAuth\OAuthException;
@@ -21,6 +23,13 @@ use Mcp\Exception\ExceptionInterface;
 final class UserConnection
 {
     use CallsServerTrait;
+
+    /**
+     * How many times, and how long each, a request waits for another one's refresh: 10 seconds in all.
+     */
+    private const REFRESH_WAITS = 40;
+
+    private const REFRESH_WAIT_MICROSECONDS = 250_000;
 
     private ?ClientSession $session = null;
 
@@ -187,6 +196,55 @@ final class UserConnection
      * @throws \CakeDC\Mcp\Client\Exception\NotConnectedException When the grant is no longer accepted.
      */
     private function refresh(StoredConnection $stored, int $now): string
+    {
+        $store = $this->registry->store();
+        $claimId = Text::uuid();
+        // Longer than the token request may take, so a claim never ends while its request is still running.
+        if (!$store->claimRefresh($this->config->name, $this->userId, $claimId, $this->config->timeout + 30)) {
+            return $this->waitForRefresh($stored);
+        }
+        try {
+            return $this->refreshClaimed($stored, $now);
+        } finally {
+            $store->releaseRefresh($this->config->name, $this->userId, $claimId);
+        }
+    }
+
+    /**
+     * Another request is refreshing the grant: waits a bounded time for the token it stores, and never refreshes
+     * again with the refresh token that request just sent.
+     *
+     * @param \CakeDC\Mcp\Client\Store\StoredConnection $stored The grant as read before.
+     * @return string The new access token.
+     * @throws \CakeDC\Mcp\Client\Exception\NotConnectedException When the grant went meanwhile.
+     * @throws \CakeDC\Mcp\Client\Exception\ClientException When the other request did not finish in time.
+     */
+    private function waitForRefresh(StoredConnection $stored): string
+    {
+        for ($attempt = 0; $attempt < self::REFRESH_WAITS; $attempt++) {
+            $this->registry->sleep(self::REFRESH_WAIT_MICROSECONDS);
+            $fresh = $this->stored();
+            if ($fresh === null) {
+                throw $this->notConnected();
+            }
+            if ($fresh->accessToken !== $stored->accessToken) {
+                return $fresh->accessToken;
+            }
+        }
+
+        throw new ClientException(sprintf(
+            'The connection to "%s" is being renewed by another request; try again in a moment.',
+            $this->config->name,
+        ));
+    }
+
+    /**
+     * @param \CakeDC\Mcp\Client\Store\StoredConnection $stored The grant.
+     * @param int $now The time now.
+     * @return string The new access token.
+     * @throws \CakeDC\Mcp\Client\Exception\NotConnectedException When the grant is no longer accepted.
+     */
+    private function refreshClaimed(StoredConnection $stored, int $now): string
     {
         $store = $this->registry->store();
         $trusted = $this->config->tokenUrl !== null && $stored->tokenUrl === $this->config->tokenUrl;

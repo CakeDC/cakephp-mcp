@@ -10,6 +10,7 @@ use CakeDC\Mcp\Client\Http\HttpRequest;
 use CakeDC\Mcp\Client\Http\HttpResponse;
 use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
+use Closure;
 
 /**
  * An MCP server that asks for OAuth, and its authorization server, without a network.
@@ -126,14 +127,17 @@ final class FakeOAuthServer
 
     /**
      * @param \CakeDC\Mcp\Client\Store\ConnectionStoreInterface|null $store The store; the table store by default.
+     * @param \Closure|null $sleep `fn(int $microseconds): void` while another request refreshes; no wait by default.
      * @return \CakeDC\Mcp\Client\ClientRegistry A registry on these doubles.
      */
-    public function registry(?ConnectionStoreInterface $store = null): ClientRegistry
+    public function registry(?ConnectionStoreInterface $store = null, ?Closure $sleep = null): ClientRegistry
     {
         return new ClientRegistry(
             new FixedHttpClientFactory($this->mcp),
             $store ?? new TableConnectionStore(),
             new GuardedHttp(new EndpointGuard($this->dns), $this->guarded, 1024 * 1024),
+            $sleep ?? function (): void {
+            },
         );
     }
 

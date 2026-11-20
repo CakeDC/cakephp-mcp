@@ -38,6 +38,9 @@ class CreateMcpClientTables extends CakeDCMcpMigration
             ->addColumn('client_secret', 'text', ['null' => true])
             ->addColumn('auth_method', 'string', ['limit' => 30, 'null' => false])
             ->addColumn('resource', 'text', ['null' => false])
+            // The request refreshing the grant, so that two requests never send the same refresh token.
+            ->addColumn('refresh_claim_id', 'string', ['limit' => 36, 'null' => true])
+            ->addColumn('refresh_claimed_at', 'datetime', ['null' => true])
             ->addColumn('created', 'datetime', ['null' => false])
             ->addColumn('modified', 'datetime', ['null' => false])
             ->addIndex(['client', 'user_id'], ['unique' => true])

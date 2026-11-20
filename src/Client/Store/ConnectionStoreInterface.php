@@ -33,6 +33,28 @@ interface ConnectionStoreInterface
     public function delete(string $client, string $userId): void;
 
     /**
+     * Claims the refresh of the user's grant for one request, atomically: many authorization servers end a grant
+     * when the same refresh token is used twice, so two requests must never refresh it at once.
+     *
+     * @param string $client The client's name.
+     * @param string $userId The user.
+     * @param string $claimId A new id for this attempt.
+     * @param int $leaseSeconds How long the claim holds; after that another request may take it over.
+     * @return bool Whether this request may refresh; false when another holds a live claim or there is no grant.
+     */
+    public function claimRefresh(string $client, string $userId, string $claimId, int $leaseSeconds): bool;
+
+    /**
+     * Ends the claim $claimId, if it is still the current one.
+     *
+     * @param string $client The client's name.
+     * @param string $userId The user.
+     * @param string $claimId The id given to claimRefresh().
+     * @return void
+     */
+    public function releaseRefresh(string $client, string $userId, string $claimId): void;
+
+    /**
      * @param string $client The client's name.
      * @param string $issuer The authorization server.
      * @return \CakeDC\Mcp\Client\Store\Registration|null The OAuth client registered there, or null.

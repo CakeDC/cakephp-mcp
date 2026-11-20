@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Client\Store;
 
 use Cake\Datasource\ConnectionManager;
+use Cake\I18n\DateTime;
 use Cake\TestSuite\TestCase;
 use Cake\Utility\Security;
 use CakeDC\Mcp\Client\Store\Registration;
@@ -135,6 +136,37 @@ class TableConnectionStoreTest extends TestCase
         } finally {
             Security::setSalt($salt);
         }
+    }
+
+    public function testOnlyOneRequestClaimsTheRefresh(): void
+    {
+        $this->store->save(self::connection());
+
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-a', 60));
+        $this->assertFalse($this->store->claimRefresh('linear', '7', 'claim-b', 60));
+        // Releasing someone else's claim changes nothing.
+        $this->store->releaseRefresh('linear', '7', 'claim-b');
+        $this->assertFalse($this->store->claimRefresh('linear', '7', 'claim-b', 60));
+        $this->store->releaseRefresh('linear', '7', 'claim-a');
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-b', 60));
+    }
+
+    public function testAnExpiredClaimCanBeTakenOver(): void
+    {
+        $this->store->save(self::connection());
+        DateTime::setTestNow(new DateTime('2026-11-20 10:00:00'));
+        try {
+            $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-a', 60));
+            DateTime::setTestNow(new DateTime('2026-11-20 10:01:01'));
+            $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-b', 60));
+        } finally {
+            DateTime::setTestNow(null);
+        }
+    }
+
+    public function testNoGrantNoClaim(): void
+    {
+        $this->assertFalse($this->store->claimRefresh('linear', '7', 'claim-a', 60));
     }
 
     public function testExpiresWithin(): void

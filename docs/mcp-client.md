@@ -155,6 +155,11 @@ within `Mcp.client.refreshLeeway` seconds (60), and once more if the server
 answers `401`. When the refresh is refused, the grant is deleted and the user
 connects again.
 
+Only one request refreshes a user's grant at a time: many authorization
+servers end the whole grant when the same refresh token is used twice. Other
+requests of that user wait for the new token, up to 10 seconds, and then fail
+with a `ClientException` (the user stays connected).
+
 The connect and callback routes are only connected when a client uses user
 mode. With cakedc/users, `McpConfig::rbacPermissions()` then also lets any
 logged-in user reach them, so add it to `config/permissions.php` as the
@@ -178,7 +183,9 @@ salt can change without that.
 
 To keep grants elsewhere, implement
 `CakeDC\Mcp\Client\Store\ConnectionStoreInterface` and set its class in
-`Mcp.client.store`. Keep tokens and secrets unreadable at rest.
+`Mcp.client.store`. Keep tokens and secrets unreadable at rest, and make
+`claimRefresh()` atomic (one conditional update, for example), since it is what
+keeps two requests from refreshing the same grant.
 
 ### A server whose owner gave you a client
 

@@ -13,6 +13,7 @@ use CakeDC\Mcp\Client\OAuth\OAuthFlow;
 use CakeDC\Mcp\Client\OAuth\Registrar;
 use CakeDC\Mcp\Client\OAuth\TokenClient;
 use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
+use Closure;
 use InvalidArgumentException;
 use LogicException;
 
@@ -34,12 +35,26 @@ class ClientRegistry
      *   default, built on first use (only user mode needs it).
      * @param \CakeDC\Mcp\Client\Http\GuardedHttp|null $guarded The layer for URLs learned from remote servers; the
      *   server's DNS and Cake's Curl adapter by default.
+     * @param \Closure|null $sleep `fn(int $microseconds): void` while another request refreshes a grant; `usleep()`
+     *   by default.
      */
     public function __construct(
         private ?HttpClientFactoryInterface $http = null,
         private ?ConnectionStoreInterface $store = null,
         private ?GuardedHttp $guarded = null,
+        private ?Closure $sleep = null,
     ) {
+    }
+
+    /**
+     * Waits while another request refreshes a grant.
+     *
+     * @param int $microseconds How long.
+     * @return void
+     */
+    public function sleep(int $microseconds): void
+    {
+        $this->sleep === null ? usleep($microseconds) : ($this->sleep)($microseconds);
     }
 
     /**

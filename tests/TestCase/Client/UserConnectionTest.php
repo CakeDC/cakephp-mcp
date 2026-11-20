@@ -10,6 +10,7 @@ use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Exception\NotConnectedException;
 use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Client\Store\StoredConnection;
@@ -136,6 +137,52 @@ class UserConnectionTest extends TestCase
         // The same connection keeps using the new token without refreshing again.
         $this->assertSame('at-1', $this->whoami());
         $this->assertCount(1, $this->server->tokenRequests);
+    }
+
+    public function testAnotherRequestRefreshingIsWaitedFor(): void
+    {
+        $this->seed('7', 30);
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'other-request', 60));
+        $this->server->mcp->tokens[] = 'at-other';
+        $sleeps = 0;
+        McpClients::setRegistry($this->server->registry($this->store, function () use (&$sleeps): void {
+            // Meanwhile the other request stores what it got.
+            if (++$sleeps === 2) {
+                $stored = $this->store->get('linear', '7');
+                $this->assertNotNull($stored);
+                $this->store->save($stored->withTokens('at-other', 'rt-other', DateTime::now()->getTimestamp() + 3600, null));
+                $this->store->releaseRefresh('linear', '7', 'other-request');
+            }
+        }));
+
+        $this->assertSame('at-other', $this->whoami());
+        $this->assertSame([], $this->server->tokenRequests);
+    }
+
+    public function testARefreshThatDoesNotFinishLeavesTheGrant(): void
+    {
+        $this->seed('7', 30);
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'other-request', 60));
+        McpClients::setRegistry($this->server->registry($this->store, function (): void {
+        }));
+
+        try {
+            $this->whoami();
+            $this->fail('No exception');
+        } catch (ClientException $e) {
+            $this->assertNotInstanceOf(NotConnectedException::class, $e);
+        }
+        $this->assertSame([], $this->server->tokenRequests);
+        $this->assertNotNull($this->store->get('linear', '7'));
+    }
+
+    public function testTheClaimIsReleasedAfterARefresh(): void
+    {
+        $this->seed('7', 30);
+
+        $this->whoami();
+
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'next', 60));
     }
 
     public function testRejectedRefreshDisconnects(): void

@@ -107,6 +107,38 @@ class TableConnectionStore implements ConnectionStoreInterface
     /**
      * @inheritDoc
      */
+    public function claimRefresh(string $client, string $userId, string $claimId, int $leaseSeconds): bool
+    {
+        $now = DateTime::now();
+
+        // One conditional UPDATE: only one request can turn a free (or expired) claim into its own.
+        return $this->connections()->updateAll(
+            ['refresh_claim_id' => $claimId, 'refresh_claimed_at' => $now],
+            [
+                'client' => $client,
+                'user_id' => $userId,
+                'OR' => [
+                    'refresh_claim_id IS' => null,
+                    'refresh_claimed_at <' => $now->subSeconds($leaseSeconds),
+                ],
+            ],
+        ) === 1;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function releaseRefresh(string $client, string $userId, string $claimId): void
+    {
+        $this->connections()->updateAll(
+            ['refresh_claim_id' => null, 'refresh_claimed_at' => null],
+            ['client' => $client, 'user_id' => $userId, 'refresh_claim_id' => $claimId],
+        );
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function delete(string $client, string $userId): void
     {
         $this->connections()->deleteAll(['client' => $client, 'user_id' => $userId]);
