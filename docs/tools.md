@@ -155,6 +155,43 @@ public function summary(): CallToolResult
 tool error ("Invalid structured output for tool ..."), not as data. Test the
 tool's result with `assertMcpStructuredContent()` (see [Testing](testing.md)).
 
+## Progress and logs
+
+A long tool can tell the client how far it got. Take the SDK's
+`Mcp\Server\ClientGateway` as a parameter (the SDK fills it in, it is not
+part of the input schema) and call `progress()` as the work advances:
+
+```php
+use Mcp\Schema\Enum\LoggingLevel;
+use Mcp\Server\ClientGateway;
+
+#[McpTool(name: 'import_orders')]
+public function import(ClientGateway $client, string $file): string
+{
+    $rows = $this->reader->rows($file);
+    foreach (array_chunk($rows, 100) as $i => $chunk) {
+        $this->importer->save($chunk);
+        $client->progress(($i + 1) * 100, count($rows), 'Saved ' . (($i + 1) * 100) . ' orders');
+    }
+    $client->log(LoggingLevel::Info, sprintf('Imported %d orders from %s', count($rows), $file));
+
+    return sprintf('Imported %d orders.', count($rows));
+}
+```
+
+Progress is sent only when the client asked for it (its call carries a
+`progressToken`); otherwise `progress()` does nothing. Log lines are sent at
+the level the client chose with `logging/setLevel`. Over HTTP the endpoint then
+answers with server-sent events: the notifications as they happen, then the
+result. If they arrive all at once at the end, something buffers the response
+(see [Troubleshooting](troubleshooting.md#server-sent-events-stall-behind-nginx)).
+In tests, `assertMcpProgressSent()` and `assertMcpNotificationSent()` check
+them (see [Testing](testing.md)).
+
+`ClientGateway` can also ask the client's model (`sample()`) or the user
+(`elicit()`) something. Those need a client that supports them, and they
+cannot be answered in `McpTestTrait` tests.
+
 ## Registering only when
 
 `#[McpWhen]` (`CakeDC\Mcp\Attribute\McpWhen`) registers a tool, resource,

@@ -86,8 +86,16 @@ authorization service on the MCP route.
 ## Server-sent events stall behind nginx
 
 The plugin sends `X-Accel-Buffering: no` on event streams so nginx does not
-buffer them. If a stream still stalls, a proxy or CDN in front is ignoring the
-header. Disable response buffering for the MCP path there.
+buffer them. If a stream still stalls, or progress arrives all at once at the
+end of a call, something between the tool and the client is buffering:
+
+- PHP: `output_buffering` and `zlib.output_compression` hold the output until
+  the request ends. Turn them off for the MCP route (for example in a
+  `.user.ini` or the FPM pool).
+- Apache: `mod_deflate` compresses, and so buffers, `text/event-stream`;
+  exclude that type.
+- A proxy or CDN in front that ignores the header: disable response buffering
+  for the MCP path there.
 
 ## The session is lost between requests
 
