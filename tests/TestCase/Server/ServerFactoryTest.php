@@ -184,6 +184,30 @@ class ServerFactoryTest extends TestCase
         $this->assertSame('https://app.example.com', $info['websiteUrl'] ?? null);
     }
 
+    public function testServerIconsFromConfig(): void
+    {
+        Configure::write('Mcp.server.icons', [
+            ['src' => 'https://app.example.com/icon.png', 'mimeType' => 'image/png', 'sizes' => ['48x48']],
+            ['src' => 'https://app.example.com/icon-dark.svg', 'mimeType' => 'image/svg+xml', 'theme' => 'dark'],
+        ]);
+
+        $info = $this->runServer()->responseFor(1)['result']['serverInfo'] ?? [];
+
+        $this->assertSame([
+            ['src' => 'https://app.example.com/icon.png', 'mimeType' => 'image/png', 'sizes' => ['48x48']],
+            ['src' => 'https://app.example.com/icon-dark.svg', 'mimeType' => 'image/svg+xml', 'theme' => 'dark'],
+        ], $info['icons'] ?? null);
+    }
+
+    public function testInvalidServerIconsFailNamingTheSetting(): void
+    {
+        Configure::write('Mcp.server.icons', [['mimeType' => 'image/png']]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Mcp.server.icons');
+        $this->runServer();
+    }
+
     public function testConfigureHookReceivesTheBuilder(): void
     {
         Configure::write('Mcp.server.configure', function (Builder $builder): void {

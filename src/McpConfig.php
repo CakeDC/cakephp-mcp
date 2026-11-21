@@ -36,6 +36,7 @@ final class McpConfig
             'title' => null,
             'description' => null,
             'websiteUrl' => null,
+            'icons' => null,
             'instructions' => null,
             'cache' => null,
             'configure' => null,

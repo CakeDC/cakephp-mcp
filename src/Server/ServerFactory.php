@@ -37,6 +37,7 @@ use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
+use Mcp\Schema\Icon;
 use Mcp\Schema\JsonRpc\Request;
 use Mcp\Schema\Tool;
 use Mcp\Schema\ToolAnnotations;
@@ -239,6 +240,7 @@ final class ServerFactory
                 (string)McpConfig::get('server.name', $this->server),
                 (string)McpConfig::get('server.version', $this->server),
                 $this->optionalString('server.description'),
+                $this->icons(),
                 websiteUrl: $this->optionalString('server.websiteUrl'),
                 title: $this->optionalString('server.title'),
             )
@@ -600,6 +602,32 @@ final class ServerFactory
         $this->build(true, $this->quietLogger());
 
         return $this->appsAnnounced;
+    }
+
+    /**
+     * `Mcp.server.icons` as the SDK's icons.
+     *
+     * @return list<\Mcp\Schema\Icon>|null
+     * @throws \InvalidArgumentException When an entry is not an icon.
+     */
+    private function icons(): ?array
+    {
+        $icons = McpConfig::get('server.icons', $this->server);
+        if ($icons === null || $icons === []) {
+            return null;
+        }
+        if (!is_array($icons) || !array_is_list($icons)) {
+            throw new InvalidArgumentException('"Mcp.server.icons" must be null or a list of icons.');
+        }
+        try {
+            return array_map(fn(mixed $icon): Icon => Icon::fromArray(is_array($icon) ? $icon : []), $icons);
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidArgumentException(
+                sprintf('"Mcp.server.icons": %s Each icon needs a "src".', $e->getMessage()),
+                0,
+                $e,
+            );
+        }
     }
 
     /**

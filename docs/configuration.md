@@ -13,6 +13,7 @@ want to change; everything else keeps its default. These are the defaults
         'title' => null,
         'description' => null,
         'websiteUrl' => null,
+        'icons' => null,
         'instructions' => null,
         'cache' => null,
         'configure' => null,
@@ -63,6 +64,7 @@ client) have no defaults of their own; they are described below.
 - `route`: path of the HTTP endpoint. `false` (or an empty string) connects no route.
 - `server.name`, `server.version`: reported to clients in the `initialize` result.
 - `server.title`, `server.description`, `server.websiteUrl`: optional, also reported to clients. `null` sends none.
+- `server.icons`: optional icons clients show for the server, a list of `['src' => 'https://app.example.com/icon.png', 'mimeType' => 'image/png', 'sizes' => ['48x48'], 'theme' => 'light']` (only `src` is required; `theme` is `light` or `dark`). `null` sends none. An entry without `src` fails with a message naming the setting.
 - `server.instructions`: optional text telling the client's model how to use your server. `null` sends none.
 - `server.cache`: the cache hints of the 2026-07-28 protocol revision, which tell a client how long it may keep a result of `server/discover`, `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and `resources/read`. `null` (the default) marks them private and not to be cached. Otherwise an array: `ttl` in milliseconds (default `0`), `scope` `'private'` (one user, the default) or `'public'` (any user, only for results that are the same for everyone), and `methods` to set them per method, for example `['ttl' => 60000, 'methods' => ['tools/list' => ['ttl' => 300000]]]`. Clients of the older revisions get no hints. A top-level `scope` applies to all six methods, so use `'public'` only per method, for results that are the same for every user: `tools/list` is always sent private when the authorizer is not `AllowAllToolAuthorizer` (it can give users different tools), whatever `server.cache` or a policy set in `server.configure` says, and keep `resources/read` private when a resource depends on who reads it. `bin/cake mcp check` says so on its `Cache hints` line, and warns when `resources/read` is public. A named server inherits `server.cache` and replaces it whole when it sets it; it writes `'cache' => null` or `'cache' => []` in its `server` section for no hints.
 - `catalog.enabled`: `true` turns on the tool catalog for this server (see [Tool catalog](tools.md#tool-catalog)). Default `false`.
