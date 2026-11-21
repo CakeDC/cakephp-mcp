@@ -113,7 +113,7 @@ final class ClientSession
             );
         }
 
-        $this->http = new WatchedHttpClient($this->factory->create($this->config));
+        $this->http = new WatchedHttpClient($this->factory->create($this->config), $this->config);
 
         return new HttpTransport(
             (string)$this->config->url,

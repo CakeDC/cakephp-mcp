@@ -206,7 +206,9 @@ class McpCheckCommand extends Command
                 continue;
             }
             if (!$config->isUser()) {
-                $described[] = sprintf('%s (%s)', $name, $config->isStdio() ? 'stdio' : 'app');
+                // A token callable is never called here: it may read a vault.
+                $kind = $config->tokenProvider !== null ? 'app, token from a callable' : 'app';
+                $described[] = sprintf('%s (%s)', $name, $config->isStdio() ? 'stdio' : $kind);
                 continue;
             }
             $userMode = true;

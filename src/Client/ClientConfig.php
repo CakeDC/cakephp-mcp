@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Client;
 
 use Cake\Core\Configure;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
+use Closure;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\ProtocolVersion;
 
@@ -73,6 +75,7 @@ final class ClientConfig
      * @param string|null $revocationUrl A configured revocation endpoint.
      * @param string|null $issuer With configured endpoints, the issuer the authorization server names itself by,
      *   compared with the `iss` of its sign-in responses; null to skip that comparison.
+     * @param \Closure|null $tokenProvider A `token` given as a callable, called for each request.
      */
     public function __construct(
         public readonly string $name,
@@ -95,7 +98,31 @@ final class ClientConfig
         public readonly ?string $tokenUrl = null,
         public readonly ?string $revocationUrl = null,
         public readonly ?string $issuer = null,
+        public readonly ?Closure $tokenProvider = null,
     ) {
+    }
+
+    /**
+     * The token of a `token` callable, for one request.
+     *
+     * @return string|null Null when `token` is not a callable.
+     * @throws \CakeDC\Mcp\Client\Exception\ClientException When the callable returns no token.
+     */
+    public function callableToken(): ?string
+    {
+        if ($this->tokenProvider === null) {
+            return null;
+        }
+        $token = ($this->tokenProvider)();
+        if (!is_string($token) || trim($token) === '') {
+            throw new ClientException(sprintf(
+                'The callable of "Mcp.clients.%s.token" returned %s, not a token string.',
+                $this->name,
+                get_debug_type($token),
+            ));
+        }
+
+        return $token;
     }
 
     /**
@@ -218,7 +245,11 @@ final class ClientConfig
                 throw new InvalidArgumentException(sprintf('"%s" must be an array of name => value.', $key('headers')));
             }
         }
-        if (array_key_exists('token', $config)) {
+        $tokenProvider = null;
+        if (array_key_exists('token', $config) && !is_string($config['token']) && is_callable($config['token'])) {
+            // Called for each request, for tokens that rotate; `bin/cake mcp check` never calls it.
+            $tokenProvider = Closure::fromCallable($config['token']);
+        } elseif (array_key_exists('token', $config)) {
             $token = $config['token'];
             if (!is_string($token) || trim($token) === '') {
                 // Often an env() that is not set: sending no credentials would fail later and less clearly.
@@ -229,7 +260,7 @@ final class ClientConfig
             }
             $headers['Authorization'] = 'Bearer ' . $token;
         }
-        $hasAuthorization = false;
+        $hasAuthorization = $tokenProvider !== null;
         foreach (array_keys($headers) as $header) {
             $hasAuthorization = $hasAuthorization || strcasecmp($header, 'Authorization') === 0;
         }
@@ -357,6 +388,7 @@ final class ClientConfig
             $endpoints['tokenUrl'],
             $endpoints['revocationUrl'],
             $issuer,
+            $tokenProvider,
         );
     }
 

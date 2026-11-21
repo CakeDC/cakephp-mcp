@@ -304,7 +304,7 @@ an error the same way as a server's, the other clients and the application keep 
 - `clients.<name>.args`: the command's arguments, a list of strings.
 - `clients.<name>.env`: environment variables for the command, on top of `PATH`, `HOME`, `USER`, the locale and the temp directories (nothing else of your environment is passed).
 - `clients.<name>.cwd`: the command's working directory.
-- `clients.<name>.token`: sent as `Authorization: Bearer <token>`. Set but empty fails.
+- `clients.<name>.token`: sent as `Authorization: Bearer <token>`. Set but empty fails. A callable returning the token string is called for each request instead (for tokens that rotate); `bin/cake mcp check` does not call it. See [MCP client](mcp-client.md#app-mode-one-set-of-credentials).
 - `clients.<name>.headers`: headers sent with every HTTP request, name => value.
 - `clients.<name>.auth`: `app` (the default, the application's own credentials) or `user` (each user signs in with OAuth; needs `url`, takes no token).
 - `clients.<name>.timeout`: seconds for the connection and each request. Default `30`.

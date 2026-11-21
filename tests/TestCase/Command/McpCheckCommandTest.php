@@ -869,6 +869,24 @@ class McpCheckCommandTest extends TestCase
         );
     }
 
+    public function testClientsLineNeverCallsATokenCallable(): void
+    {
+        $called = false;
+        Configure::write('Mcp.clients', ['vault' => [
+            'url' => 'https://api.example.com/mcp',
+            'token' => function () use (&$called): string {
+                $called = true;
+
+                return 't';
+            },
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Clients: vault (app, token from a callable)');
+        $this->assertFalse($called);
+    }
+
     public function testClientsLineFailsOnABadClient(): void
     {
         Configure::write('Mcp.clients', ['plain' => ['url' => 'http://mcp.example.com/mcp']]);

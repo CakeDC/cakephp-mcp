@@ -70,6 +70,48 @@ class McpClientHttpTest extends TestCase
         $this->assertSame(['remote'], $this->factory->created);
     }
 
+    public function testATokenCallableIsCalledForEachRequest(): void
+    {
+        $calls = 0;
+        Configure::write('Mcp.clients.rotating', [
+            'url' => 'https://mcp.example.com/mcp',
+            'token' => function () use (&$calls): string {
+                $calls++;
+
+                return 'vault-token-' . $calls;
+            },
+        ]);
+        $client = McpClients::get('rotating');
+
+        $first = $client->callTool('whoami')->content[0]->text ?? null;
+        $second = $client->callTool('whoami')->content[0]->text ?? null;
+
+        $this->assertIsString($first);
+        $this->assertStringStartsWith('vault-token-', $first);
+        $this->assertNotSame($first, $second);
+        $this->assertSame($calls, count($this->server->requests));
+        $this->assertSame('Bearer vault-token-' . $calls, end($this->server->requests)['headers']['authorization'] ?? null);
+    }
+
+    public function testATokenCallableThatReturnsNoStringFailsNamingTheClient(): void
+    {
+        Configure::write('Mcp.clients.rotating', [
+            'url' => 'https://mcp.example.com/mcp',
+            'token' => fn(): ?string => null,
+        ]);
+
+        $this->expectException(ClientException::class);
+        $this->expectExceptionMessage('"Mcp.clients.rotating.token"');
+        McpClients::get('rotating')->listTools();
+    }
+
+    public function testAStringTokenThatIsAFunctionNameIsStillAString(): void
+    {
+        Configure::write('Mcp.clients.remote.token', 'strlen');
+
+        $this->assertSame('strlen', McpClients::get('remote')->callTool('whoami')->content[0]->text ?? null);
+    }
+
     public function testHeadersAreSent(): void
     {
         Configure::write('Mcp.clients.keyed', [

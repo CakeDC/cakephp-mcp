@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client;
 
+use CakeDC\Mcp\Client\Exception\ClientException;
 use LogicException;
+use Mcp\Exception\ConnectionException;
 
 /**
  * A named client of `Mcp.clients`. In app mode it calls the server with the app's own credentials; in user mode,
@@ -102,6 +104,12 @@ final class McpClient
         }
         $this->session ??= new ClientSession($this->config, $this->registry->http());
 
-        return $call($this->session->client());
+        try {
+            return $call($this->session->client());
+        } catch (ConnectionException $e) {
+            // A `token` callable that failed: its own message, not the transport's.
+            $previous = $e->getPrevious();
+            throw $previous instanceof ClientException ? $previous : $e;
+        }
     }
 }

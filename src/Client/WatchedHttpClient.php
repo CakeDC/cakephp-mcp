@@ -19,8 +19,9 @@ final class WatchedHttpClient implements ClientInterface
 
     /**
      * @param \Psr\Http\Client\ClientInterface $client The client it wraps.
+     * @param \CakeDC\Mcp\Client\ClientConfig|null $config The client, whose `token` callable is called for each request.
      */
-    public function __construct(private ClientInterface $client)
+    public function __construct(private ClientInterface $client, private ?ClientConfig $config = null)
     {
     }
 
@@ -30,6 +31,10 @@ final class WatchedHttpClient implements ClientInterface
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $this->lastStatus = null;
+        $token = $this->config?->callableToken();
+        if ($token !== null) {
+            $request = $request->withHeader('Authorization', 'Bearer ' . $token);
+        }
         $response = $this->client->sendRequest($request);
         $this->lastStatus = $response->getStatusCode();
 

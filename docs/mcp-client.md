@@ -46,6 +46,25 @@ configure:
 are. A `token` that is set but empty (an `env()` that is not defined) fails
 with a message instead of sending no credentials.
 
+For a token that rotates, or that you read from a vault, give `token` a
+callable that returns the token string. It is called for each HTTP request the
+client sends, so a new token is used as soon as the callable returns it. When
+it returns something that is not a non-empty string, the call fails with a
+`ClientException` naming the client. `bin/cake mcp check` never calls it (its
+`Clients` line says `token from a callable`). A string is always a token, even
+one that is also the name of a PHP function.
+
+```php
+'github' => [
+    'url' => 'https://api.githubcopilot.com/mcp/',
+    'token' => fn(): string => Vault::read('github-mcp-token'),
+],
+```
+
+Config files that are cached or exported cannot hold a closure; set such a
+client in `config/bootstrap.php` or in your `Application::bootstrap()` with
+`Configure::write()`.
+
 ```php
 $github = McpClients::get('github');
 
