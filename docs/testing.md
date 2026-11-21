@@ -117,9 +117,14 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 | `assertMcpInsufficientScope(?$scopes)` | was refused because the token lacks scopes, the way the endpoint answers `403 insufficient_scope`. With `$scopes` it also checks the scopes the call needs (any order). |
 | `assertMcpResultContains($text)` | returned text containing `$text`. |
 | `assertMcpStructuredContent($expected)` | returned this `structuredContent`. Key order does not matter, value types do. |
-| `assertMcpStructuredContentPath($path, $expected)` | returned `$expected` at a dot path of its `structuredContent` (`order.lines.0.sku`). Value types matter, and a missing path fails. |
+| `assertMcpStructuredContentPath($path, $expected)` | returned `$expected` at a dot path of its `structuredContent` (`order.lines.0.sku`). Value types matter, and a missing path fails. `$expected` may be a closure that gets the value: it passes when the closure returns `true`, and is not called for a missing path. |
 | `assertMcpStructuredContentHas($path)` | returned a `structuredContent` with that dot path, even with a `null` value. |
-| `assertMcpStructuredContentSubset($expected)` | returned a `structuredContent` that holds `$expected`: each key of an object with the same value, other keys allowed, lists compared whole. Value types matter. |
+| `assertMcpStructuredContentMissing($paths)` | returned a `structuredContent` without that dot path, or without any of a list of them. A key with a `null` value is there, so it fails. |
+| `assertMcpStructuredContentSubset($expected)` | returned a `structuredContent` that holds `$expected`: each key of an object with the same value, other keys allowed, lists compared whole, starting at the top of the structured content. Value types matter. |
+| `assertMcpStructuredContentNotSubset($fragment)` | returned a `structuredContent` that does not hold `$fragment`, by the same rule: it fails exactly when `assertMcpStructuredContentSubset($fragment)` would pass. |
+| `assertMcpStructuredContentLacks($pairs)` | returned a `structuredContent` where none of the key and value pairs of `$pairs` appears in any object, at any depth. |
+| `assertMcpStructuredContentIgnoringOrder($expected, $path = '')` | returned `$expected` (at a dot path, or as the whole structured content) once the order of list items is ignored at every level. Value types matter and duplicates count; a missing path fails. |
+| `assertMcpStructuredContentKeys($shape, $exact = false)` | returned the keys `$shape` describes, values not looked at: `['order' => ['id', 'lines' => ['*' => ['sku']]], 'total']`, where `'*'` is every item of a list (an empty list fails). With `$exact`, a described level has no other keys. |
 | `assertMcpStructuredContentCount($path, $count)` | returned a list or object with `$count` items at that dot path (`''` for the whole structured content). |
 | `assertMcpStructuredContentType($path, $type)` | returned a value of that JSON type at that dot path: `string`, `number` (integers count), `integer`, `boolean`, `array`, `object` or `null`. |
 | `assertMcpProgressSent(?$count)` | reported progress (`notifications/progress`): at least once, or exactly `$count` times. |

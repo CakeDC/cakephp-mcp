@@ -713,10 +713,12 @@ trait McpTestTrait
 
     /**
      * Asserts one value of the last result's `structuredContent`, found by a dot path
-     * (`order.lines.0.sku`). Value types matter. Fails when the path does not exist.
+     * (`order.lines.0.sku`). Value types matter. Fails when the path does not exist. $expected may be a closure
+     * that gets the value: the assertion passes when it returns `true` (strictly), and it is not called for a
+     * path that does not exist.
      *
      * @param string $path Dot path into the structured content.
-     * @param mixed $expected The expected value.
+     * @param mixed $expected The expected value, or a closure that tells whether the value is right.
      * @param string $message The failure message.
      * @return void
      */
@@ -726,7 +728,122 @@ trait McpTestTrait
         if (!$found) {
             Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
         }
+        if ($expected instanceof Closure) {
+            Assert::assertTrue(
+                $expected($value) === true,
+                $message ?: sprintf(
+                    'The closure did not return true for "%s" in the structuredContent: %s.',
+                    $path,
+                    (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ),
+            );
+
+            return;
+        }
         Assert::assertSame($expected, $value, $message);
+    }
+
+    /**
+     * Asserts that a dot path, or each of several, does not exist in the last result's `structuredContent`. A key
+     * that is there with a `null` value exists (`assertMcpStructuredContentHas()` passes on it), so it fails here.
+     *
+     * @param list<string>|string $paths A dot path, or a list of them.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentMissing(string|array $paths, string $message = ''): void
+    {
+        foreach ((array)$paths as $path) {
+            Assert::assertFalse(
+                $this->mcpStructuredContentAt($path)[0],
+                $message ?: sprintf('The structuredContent has "%s".', $path),
+            );
+        }
+    }
+
+    /**
+     * Asserts that the last result's `structuredContent` does not hold $fragment: fails exactly when
+     * `assertMcpStructuredContentSubset($fragment)` would pass. The same rule, so it is anchored at the top of the
+     * structured content; for pairs anywhere, use `assertMcpStructuredContentLacks()`.
+     *
+     * @param array<mixed> $fragment The part that must not be there whole.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentNotSubset(array $fragment, string $message = ''): void
+    {
+        $actual = $this->mcpResult()['structuredContent'] ?? null;
+        Assert::assertFalse(
+            self::mcpIsSubset($fragment, $actual),
+            $message ?: sprintf(
+                'The structuredContent %s holds %s.',
+                $this->mcpJson(is_array($actual) ? $actual : []),
+                $this->mcpJson($fragment),
+            ),
+        );
+    }
+
+    /**
+     * Asserts that none of the key and value pairs of $pairs is in any object of the last result's
+     * `structuredContent`, at any depth (`['sku' => 'X']` fails when any object, however nested, has `sku` "X").
+     * Value types matter.
+     *
+     * @param array<string, mixed> $pairs Key => value pairs that must appear nowhere.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentLacks(array $pairs, string $message = ''): void
+    {
+        $actual = $this->mcpResult()['structuredContent'] ?? null;
+        foreach ($pairs as $key => $value) {
+            Assert::assertFalse(
+                self::mcpHasPairAnywhere($actual, (string)$key, $value),
+                $message ?: sprintf(
+                    'The structuredContent has "%s": %s.',
+                    $key,
+                    (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ),
+            );
+        }
+    }
+
+    /**
+     * Asserts the last result's `structuredContent`, or the value at a dot path of it, ignoring the order of list
+     * items at every level (key order never matters). Value types matter and duplicates count: `[1, 1, 2]` is not
+     * `[1, 2, 2]`. Fails when the path does not exist.
+     *
+     * @param mixed $expected The expected value.
+     * @param string $path A dot path, or an empty string for the whole structured content.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentIgnoringOrder(
+        mixed $expected,
+        string $path = '',
+        string $message = '',
+    ): void {
+        [$found, $value] = $this->mcpStructuredContentAt($path);
+        if (!$found) {
+            Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
+        }
+        Assert::assertSame(self::mcpCanonical($expected), self::mcpCanonical($value), $message);
+    }
+
+    /**
+     * Asserts the keys of the last result's `structuredContent`, not their values. $shape describes them level by
+     * level: a string is a key that must exist, `key => [...]` a key and what its value holds, and `'*' => [...]`
+     * what every item of the list at that level holds (the list must not be empty: a wildcard that checks nothing
+     * fails). With $exact, a described level may have no other keys.
+     *
+     * @param array<mixed> $shape The keys, for example `['order' => ['id', 'lines' => ['*' => ['sku']]], 'total']`.
+     * @param bool $exact Whether keys other than the described ones fail.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentKeys(array $shape, bool $exact = false, string $message = ''): void
+    {
+        $problem = self::mcpShapeProblem($shape, $this->mcpResult()['structuredContent'] ?? null, '', $exact);
+        Assert::assertNull($problem, $message ?: (string)$problem);
     }
 
     /**
@@ -1380,6 +1497,102 @@ trait McpTestTrait
         $result = $this->mcpResponse()['result'] ?? null;
 
         return is_array($result) ? $result : [];
+    }
+
+    /**
+     * @param mixed $value A decoded JSON value.
+     * @param string $key A key.
+     * @param mixed $expected Its value.
+     * @return bool Whether some object in $value, at any depth, has $key with exactly $expected.
+     */
+    private static function mcpHasPairAnywhere(mixed $value, string $key, mixed $expected): bool
+    {
+        if (!is_array($value)) {
+            return false;
+        }
+        if (!array_is_list($value) && array_key_exists($key, $value) && $value[$key] === $expected) {
+            return true;
+        }
+        foreach ($value as $child) {
+            if (self::mcpHasPairAnywhere($child, $key, $expected)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param mixed $value A decoded JSON value.
+     * @return mixed It with sorted keys and, at every level, list items in a fixed order.
+     */
+    private static function mcpCanonical(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        $value = array_map(self::mcpCanonical(...), $value);
+        if (array_is_list($value)) {
+            usort($value, fn(mixed $a, mixed $b): int => strcmp(serialize($a), serialize($b)));
+
+            return $value;
+        }
+        ksort($value);
+
+        return $value;
+    }
+
+    /**
+     * @param array<mixed> $shape A level of the shape of assertMcpStructuredContentKeys().
+     * @param mixed $value The value at that level.
+     * @param string $at Its dot path, for the message.
+     * @param bool $exact Whether other keys are a problem.
+     * @return string|null What is wrong, or null.
+     */
+    private static function mcpShapeProblem(array $shape, mixed $value, string $at, bool $exact): ?string
+    {
+        $where = $at === '' ? 'the structuredContent' : '"' . $at . '"';
+        if (array_key_exists('*', $shape)) {
+            if (!is_array($value) || !array_is_list($value) || $value === []) {
+                return sprintf('%s is not a list with items, so "*" checks nothing.', ucfirst($where));
+            }
+            foreach ($value as $index => $item) {
+                $problem = self::mcpShapeProblem(
+                    is_array($shape['*']) ? $shape['*'] : [],
+                    $item,
+                    ltrim($at . '.' . $index, '.'),
+                    $exact,
+                );
+                if ($problem !== null) {
+                    return $problem;
+                }
+            }
+
+            return null;
+        }
+        if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+            return sprintf('%s is not an object.', ucfirst($where));
+        }
+        $named = [];
+        foreach ($shape as $key => $inner) {
+            $name = is_int($key) ? (string)$inner : (string)$key;
+            $named[] = $name;
+            if (!array_key_exists($name, $value)) {
+                return sprintf('%s has no "%s".', ucfirst($where), $name);
+            }
+            if (!is_int($key) && is_array($inner)) {
+                $problem = self::mcpShapeProblem($inner, $value[$name], ltrim($at . '.' . $name, '.'), $exact);
+                if ($problem !== null) {
+                    return $problem;
+                }
+            }
+        }
+        $other = array_diff(array_map('strval', array_keys($value)), $named);
+        if ($exact && $other !== []) {
+            return sprintf('%s has keys that are not described: %s.', ucfirst($where), implode(', ', $other));
+        }
+
+        return null;
     }
 
     /**
