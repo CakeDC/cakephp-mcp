@@ -81,8 +81,11 @@ The calls:
 
 - `listTools()`: the server's tools (every page), without the ones your tool filters leave out.
 - `callTool($name, $arguments)`: a `Mcp\Schema\Result\CallToolResult` (`content`, `structuredContent`, `isError`).
-- `listResources()`, `readResource($uri)`: resources and their contents.
+- `listResources()`, `listResourceTemplates()`, `readResource($uri)`: resources, resource templates and contents.
 - `listPrompts()`, `getPrompt($name, $arguments)`: prompts and their messages.
+- `ping()`: checks that the server answers (`ping`, or `server/discover` in the 2026-07-28 revision).
+- `serverInfo()`, `capabilities()`, `instructions()`: what the server said about itself when the connection
+  started (`Mcp\Schema\Implementation`, `Mcp\Schema\ServerCapabilities`, its instructions for the model).
 - `close()`: ends the connection now. It is opened on the first call and kept for the rest of the request (or the command).
 
 Results are the SDK's classes. A server or network error is thrown as the SDK's

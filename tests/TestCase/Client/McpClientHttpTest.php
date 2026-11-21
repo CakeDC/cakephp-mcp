@@ -112,6 +112,18 @@ class McpClientHttpTest extends TestCase
         $this->assertSame('strlen', McpClients::get('remote')->callTool('whoami')->content[0]->text ?? null);
     }
 
+    public function testIntrospection(): void
+    {
+        $client = McpClients::get('remote');
+
+        $client->ping();
+        $this->assertSame('fake', $client->serverInfo()?->name);
+        $this->assertSame('1.0.0', $client->serverInfo()?->version);
+        $this->assertNotNull($client->capabilities()?->tools);
+        $this->assertNull($client->instructions());
+        $this->assertContains('server/discover', $this->server->methods());
+    }
+
     public function testHeadersAreSent(): void
     {
         Configure::write('Mcp.clients.keyed', [

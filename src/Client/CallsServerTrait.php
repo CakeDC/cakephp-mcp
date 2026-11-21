@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Client;
 
 use CakeDC\Mcp\Client\Exception\ClientException;
 use Mcp\Client;
+use Mcp\Schema\Implementation;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\GetPromptResult;
 use Mcp\Schema\Result\ListPromptsResult;
@@ -12,6 +13,7 @@ use Mcp\Schema\Result\ListResourcesResult;
 use Mcp\Schema\Result\ListResourceTemplatesResult;
 use Mcp\Schema\Result\ListToolsResult;
 use Mcp\Schema\Result\ReadResourceResult;
+use Mcp\Schema\ServerCapabilities;
 
 /**
  * The calls a client makes to its server, for app mode (McpClient) and user mode (UserConnection) alike. Lists follow
@@ -50,6 +52,41 @@ trait CallsServerTrait
      * @return array<string, mixed>|null The raw `result` of the last answer to it.
      */
     abstract protected function lastResult(string $method): ?array;
+
+    /**
+     * Checks that the server answers: `ping`, or `server/discover` in the 2026-07-28 revision, which has no ping.
+     *
+     * @return void
+     */
+    public function ping(): void
+    {
+        $this->run(fn(Client $client) => $client->ping());
+    }
+
+    /**
+     * @return \Mcp\Schema\Implementation|null The server's name, version and other details, from the handshake or
+     *   `server/discover`.
+     */
+    public function serverInfo(): ?Implementation
+    {
+        return $this->run(fn(Client $client): ?Implementation => $client->getServerInfo());
+    }
+
+    /**
+     * @return \Mcp\Schema\ServerCapabilities|null What the server declared it supports.
+     */
+    public function capabilities(): ?ServerCapabilities
+    {
+        return $this->run(fn(Client $client): ?ServerCapabilities => $client->getServerCapabilities());
+    }
+
+    /**
+     * @return string|null The server's instructions for the model, if it gives any.
+     */
+    public function instructions(): ?string
+    {
+        return $this->run(fn(Client $client): ?string => $client->getInstructions());
+    }
 
     /**
      * @return list<\Mcp\Schema\Tool> The tools the server offers that the client's filters allow.
