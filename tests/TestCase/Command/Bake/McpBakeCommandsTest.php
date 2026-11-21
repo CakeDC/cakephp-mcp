@@ -7,6 +7,7 @@ use Cake\Console\TestSuite\ConsoleIntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Schema\SchemaLint;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
+use Closure;
 use Mcp\Server;
 use stdClass;
 
@@ -137,6 +138,28 @@ class McpBakeCommandsTest extends TestCase
         $contents = $transport->responseFor(2)['result']['contents'][0] ?? [];
         $this->assertSame('text/html;profile=mcp-app', $contents['mimeType'] ?? null, (string)json_encode($transport->responseFor(2)));
         $this->assertStringContainsString('globalThis.McpApps={', (string)($contents['text'] ?? ''));
+    }
+
+    public function testTheTestOfABakedAppPassesAsGenerated(): void
+    {
+        $this->exec('bake mcp_app Inbox --plugin BakeTarget --force');
+        $this->assertExitSuccess();
+        require_once self::PLUGIN . 'src/Mcp/InboxApp.php';
+        require_once self::PLUGIN . 'tests/TestCase/Mcp/InboxAppTest.php';
+        // As in an application's own test run: the test case starts without the plugin loaded.
+        $this->loadPlugins(['BakeTarget' => ['path' => self::PLUGIN]]);
+
+        $class = 'BakeTarget\\Test\\TestCase\\Mcp\\InboxAppTest';
+        $test = new $class('testThePageRenders');
+        $run = function (): void {
+            $this->setUp();
+            try {
+                $this->testThePageRenders();
+            } finally {
+                $this->tearDown();
+            }
+        };
+        Closure::bind($run, $test, $class)();
     }
 
     public function testNoTestOption(): void

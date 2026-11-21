@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\App;
 
 use Cake\View\ViewBuilder;
+use JsonSerializable;
 use Mcp\Schema\Content\TextResourceContents;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\Extension\Apps\UiResourceContentMeta;
@@ -37,8 +38,15 @@ final class AppView
             ->build()
             ->render();
 
-        return new TextResourceContents($uri, McpApps::MIME_TYPE, $html, $meta === null ? null : [
-            'ui' => $meta->jsonSerialize(),
-        ]);
+        // Hosts validate `_meta.ui`, `csp` and `permissions` as objects: an empty one would be sent as `[]`, a list.
+        $ui = $meta?->jsonSerialize() ?? [];
+        foreach (['csp', 'permissions'] as $key) {
+            $value = $ui[$key] ?? null;
+            if ($value instanceof JsonSerializable && $value->jsonSerialize() === []) {
+                unset($ui[$key]);
+            }
+        }
+
+        return new TextResourceContents($uri, McpApps::MIME_TYPE, $html, $ui === [] ? null : ['ui' => $ui]);
     }
 }

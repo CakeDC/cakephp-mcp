@@ -21,6 +21,7 @@ use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
+use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Server\Builder;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
@@ -583,6 +584,20 @@ class McpCheckCommandTest extends TestCase
 
         $this->assertOutputNotContains('names tools that do not exist');
         $this->assertOutputRegExp('/Tools: 2 tools: [^\n]*inbox_rows/');
+    }
+
+    public function testAppsEnabledByTheHookPass(): void
+    {
+        // A 2.1 application that served apps through the hook, without Mcp.apps.
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->enableExtension(new McpApps());
+        });
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('[FAIL] Apps');
+        $this->assertOutputContains('[PASS] Apps:');
     }
 
     public function testAnInheritedExternalAudienceFails(): void

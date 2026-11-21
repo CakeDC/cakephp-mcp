@@ -459,7 +459,8 @@ class McpCheckCommand extends Command
             }
         }
         ksort($links);
-        $enabled = McpConfig::get('apps.enabled', $this->server) === true;
+        // On in the config, or announced by the host hook (as a 2.1 application could).
+        $enabled = $this->factory()->appsAnnounced();
         if (!$enabled) {
             return $links === []
                 ? ['pass', 'off']

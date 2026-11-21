@@ -10,10 +10,16 @@ use Cake\Core\Container;
 use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\App\AppView;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
+use Mcp\Schema\Extension\Apps\McpApps;
+use Mcp\Schema\Extension\Apps\UiResourceContentMeta;
+use Mcp\Schema\Extension\Apps\UiResourceCsp;
+use Mcp\Schema\Extension\Apps\UiResourcePermissions;
+use Mcp\Server\Builder;
 use stdClass;
 
 /**
@@ -75,6 +81,39 @@ class McpAppsTest extends TestCase
         $this->assertStringContainsString('<h1>Inbox: 3 orders to read</h1>', $html);
         $this->assertLessThan(strpos($html, 'new McpApps.App('), strpos($html, 'globalThis.McpApps={'));
         $this->assertSame(['https://api.example.com'], $contents['_meta']['ui']['csp']['connectDomains'] ?? null);
+    }
+
+    public function testEmptyUiMetaIsNeverSentAsAList(): void
+    {
+        $none = AppView::render('ui://test/x', 'McpApps/inbox', ['count' => 1], new UiResourceContentMeta());
+        $this->assertArrayNotHasKey('_meta', (array)json_decode((string)json_encode($none), true));
+
+        $empty = AppView::render('ui://test/x', 'McpApps/inbox', ['count' => 1], new UiResourceContentMeta(
+            csp: new UiResourceCsp(),
+            permissions: new UiResourcePermissions(),
+            prefersBorder: true,
+        ));
+        $meta = json_encode($empty->jsonSerialize()['_meta'] ?? null);
+        $this->assertSame('{"ui":{"prefersBorder":true}}', $meta);
+    }
+
+    public function testTheHookAndTheConfigMayBothEnableApps(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->enableExtension(new McpApps());
+        });
+
+        $capabilities = $this->serve([])->responseFor(1)['result']['capabilities'] ?? [];
+
+        $this->assertArrayHasKey(self::UI, $capabilities['extensions'] ?? []);
+    }
+
+    public function testAppOnlyToolsAreListedForEveryClientWhenAppsAreOff(): void
+    {
+        // A 2.1 application that wrote `visibility: ["app"]` itself, without Mcp.apps.
+        Configure::write('Mcp.apps.enabled', false);
+
+        $this->assertArrayHasKey('inbox_rows', $this->toolsFor([]));
     }
 
     public function testATemplateErrorIsAReadError(): void

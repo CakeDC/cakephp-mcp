@@ -76,7 +76,12 @@ class McpController extends Controller
             $audit = AuditSettings::fromConfig($server);
             if ($audit->enabled) {
                 // Right before authentication, to record the calls it refuses.
-                $middleware[] = new AuditRefusalMiddleware($audit, new AuditWriter($audit), $identity);
+                $middleware[] = new AuditRefusalMiddleware(
+                    $audit,
+                    new AuditWriter($audit),
+                    $identity,
+                    fn(string $tool): bool => $factory->isAppOnlyTool($tool),
+                );
             }
             $middleware[] = $this->authentication($server, $identity, $responseFactory, $streamFactory, $maxBodyBytes);
             $catalog = $this->catalogScopes($server, $responseFactory, $streamFactory, $maxBodyBytes);

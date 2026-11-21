@@ -71,6 +71,11 @@ final class ServerFactory
     private ?RegistryInterface $lastRegistry = null;
 
     /**
+     * Whether the last build announced the MCP Apps extension (from `Mcp.apps.enabled` or the host hook).
+     */
+    private bool $appsAnnounced = false;
+
+    /**
      * @param \Psr\Container\ContainerInterface $container The host container.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The shared current identity.
      * @param string $server The MCP server this factory builds: `default` or a key of `Mcp.servers`.
@@ -152,17 +157,18 @@ final class ServerFactory
             // After the filter, on the tools the caller may see.
             $events->listen(ResponseEvent::class, new ToolSchemaNormalizer());
         }
-        // Clients that do not render apps never get app-only tools listed.
-        $events->listen(ResponseEvent::class, new AppToolFilter());
+        $appsOn = McpConfig::get('apps.enabled', $this->server) === true;
+        if ($appsOn) {
+            // Clients that do not render apps never get app-only tools listed. Only with Mcp.apps on: a 2.1
+            // application that wrote `visibility: ["app"]` itself keeps its tools/list.
+            $events->listen(ResponseEvent::class, new AppToolFilter());
+        }
         // The guard goes first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
         // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
         // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
         $registry = new Registry($events, $logger);
         $builder->setRegistry($registry);
-        if (McpConfig::get('apps.enabled', $this->server) === true) {
-            $builder->enableExtension(new McpApps());
-        }
         $audit = AuditSettings::fromConfig($this->server);
         if ($audit->enabled) {
             $listener = new AuditListener(
@@ -186,6 +192,13 @@ final class ServerFactory
             $events->listen(ErrorEvent::class, $listener->onError(...));
         }
         $this->configure($builder);
+        $extensions = (new ReflectionProperty(Builder::class, 'extensions'))->getValue($builder);
+        $hookEnabledApps = is_array($extensions) && isset($extensions[McpApps::EXTENSION_ID]);
+        if ($appsOn && !$hookEnabledApps) {
+            // After the hook, which may have enabled it already (a 2.1 application serving apps that way).
+            $builder->enableExtension(new McpApps());
+        }
+        $this->appsAnnounced = $appsOn || $hookEnabledApps;
         // The registry the server will use, the plugin's or one the hook set.
         $registry = $this->registryOf($builder);
         if ($catalogOn) {
@@ -548,6 +561,37 @@ final class ServerFactory
         }
 
         return $resources;
+    }
+
+    /**
+     * Whether this server tells clients about MCP Apps: `Mcp.apps.enabled`, or the host hook enabled the extension.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return bool
+     */
+    public function appsAnnounced(): bool
+    {
+        $this->build(true, $this->quietLogger());
+
+        return $this->appsAnnounced;
+    }
+
+    /**
+     * Whether $tool is a registered app-only tool, for the audit records the endpoint writes before the server
+     * runs (a refused token).
+     *
+     * @internal Used by the MCP controller; not part of the public API.
+     * @param string $tool A tool name.
+     * @return bool
+     */
+    public function isAppOnlyTool(string $tool): bool
+    {
+        if ($this->lastRegistry === null) {
+            $this->build(true, $this->quietLogger());
+        }
+        $registry = $this->lastRegistry;
+
+        return $registry !== null && $registry->hasTool($tool) && AppTools::appOnly($registry->getTool($tool)->tool);
     }
 
     /**

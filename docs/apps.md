@@ -15,7 +15,11 @@ step.
 ```
 
 The server then tells clients it serves apps. Clients that do not render apps
-ignore it and keep using your tools as before.
+ignore it and keep using your tools as before. If `Mcp.server.configure`
+already enables the extension (`$builder->enableExtension(new McpApps())`, as
+a 2.1 application could), that keeps working, with or without this setting.
+Leaving app-only tools out of `tools/list` for clients that do not render apps
+happens only with `Mcp.apps.enabled` on.
 
 ## An app
 
@@ -112,5 +116,8 @@ host, so the host vendor's terms apply to it as much as to what the model reads.
 
 `bin/cake mcp check` reports apps on its `Apps` line, and fails when a tool
 links to a resource that is not a registered app page, or when tools link to
-apps while `Mcp.apps.enabled` is off. In tests, call the resource method
-directly to check the page, and the tools with `McpTestTrait` as usual.
+apps while the server does not announce apps (neither `Mcp.apps.enabled` nor
+the hook). In tests, call the resource method directly to check the page (the
+test `bake mcp_app` writes loads the plugin for the page's layout), and the
+tools with `McpTestTrait` as usual. Empty `_meta.ui`, `csp` and `permissions`
+of a page are left out, never sent as empty lists.
