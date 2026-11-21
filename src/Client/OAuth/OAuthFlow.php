@@ -72,8 +72,13 @@ final class OAuthFlow
             'code_challenge_method' => 'S256',
             'resource' => $server->resource,
         ];
-        if ($server->scopes !== []) {
-            $query['scope'] = implode(' ', $server->scopes);
+        // Scope step-up: what the user already had, and what the server asked for with insufficient_scope.
+        $scopes = array_values(array_unique([
+            ...$server->scopes,
+            ...($this->store->get($this->config->name, $userId)?->stepUpScopes() ?? []),
+        ]));
+        if ($scopes !== []) {
+            $query['scope'] = implode(' ', $scopes);
         }
         $url = $server->authorizationUrl;
         $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);

@@ -23,6 +23,8 @@ final class StoredConnection
      * @param string|null $clientSecret Its secret, if it has one.
      * @param string $authMethod How the client authenticates: `none`, `client_secret_basic` or `client_secret_post`.
      * @param string $resource The MCP server the tokens are for (RFC 8707).
+     * @param string|null $stepUpScope The scopes to ask for at the next connect, space separated, after the server
+     *   answered `403 insufficient_scope`; null when it did not.
      */
     public function __construct(
         public readonly string $client,
@@ -38,7 +40,50 @@ final class StoredConnection
         public readonly ?string $clientSecret,
         public readonly string $authMethod,
         public readonly string $resource,
+        public readonly ?string $stepUpScope = null,
     ) {
+    }
+
+    /**
+     * @return list<string> The scopes to ask for at the next connect, empty when the server asked for none more.
+     */
+    public function stepUpScopes(): array
+    {
+        return $this->stepUpScope === null
+            ? []
+            : array_values(array_filter(explode(' ', $this->stepUpScope), fn(string $s): bool => $s !== ''));
+    }
+
+    /**
+     * This grant, marked as needing $scopes too: the granted scopes, those marked before and $scopes.
+     *
+     * @param list<string> $scopes The scopes the server asked for.
+     * @return self
+     */
+    public function withStepUp(array $scopes): self
+    {
+        $granted = $this->scope === null ? [] : explode(' ', $this->scope);
+        $union = array_values(array_unique(array_filter(
+            [...$granted, ...$this->stepUpScopes(), ...$scopes],
+            fn(string $s): bool => $s !== '',
+        )));
+
+        return new self(
+            $this->client,
+            $this->userId,
+            $this->accessToken,
+            $this->refreshToken,
+            $this->expiresAt,
+            $this->scope,
+            $this->issuer,
+            $this->tokenUrl,
+            $this->revocationUrl,
+            $this->clientId,
+            $this->clientSecret,
+            $this->authMethod,
+            $this->resource,
+            implode(' ', $union),
+        );
     }
 
     /**

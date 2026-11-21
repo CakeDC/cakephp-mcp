@@ -294,6 +294,32 @@ client uses user mode. With cakedc/users, `McpConfig::rbacPermissions()` then
 also lets any logged-in user reach the first two, and anyone the document, so add it to `config/permissions.php` as the
 [OAuth guide](oauth.md) shows for the endpoint.
 
+### When the server asks for more scope
+
+A server can refuse a call because the user's token lacks a scope: it answers
+`403` with a `WWW-Authenticate: Bearer error="insufficient_scope", scope="..."`
+challenge. The call still throws, and the user's grant is marked with the
+scopes they already had plus the ones the server asked for. `needsMoreScope()`
+says so, `stepUpScopes()` lists them, and the next connect of that user
+(`connectUrl()`) asks the authorization server for all of them, so nothing
+granted before is lost:
+
+```php
+$linear = McpClients::get('linear')->for($identity);
+try {
+    $linear->callTool('delete_issue', ['id' => $id]);
+} catch (ExceptionInterface $e) {
+    if ($linear->needsMoreScope()) {
+        return $this->redirect($linear->connectUrl('/issues'));
+    }
+    throw $e;
+}
+```
+
+The mark is kept with the grant (column `step_up_scope`, added by the plugin's
+migration of 2026-11-21: run the migrations again after upgrading) and
+cleared when the user connects again. The user stays connected meanwhile.
+
 ### Storing tokens
 
 By default grants are stored in two tables of the plugin,

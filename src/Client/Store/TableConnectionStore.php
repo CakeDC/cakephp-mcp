@@ -75,6 +75,7 @@ class TableConnectionStore implements ConnectionStoreInterface
             $secret,
             (string)$row->get('auth_method'),
             (string)$row->get('resource'),
+            self::nullableString($row->get('step_up_scope')),
         );
     }
 
@@ -102,6 +103,7 @@ class TableConnectionStore implements ConnectionStoreInterface
             'client_secret' => $this->encrypt($connection->clientSecret),
             'auth_method' => $connection->authMethod,
             'resource' => $connection->resource,
+            'step_up_scope' => $connection->stepUpScope,
         ];
         $entity = $row instanceof EntityInterface
             ? $table->patchEntity($row, $data, ['validate' => false])

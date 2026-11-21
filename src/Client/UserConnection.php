@@ -153,6 +153,9 @@ final class UserConnection
         try {
             return $session->call($call);
         } catch (ExceptionInterface $e) {
+            if ($session->lastStatus() === 403) {
+                $this->markStepUp($session->lastChallenge());
+            }
             if ($session->lastStatus() !== 401) {
                 throw $e;
             }
@@ -168,6 +171,48 @@ final class UserConnection
             $this->forget();
 
             throw $this->notConnected();
+        }
+    }
+
+    /**
+     * Whether the server answered a call of this user with `403 insufficient_scope`: send the user to
+     * `connectUrl()` to sign in again with the scopes of `stepUpScopes()`.
+     *
+     * @return bool
+     */
+    public function needsMoreScope(): bool
+    {
+        return $this->stepUpScopes() !== [];
+    }
+
+    /**
+     * @return list<string> The scopes the next connect asks for: those granted plus those the server asked for;
+     *   empty when it asked for none.
+     */
+    public function stepUpScopes(): array
+    {
+        return $this->stored()?->stepUpScopes() ?? [];
+    }
+
+    /**
+     * Marks the grant with the scopes of an `insufficient_scope` challenge, kept until the user connects again.
+     *
+     * @param string|null $challenge The `WWW-Authenticate` header of the 403.
+     * @return void
+     */
+    private function markStepUp(?string $challenge): void
+    {
+        $parameters = $challenge === null ? [] : Discovery::bearerParameters($challenge);
+        if (($parameters['error'] ?? null) !== 'insufficient_scope') {
+            return;
+        }
+        $scopes = array_values(array_filter(
+            explode(' ', $parameters['scope'] ?? ''),
+            fn(string $scope): bool => preg_match('/\A[\x21\x23-\x5B\x5D-\x7E]+\z/', $scope) === 1,
+        ));
+        $stored = $this->stored();
+        if ($stored !== null && $scopes !== []) {
+            $this->registry->store()->save($stored->withStepUp($scopes));
         }
     }
 

@@ -122,6 +122,14 @@ final class ClientSession
     }
 
     /**
+     * @return string|null The `WWW-Authenticate` header of the server's last answer, null when it had none.
+     */
+    public function lastChallenge(): ?string
+    {
+        return $this->http?->lastChallenge();
+    }
+
+    /**
      * @return int|null The HTTP status of the last answer from the server, null for stdio or when none came.
      */
     public function lastStatus(): ?int

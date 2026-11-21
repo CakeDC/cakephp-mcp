@@ -443,7 +443,7 @@ final class Discovery
      * @param string $header The header's values.
      * @return array<string, string> Lowercase parameter name => value, the first of each name.
      */
-    private static function bearerParameters(string $header): array
+    public static function bearerParameters(string $header): array
     {
         $parameters = [];
         $inBearer = false;

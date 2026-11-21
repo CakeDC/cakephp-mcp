@@ -19,6 +19,11 @@ final class WatchedHttpClient implements ClientInterface
     private ?int $lastStatus = null;
 
     /**
+     * The `WWW-Authenticate` header of the last answer, or null.
+     */
+    private ?string $lastChallenge = null;
+
+    /**
      * The raw `result` of the last answer to each list method, for the list cache.
      *
      * @var array<string, array<string, mixed>>
@@ -39,6 +44,7 @@ final class WatchedHttpClient implements ClientInterface
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $this->lastStatus = null;
+        $this->lastChallenge = null;
         $token = $this->config?->callableToken();
         if ($token !== null) {
             $request = $request->withHeader('Authorization', 'Bearer ' . $token);
@@ -47,6 +53,8 @@ final class WatchedHttpClient implements ClientInterface
         unset($this->results[$method]);
         $response = $this->client->sendRequest($request);
         $this->lastStatus = $response->getStatusCode();
+        $challenge = $response->getHeaderLine('WWW-Authenticate');
+        $this->lastChallenge = $challenge === '' ? null : $challenge;
         if (in_array($method, ListCache::METHODS, true) && $response->getStatusCode() === 200) {
             // Read here for its cache hints, which the SDK's list results do not keep, then handed on unread.
             $body = (string)$response->getBody();
@@ -113,6 +121,14 @@ final class WatchedHttpClient implements ClientInterface
         }
 
         return null;
+    }
+
+    /**
+     * @return string|null The `WWW-Authenticate` header of the last answer, null when it had none.
+     */
+    public function lastChallenge(): ?string
+    {
+        return $this->lastChallenge;
     }
 
     /**

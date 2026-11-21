@@ -321,10 +321,10 @@ class McpCheckCommand extends Command
         } catch (InvalidArgumentException $e) {
             return [$e->getMessage()];
         }
-        $tables = $this->fetchTable('CakeDC/Mcp.McpClientConnections')
+        $schema = $this->fetchTable('CakeDC/Mcp.McpClientConnections')
             ->getConnection()
-            ->getSchemaCollection()
-            ->listTables();
+            ->getSchemaCollection();
+        $tables = $schema->listTables();
         $problems = [];
         foreach (['mcp_client_connections', 'mcp_client_registrations'] as $table) {
             if (!in_array($table, $tables, true)) {
@@ -333,6 +333,14 @@ class McpCheckCommand extends Command
                     $table,
                 );
             }
+        }
+        // The column of the plugin's latest migration, which an application that migrated before lacks.
+        if (
+            in_array('mcp_client_connections', $tables, true)
+            && !$schema->describe('mcp_client_connections')->hasColumn('step_up_scope')
+        ) {
+            $problems[] = 'the table mcp_client_connections has no step_up_scope column: run bin/cake migrations '
+                . 'migrate -p CakeDC/Mcp';
         }
 
         return $problems;
