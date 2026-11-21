@@ -113,10 +113,13 @@ class McpCheckCommand extends Command
         $all = McpConfig::servers();
         $broken = McpConfig::serverErrors();
         $only = $args->getOption('server');
+        $failed = false;
         if (is_string($only) && isset($broken[$only])) {
-            $this->runChecks(['Server ' . $only => fn(): array => ['fail', $broken[$only]]], $io);
-
-            return static::CODE_ERROR;
+            $failed = $this->runChecks(['Server ' . $only => fn(): array => ['fail', $broken[$only]]], $io);
+            // An entry named `default` is ignored, and the default server is still checked.
+            if (!in_array($only, $all, true)) {
+                return static::CODE_ERROR;
+            }
         }
         if (is_string($only) && !in_array($only, $all, true)) {
             $io->err(sprintf('<error>"Mcp.servers.%s" is not configured.</error>', $only));
@@ -125,7 +128,6 @@ class McpCheckCommand extends Command
         }
 
         // Entries of Mcp.servers that are not served: the plugin left their routes out.
-        $failed = false;
         if (!is_string($only)) {
             foreach ($broken as $name => $error) {
                 $failed = $this->runChecks(['Server ' . $name => fn(): array => ['fail', $error]], $io) || $failed;

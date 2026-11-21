@@ -8,7 +8,7 @@ use Cake\Log\Log;
 
 /**
  * Logs the config mistakes of `Mcp.servers` and `Mcp.clients` entries at `error` level, once per process
- * per message, to every log engine that takes an unscoped error (the application skeleton's `error`
+ * per message (once per request under PHP-FPM), to every log engine that takes an unscoped error (the application skeleton's `error`
  * logger has `'scopes' => null`) or an error in the `mcp` scope. Each engine gets it once.
  */
 final class ConfigMistakes

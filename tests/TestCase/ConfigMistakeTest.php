@@ -62,6 +62,9 @@ class ConfigMistakeTest extends TestCase
             'clients as a list' => ['clients', ['claude.ai', 'cursor'], 'Mcp.clients'],
             'servers as a list' => ['servers', [['route' => '/mcp/x']], 'Mcp.servers.0'],
             'server name that is a number' => ['servers', ['2024' => ['route' => '/mcp/y']], 'Mcp.servers.2024'],
+            // `scanDir`: the server would scan the default server's src/Mcp.
+            'typo in discovery' => ['servers', ['docs' => ['route' => '/mcp/docs', 'discovery' => ['scanDir' => ['src/McpDocs']]]], 'docs'],
+            'typo in identity' => ['servers', ['docs' => ['route' => '/mcp/docs', 'identity' => ['requried' => false]]], 'docs'],
             'client name that is a number' => ['clients', ['42' => ['url' => 'https://api.example.com/mcp']], '42'],
             // A setting mistake, not a shape one: still logged and reported for that client only.
             'client secret without its issuer' => ['clients', ['notion' => [
@@ -164,6 +167,33 @@ class ConfigMistakeTest extends TestCase
         $this->assertOutputContains($entry);
         // The valid default server is still checked.
         $this->assertOutputContains('Endpoint');
+    }
+
+    public function testAnEntryNamedDefaultIsIgnoredAndTheDefaultServerStillChecked(): void
+    {
+        Configure::write('Mcp.servers.default', ['route' => '/mcp', 'identity' => ['required' => true]]);
+
+        $this->get('/no-such-page');
+        $engine = Log::engine('mcp_mistakes');
+        $this->assertInstanceOf(ArrayLog::class, $engine);
+        $logged = implode("\n", $engine->read());
+        $this->assertStringContainsString('"Mcp.servers.default" is ignored', $logged);
+        $this->assertStringNotContainsString('MCP server "default" is not served', $logged);
+
+        $this->exec('mcp check --server default');
+        $this->assertOutputContains('[FAIL] Server default');
+        $this->assertOutputContains('Endpoint: http://localhost/mcp');
+        $this->assertExitError();
+    }
+
+    public function testAnEmptyIdentityDoesNotPromiseTheDefaultServers(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'identity' => null]);
+
+        $message = McpConfig::serverErrors()['admin'] ?? '';
+
+        $this->assertStringContainsString('"Mcp.servers.admin.identity"', $message);
+        $this->assertStringNotContainsString("the default server's", $message);
     }
 
     public function testABrokenNamedServerIsNotReachable(): void

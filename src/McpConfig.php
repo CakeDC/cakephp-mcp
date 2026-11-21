@@ -96,17 +96,17 @@ final class McpConfig
     public const DEFAULT_SERVER = 'default';
 
     /**
+     * The plugin's controllers that answer at a server's route and at its metadata route.
+     */
+    private const ENDPOINT_CONTROLLERS = ['Mcp', 'ProtectedResource'];
+
+    /**
      * Sections a named server replaces whole when it sets them, so a narrower server never picks up the default
      * server's scopes, rules or tools. `server.configure` follows the same rule. `identity` is never inherited: a
      * named server that does not set it gets the plugin's defaults (an identity is required).
      *
      * @var list<string>
      */
-    /**
-     * The plugin's controllers that answer at a server's route and at its metadata route.
-     */
-    private const ENDPOINT_CONTROLLERS = ['Mcp', 'ProtectedResource'];
-
     private const REPLACED_SECTIONS = ['auth', 'authorization', 'discovery', 'identity'];
 
     /**
@@ -387,9 +387,12 @@ final class McpConfig
             // plugin's permissive defaults: fail closed, as the default server does.
             if (!is_array($named[$section]) || $named[$section] === []) {
                 throw new InvalidArgumentException(sprintf(
-                    '"Mcp.servers.%s.%s" must be a non-empty array; leave it out to use the default server\'s.',
+                    '"Mcp.servers.%s.%s" must be a non-empty array; leave it out to use %s.',
                     $server,
                     $section,
+                    $section === 'identity'
+                        ? "the plugin's default (an identity is required)"
+                        : "the default server's",
                 ));
             }
             self::assertSectionKeys($server, $section, $named[$section]);
@@ -482,10 +485,11 @@ final class McpConfig
                 $section === 'auth' ? 'host mode, where tokens and scopes are not checked' : 'AllowAllToolAuthorizer',
             ));
         }
-        if ($section !== 'authorization') {
-            // `auth` is checked key by key when the endpoint reads it; `discovery` and `identity` open nothing.
+        if ($section === 'auth') {
+            // `auth` is checked key by key when the endpoint reads it.
             return;
         }
+        // A typo would leave the plugin's default: for `discovery`, src/Mcp, the default server's tools.
         foreach (array_keys($values) as $key) {
             if (!array_key_exists($key, self::DEFAULTS[$section])) {
                 throw new InvalidArgumentException(sprintf(

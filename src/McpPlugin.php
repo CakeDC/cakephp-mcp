@@ -39,7 +39,10 @@ class McpPlugin extends BasePlugin
         // A mistake in one entry stops that entry only: it is logged, its routes are not connected and
         // `bin/cake mcp check` fails on it, while the rest of the application keeps working.
         foreach (McpConfig::serverErrors() as $name => $error) {
-            ConfigMistakes::log(sprintf('MCP server "%s" is not served: %s', $name, $error));
+            // An entry named `default` is ignored: the top-level config still serves the default server.
+            ConfigMistakes::log($name === McpConfig::DEFAULT_SERVER
+                ? sprintf('"Mcp.servers.default" is ignored: %s', $error)
+                : sprintf('MCP server "%s" is not served: %s', $name, $error));
         }
         foreach (ClientConfig::errors() as $name => $error) {
             ConfigMistakes::log(sprintf('MCP client "%s" is not usable: %s', $name, $error));

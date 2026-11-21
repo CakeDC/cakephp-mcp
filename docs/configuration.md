@@ -257,9 +257,13 @@ fails instead of falling back to the defaults.
 
 A mistake in one entry of `Mcp.servers` (no `route`, a name that is not a slug,
 a section that is `null`) stops that server only. The plugin logs it as an
-error, once per PHP process, to the loggers that take messages without a scope
-(the application skeleton's `error` log) and to those of the `mcp` scope, and
-does not connect its routes, so its URL reaches no MCP server.
+error, once per PHP process (under PHP-FPM that is once per request; a
+long-running worker logs it once), to the loggers that take messages without a
+scope (the application skeleton's `error` log) and to those of the `mcp`
+scope, and does not connect its routes, so its URL reaches no MCP server. A
+typo inside `discovery`, `identity` or `authorization` is such a mistake. An
+entry named `default` is ignored, and logged: the top-level `Mcp` config is
+the default server.
 The rest of the application and the other servers keep working, and
 `bin/cake mcp check` fails with a `Server <name>` line that names the mistake.
 
