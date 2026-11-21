@@ -104,7 +104,8 @@ class McpPlugin extends BasePlugin
         }
 
         // The sign-in of user mode clients (Mcp.clients with `auth` `user`), only when one is configured.
-        if (ClientConfig::anyUserMode()) {
+        // Never at the site's root: a route that is not a path is a logged mistake, and `mcp check` fails on it.
+        if (ClientConfig::anyUserMode() && ClientConfig::routeError() === null) {
             $base = '/' . trim((string)ClientConfig::setting('route'), '/');
             // The Client ID Metadata Document (client.json), which authorization servers fetch.
             $actions = ['connect' => 'connect', 'callback' => 'callback', 'client.json' => 'metadata'];

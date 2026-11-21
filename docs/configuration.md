@@ -415,7 +415,7 @@ an error the same way as a server's, the other clients and the application keep 
 
 Shared settings:
 
-- `client.route`: the path under which user mode clients get their connect and callback routes (`<route>/<name>/connect`, `<route>/<name>/callback`). Default `/mcp-client`. Connected only when a client uses user mode.
+- `client.route`: the path under which user mode clients get their connect and callback routes (`<route>/<name>/connect`, `<route>/<name>/callback`). Default `/mcp-client`. Connected only when a client uses user mode. A value that is not a path (`false`, `''`, `'/'`) connects nothing, is logged, and fails `bin/cake mcp check`.
 - `client.store`: the class of the `ConnectionStoreInterface` that keeps user grants. Default `TableConnectionStore` (the plugin's tables; run `bin/cake migrations migrate -p CakeDC/Mcp`).
 - `client.encryptionKey`: the key tokens and client secrets are encrypted with, at least 32 bytes. Default `null`: `Security.salt`.
 - `client.name`, `client.version`: how the application introduces itself to servers and authorization servers. Default `CakePHP MCP Client`, `1.0.0`.

@@ -8,6 +8,7 @@ use Cake\Datasource\ConnectionManager;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\McpConfig;
@@ -184,6 +185,19 @@ class McpClientControllerTest extends TestCase
 
         $this->assertRedirect('/settings');
         $this->assertFlashMessage('The connection to linear could not be started. Try again later.');
+    }
+
+    public function testAnInvalidSignInRouteConnectsNothing(): void
+    {
+        foreach ([false, '', '/', 42] as $route) {
+            Configure::write('Mcp.client.route', $route);
+            Router::reload();
+            $this->session(['Auth' => ['id' => 1]]);
+
+            $this->get('/linear/connect');
+            $this->assertResponseCode(404, var_export($route, true));
+            $this->assertArrayHasKey('Mcp.client.route', ClientConfig::errors(), var_export($route, true));
+        }
     }
 
     public function testRoutesOnlyWithAUserModeClient(): void

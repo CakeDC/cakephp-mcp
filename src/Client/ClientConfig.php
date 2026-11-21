@@ -219,6 +219,22 @@ final class ClientConfig
     }
 
     /**
+     * What is wrong with `Mcp.client.route`, the base path of the sign-in routes, or null when it is a path.
+     *
+     * @return string|null
+     */
+    public static function routeError(): ?string
+    {
+        $route = self::setting('route');
+        if (is_string($route) && trim($route, '/') !== '') {
+            return null;
+        }
+
+        return '"Mcp.client.route" must be the path the sign-in routes of user mode clients go under, such as '
+            . '"/mcp-client"; they are not connected.';
+    }
+
+    /**
      * `Mcp.client.proxy`: the proxy every client HTTP request goes through, or null to connect directly.
      *
      * @return string|null An `http`, `https`, `socks5` or `socks5h` URL with a host, maybe a user and password and
@@ -579,6 +595,10 @@ final class ClientConfig
     public static function errors(): array
     {
         [$valid, $errors] = self::scan();
+        $route = self::routeError();
+        if ($route !== null) {
+            $errors['Mcp.client.route'] = $route;
+        }
         foreach (array_keys($valid) as $name) {
             try {
                 self::fromConfig($name);
