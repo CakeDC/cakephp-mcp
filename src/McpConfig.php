@@ -444,6 +444,7 @@ final class McpConfig
             foreach ($values as $value) {
                 $missing = array_values(array_diff($params, self::routeParams($value)));
                 if ($missing === []) {
+                    self::assertParamsApart($server, $key, $value);
                     continue;
                 }
                 throw new InvalidArgumentException(sprintf(
@@ -456,6 +457,38 @@ final class McpConfig
                     $missing[0],
                     $missing[0],
                     implode('}, {', $missing),
+                ));
+            }
+        }
+    }
+
+    /**
+     * Two parameters of a bound value must be kept apart by a character a value cannot hold (`/`, `.`, `:`): with
+     * `{org}-{team}`, the values (`x-y`, `z`) and (`x`, `y-z`) give the same resource or audience, so a token for
+     * one would be accepted for the other.
+     *
+     * @param string $server The named server.
+     * @param string $key The setting, for the message.
+     * @param string $value Its value.
+     * @return void
+     * @throws \InvalidArgumentException
+     */
+    private static function assertParamsApart(string $server, string $key, string $value): void
+    {
+        $parts = preg_split('/(\{[^}\/]+\})/', $value, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [];
+        // Odd indexes are the placeholders; the even one between two of them is what separates them.
+        $count = count($parts);
+        for ($i = 3; $i < $count; $i += 2) {
+            if (preg_match('/^' . self::ROUTE_VALUE . '$/', $parts[$i - 1]) === 1 || $parts[$i - 1] === '') {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.servers.%s.%s" is "%s", with nothing between %s and %s that a value cannot hold: two '
+                    . 'pairs of values would give the same %s. Separate them with "/", "." or ":".',
+                    $server,
+                    $key,
+                    $value,
+                    $parts[$i - 2],
+                    $parts[$i],
+                    $key === 'auth.resource' ? 'resource' : 'audience',
                 ));
             }
         }

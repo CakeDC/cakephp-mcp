@@ -416,6 +416,27 @@ class McpConfigTest extends TestCase
         $this->assertSame([], McpConfig::serverErrors());
     }
 
+    public function testTwoParametersMustBeKeptApartInABoundValue(): void
+    {
+        $external = fn(string $audience): array => ['mode' => 'external', 'external' => [
+            'issuer' => 'https://login.example.com',
+            'audience' => $audience,
+        ]];
+        // A value may hold `-`, so (x-y, z) and (x, y-z) would both be api://mcp/x-y-z.
+        foreach (['api://mcp/{org}-{team}', 'api://mcp/{org}{team}', 'api://mcp/{org}_{team}'] as $audience) {
+            Configure::write('Mcp.servers.teams', ['route' => '/mcp/{org}/{team}', 'auth' => $external($audience)]);
+            $this->assertStringContainsString(
+                'with nothing between {org} and {team} that a value cannot hold',
+                McpConfig::serverErrors()['teams'] ?? '',
+                $audience,
+            );
+        }
+        foreach (['api://mcp/{org}/{team}', 'api://mcp/{org}.{team}', 'api://{team}@{org}'] as $audience) {
+            Configure::write('Mcp.servers.teams', ['route' => '/mcp/{org}/{team}', 'auth' => $external($audience)]);
+            $this->assertSame([], McpConfig::serverErrors(), $audience);
+        }
+    }
+
     public function testANamedServersAuthNeedsAMode(): void
     {
         Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin', 'auth' => ['scopes' => ['default' => ['admin']]]]]);

@@ -356,7 +356,9 @@ metadata URL (`/.well-known/oauth-protected-resource/mcp/t/acme`) are derived
 with the value of the request, so a token issued for one tenant is refused for
 another. A configured `auth.resource` or `external.audience` must hold the
 same `{tenant}` placeholder (`'audience' => 'api://mcp/{tenant}'`), every
-parameter of the route when it has several. A fixed one would accept a token
+parameter of the route when it has several, kept apart by a character a value
+cannot hold (`api://mcp/{org}/{team}`, not `{org}-{team}`, where `x-y`, `z`
+and `x`, `y-z` would give the same audience). A fixed one would accept a token
 for one value on another, so it stops that server: its routes are not
 connected, the mistake is logged, and `bin/cake mcp check` fails on it, as
 with any other mistake in a named server. In `oauth` mode, declare in
