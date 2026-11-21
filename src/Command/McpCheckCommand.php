@@ -1010,6 +1010,16 @@ class McpCheckCommand extends Command
         if ($settings->mode === AuthSettings::HOST) {
             return ['pass', 'not used in host mode'];
         }
+        $declared = $this->declaredRouteValues();
+        if ($declared !== null && $declared['values'] === []) {
+            return ['fail', sprintf(
+                'no resource in OAuthServer.resources fits %s: declare the resource of each value of the route, '
+                . 'see %s',
+                $declared['pattern'],
+                self::DOCS . 'configuration.md#routes-with-parameters',
+            )];
+        }
+        $settings = AuthSettings::fromConfig($this->server, $this->routeSample());
         $server = new ResourceServer($settings);
         $metadata = $server->metadata();
         $server->validator(new CurrentIdentity());
@@ -1020,6 +1030,15 @@ class McpCheckCommand extends Command
             $metadata->getMetadataUrl(),
             $scopes === [] ? 'none declared' : implode(' ', $scopes),
         );
+        if ($declared !== null) {
+            $count = count($declared['values']);
+            $message .= sprintf(
+                '; %d declared %s %s',
+                $count,
+                $count === 1 ? 'resource fits' : 'resources fit',
+                $declared['pattern'],
+            );
+        }
         $audiences = $settings->external?->audiences;
         if ($audiences === null) {
             return ['pass', $message];
@@ -1049,18 +1068,23 @@ class McpCheckCommand extends Command
         if (!is_string($route) || $route === '') {
             return ['pass', 'no HTTP endpoint'];
         }
+        $declared = $this->declaredRouteValues();
+        if ($declared !== null && $declared['values'] === []) {
+            return ['fail', 'no declared resource fits the route, see the Resource line'];
+        }
+        $values = $this->routeSample();
         try {
             $url = Router::url([
                 'plugin' => 'CakeDC/Mcp',
                 'controller' => 'ProtectedResource',
                 'action' => 'metadata',
                 'prefix' => false,
-            ] + ($this->server === McpConfig::DEFAULT_SERVER ? [] : ['server' => $this->server]));
+            ] + ($this->server === McpConfig::DEFAULT_SERVER ? [] : ['server' => $this->server]) + $values);
         } catch (MissingRouteException) {
             return ['fail', 'the metadata route of the plugin is not connected: load the plugin routes'];
         }
         $advertised = (string)parse_url(
-            (new ResourceServer($settings))->metadata()->getMetadataUrl(),
+            (new ResourceServer(AuthSettings::fromConfig($this->server, $values)))->metadata()->getMetadataUrl(),
             PHP_URL_PATH,
         );
         if ($url !== $advertised) {
@@ -1076,12 +1100,64 @@ class McpCheckCommand extends Command
     }
 
     /**
+     * The values to probe this server's route with: none on a fixed route; in oauth mode those of the first
+     * resource declared in OAuthServer.resources that fits the route's resource; otherwise `sample` for each
+     * parameter. A probe of the pattern itself (`/mcp/t/{tenant}`) is no request the server ever answers.
+     *
+     * @return array<string, string>
+     */
+    private function routeSample(): array
+    {
+        $params = McpConfig::routeParams(McpConfig::get('route', $this->server));
+        if ($params === []) {
+            return [];
+        }
+
+        return $this->declaredRouteValues()['values'][0] ?? array_fill_keys($params, 'sample');
+    }
+
+    /**
+     * In oauth mode on a route with parameters, the values of each resource declared in OAuthServer.resources that
+     * fits the server's resource pattern (`http://localhost/mcp/t/{tenant}`); null otherwise.
+     *
+     * @return array{pattern: string, values: list<array<string, string>>}|null
+     */
+    private function declaredRouteValues(): ?array
+    {
+        if (McpConfig::routeParams(McpConfig::get('route', $this->server)) === []) {
+            return null;
+        }
+        try {
+            $settings = AuthSettings::fromConfig($this->server);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+        if ($settings->mode !== AuthSettings::OAUTH || !$this->oauthServerInstalled()) {
+            return null;
+        }
+        $pattern = $settings->resource;
+        $regex = '#^' . preg_replace(
+            '/\\\{([A-Za-z_][A-Za-z0-9_]*)\\\}/',
+            '(?P<$1>' . McpConfig::ROUTE_VALUE . ')',
+            preg_quote($pattern, '#'),
+        ) . '$#';
+        $values = [];
+        foreach (OAuthServer::server()->config()->resources->all() as $resource) {
+            if (preg_match($regex, $resource->identifier, $match) === 1) {
+                $values[] = array_filter($match, 'is_string', ARRAY_FILTER_USE_KEY);
+            }
+        }
+
+        return ['pattern' => $pattern, 'values' => $values];
+    }
+
+    /**
      * @return array{0: 'pass'|'warn'|'fail', 1: string}
      */
     private function hosts(): array
     {
         $allowed = McpConfig::allowedHosts($this->server);
-        $settings = AuthSettings::fromConfig($this->server);
+        $settings = AuthSettings::fromConfig($this->server, $this->routeSample());
         if ($settings->mode === AuthSettings::HOST) {
             return ['pass', implode(', ', $allowed)];
         }
@@ -1117,7 +1193,10 @@ class McpCheckCommand extends Command
             }
             $callback = (new ReflectionProperty(CsrfProtectionMiddleware::class, 'skipCheckCallback'))
                 ->getValue($middleware);
-            $request = new ServerRequest(['url' => $route, 'environment' => ['REQUEST_METHOD' => 'POST']]);
+            $request = new ServerRequest([
+                'url' => McpConfig::withRouteValues($route, $this->routeSample()),
+                'environment' => ['REQUEST_METHOD' => 'POST'],
+            ]);
 
             return is_callable($callback) && $callback($request) === true
                 ? ['pass', 'the MCP route is skipped']
@@ -1148,6 +1227,7 @@ class McpCheckCommand extends Command
             return ['warn', $app . '; its authenticators were not inspected'];
         }
         $prefix = OAuthServer::server()->config()->tokenPrefix;
+        $route = McpConfig::withRouteValues($route, $this->routeSample());
         $probe = (new ServerRequest(['url' => $route, 'environment' => ['REQUEST_METHOD' => 'POST']]))
             ->withHeader('Authorization', 'Bearer ' . $prefix . '_at_' . str_repeat('A', 43));
         if (!$app instanceof AuthenticationServiceProviderInterface) {
