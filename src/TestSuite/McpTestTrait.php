@@ -20,6 +20,7 @@ use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Server\Authorization\AccessToken;
 use PHPUnit\Framework\Assert;
 use stdClass;
@@ -1141,7 +1142,10 @@ trait McpTestTrait
             [
                 (string)json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
                     'protocolVersion' => ProtocolVersion::latestHandshake()->value,
-                    'capabilities' => new stdClass(),
+                    // With MCP Apps on, the trait is a host that renders apps, so app-only tools are listed to it.
+                    'capabilities' => McpConfig::get('apps.enabled', $this->_mcpServer) === true
+                        ? ['extensions' => [McpApps::EXTENSION_ID => ['mimeTypes' => [McpApps::MIME_TYPE]]]]
+                        : new stdClass(),
                     'clientInfo' => ['name' => 'McpTestTrait', 'version' => '1.0'],
                 ]]),
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),

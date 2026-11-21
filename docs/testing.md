@@ -136,7 +136,9 @@ the call fails with a message saying so.
 `assertMcpToolListed($name)` and `assertMcpToolNotListed($name)` check what the
 current identity sees in `tools/list`. They make their own call.
 `assertMcpToolNotListed()` also checks that the tool exists, for the same
-reason as `assertMcpToolDenied()`.
+reason as `assertMcpToolDenied()`. With `Mcp.apps.enabled` on, the trait tells
+the server it renders apps, as an MCP Apps host does, so app-only tools are
+listed to it unless the authorizer hides them.
 
 `assertMcpToolListedFor($identity, $name)` and
 `assertMcpToolNotListedFor($identity, $name)` do the same for another identity,

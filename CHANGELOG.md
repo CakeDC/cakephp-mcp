@@ -25,6 +25,7 @@ Behaviour changes a 2.1 application can notice, without changing its config or c
 - Named servers with `'route' => false` are served over stdio only (`bin/cake mcp server --server <name>`), with no HTTP routes.
 - `Mcp.server.icons`: icons in the server info.
 - `find_tools` matches whole words in any language (a query in Spanish no longer matches single letters), also searches the names and descriptions of tool arguments, takes a query of at most 200 characters, and caps its result at 64 KiB of tools with `hasMore`.
+- `McpTestTrait` with `Mcp.apps.enabled` on tells the server it renders apps, so `tools/list` and the `Listed` assertions see app-only tools as an MCP Apps host does.
 - `McpTestTrait`: `assertMcpStructuredContentSubset()`, `assertMcpStructuredContentCount()`, `assertMcpStructuredContentType()`, `assertMcpCompletionContains()`, and `assertMcpPromptListedFor()`, `assertMcpPromptNotListedFor()`, `assertMcpResourceListedFor()`, `assertMcpResourceNotListedFor()`.
 - An `Mcp-*` header that is not valid UTF-8 is answered with `400` and a JSON-RPC `-32600` error naming the header, instead of a `500`.
 - Docs: the sandbox `domain` of an MCP App page is left to the host, and set from its documentation.

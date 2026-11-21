@@ -192,6 +192,21 @@ class McpTestTraitTest extends TestCase
         $this->assertMcpToolNotListed('inbox_rows');
     }
 
+    public function testWithAppsOnTheTraitSeesWhatAnAppsHostSees(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+
+        // App-only, and nothing hides it from this identity.
+        $this->assertMcpToolListed('inbox_rows');
+        try {
+            $this->assertMcpToolNotListed('inbox_rows');
+            $this->fail('An app-only tool every identity may use is reported as not listed.');
+        } catch (AssertionFailedError $e) {
+            $this->assertStringNotContainsString('every identity may use', $e->getMessage());
+        }
+    }
+
     public function testDeniedFailsWhenTheCallSucceeded(): void
     {
         $this->mcpCallTool('echo', ['text' => 'hi']);
