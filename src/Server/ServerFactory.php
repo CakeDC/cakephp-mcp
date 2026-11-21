@@ -44,6 +44,8 @@ use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\Icon;
 use Mcp\Schema\JsonRpc\Request;
+use Mcp\Schema\Request\GetPromptRequest;
+use Mcp\Schema\Request\ReadResourceRequest;
 use Mcp\Schema\Tool;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
@@ -236,6 +238,21 @@ final class ServerFactory
                 },
                 via: function (Request $request) use (&$toolCatalog): ?string {
                     return $toolCatalog?->made($request) ? ToolCatalog::CALL : null;
+                },
+                contentDenied: function (Request $request) use (&$registry, $contentGate): bool {
+                    if ($request instanceof ReadResourceRequest && !$contentGate->allowsRead($request->uri)) {
+                        try {
+                            $registry->getResource($request->uri);
+
+                            return true;
+                        } catch (ResourceNotFoundException) {
+                            return false;
+                        }
+                    }
+
+                    return $request instanceof GetPromptRequest
+                        && !$contentGate->allowsPrompt($request->name)
+                        && $registry->hasPrompt($request->name);
                 },
             );
             $events->listen(RequestEvent::class, $listener->onRequest(...));

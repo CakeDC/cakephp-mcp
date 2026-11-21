@@ -546,14 +546,14 @@ named in the `mcp` log) and makes `bin/cake mcp check` fail.
 | `ok` | the call worked | `info` |
 | `tool_error` | the tool answered with an error (`ToolCallException`, `ToolError::invalid()`) | `notice` |
 | `invalid` | an unknown tool or invalid arguments | `notice` |
-| `denied` | the authorizer denied the tool | `warning` |
+| `denied` | the authorizer denied the tool, or the resource read or prompt got (when `Mcp.audit.methods` lists `resources/read` or `prompts/get`) | `warning` |
 | `error` | the tool threw, or another JSON-RPC error | `warning` |
 | `unauthorized` | `401` from authentication, before the server runs | `warning` |
 | `insufficient_scope` | `403`: the access token lacks a scope | `warning` |
 
-A denied tool still gets the same answer as an unknown one (see
-[Authorization](authorization.md#what-a-denied-caller-sees)); only the record
-tells them apart.
+A denied tool, resource or prompt still gets the same answer as an unknown one
+(see [Authorization](authorization.md#what-a-denied-caller-sees)); only the
+record tells them apart.
 
 Limits:
 

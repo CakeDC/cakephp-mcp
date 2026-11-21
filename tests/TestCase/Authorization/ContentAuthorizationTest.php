@@ -6,6 +6,8 @@ namespace CakeDC\Mcp\Test\TestCase\Authorization;
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
+use Cake\Event\EventInterface;
+use Cake\Event\EventManager;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ResourceAuthorizerInterface;
@@ -88,6 +90,30 @@ class ContentAuthorizationTest extends TestCase
 
         // It exists (its handler fails), and the authorizer denied it.
         $this->assertMcpResourceDenied();
+    }
+
+    public function testADeniedReadOrGetIsAuditedAsDenied(): void
+    {
+        Configure::write('Mcp.audit', ['enabled' => true, 'log' => false, 'methods' => ['resources/read', 'prompts/get']]);
+        $records = [];
+        $listener = function (EventInterface $event) use (&$records): void {
+            $records[] = $event->getData();
+        };
+        EventManager::instance()->on('Mcp.audit', $listener);
+        try {
+            $this->mcpReadResource('app://salaries');
+            $this->mcpReadResource('app://salaries2');
+            $this->mcpReadResource('orders://2001');
+            $this->mcpGetPrompt('payroll');
+            $this->mcpGetPrompt('payroll2');
+        } finally {
+            EventManager::instance()->off('Mcp.audit', $listener);
+        }
+
+        $this->assertSame(
+            ['app://salaries' => 'denied', 'app://salaries2' => 'error', 'orders://2001' => 'denied', 'payroll' => 'denied', 'payroll2' => 'invalid'],
+            array_column($records, 'outcome', 'name'),
+        );
     }
 
     public function testResourceDeniedFailsForAnUnknownUri(): void

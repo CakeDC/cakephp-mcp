@@ -59,6 +59,8 @@ final class AuditListener
      *   it, every tool the gate refuses is recorded as denied.
      * @param \Closure|null $appOnly `fn(string $name): bool`, whether a tool is for MCP Apps only (`app=1` in records).
      * @param \Closure|null $via `fn(Request $request): ?string`, the plugin tool that made a call (`call_tools`).
+     * @param \Closure|null $contentDenied `fn(Request $request): bool`, whether the authorizer denied a
+     *   `resources/read` or `prompts/get` of something that exists: answered like an unknown one, recorded denied.
      */
     public function __construct(
         private readonly AuditSettings $settings,
@@ -69,6 +71,7 @@ final class AuditListener
         ?Closure $toolExists = null,
         private readonly ?Closure $appOnly = null,
         private readonly ?Closure $via = null,
+        private readonly ?Closure $contentDenied = null,
     ) {
         $this->clock = $clock ?? fn(): float => microtime(true);
         $this->toolExists = $toolExists;
@@ -193,6 +196,7 @@ final class AuditListener
         $error = $event->getError();
         $outcome = match (true) {
             $request instanceof CallToolRequest && $this->isDenied($request->name) => AuditRecord::DENIED,
+            !$request instanceof CallToolRequest && $this->isContentDenied($request) => AuditRecord::DENIED,
             $error->code === Error::INVALID_PARAMS => AuditRecord::INVALID,
             default => AuditRecord::ERROR,
         };
@@ -235,6 +239,22 @@ final class AuditListener
             $this->via === null ? null : ($this->via)($request),
             $request instanceof CallToolRequest && $this->appOnly !== null && ($this->appOnly)($request->name) === true,
         ));
+    }
+
+    /**
+     * @param \Mcp\Schema\JsonRpc\Request $request A request that failed.
+     * @return bool Whether the authorizer denied what it reads or gets (never when the authorizer itself failed).
+     */
+    private function isContentDenied(Request $request): bool
+    {
+        if ($this->contentDenied === null) {
+            return false;
+        }
+        try {
+            return ($this->contentDenied)($request) === true;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**
