@@ -46,6 +46,9 @@ class CreateMcpClientTables extends CakeDCMcpMigration
             // The scopes a server asked this user for with `403 insufficient_scope`, which the next connect asks
             // the authorization server for (scope step-up).
             ->addColumn('step_up_scope', 'text', ['null' => true])
+            // The scopes the sign-in that made this grant asked for: a step-up never asks again for scopes the
+            // authorization server was already asked for and did not grant (a retry limit, so no redirect loop).
+            ->addColumn('requested_scope', 'text', ['null' => true])
             // The request refreshing the grant, so that two requests never send the same refresh token.
             ->addColumn('refresh_claim_id', 'string', ['limit' => 36, 'null' => true])
             ->addColumn('refresh_claimed_at', 'datetime', ['null' => true])

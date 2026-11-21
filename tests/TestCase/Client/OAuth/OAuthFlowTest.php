@@ -132,6 +132,8 @@ class OAuthFlowTest extends TestCase
         $this->assertSame('at-1', $connection->accessToken);
         $this->assertSame('rt-1', $connection->refreshToken);
         $this->assertSame((new DateTime('2026-11-20 11:00:00'))->getTimestamp(), $connection->expiresAt);
+        // What this sign-in asked for, so a later step-up does not ask for it again.
+        $this->assertSame(['read', 'write', 'offline_access'], $connection->requestedScopes());
         $this->assertEquals($connection, $this->store->get('linear', '7'));
         $this->assertSame(FakeOAuthServer::ISSUER . '/revoke', $connection->revocationUrl);
     }

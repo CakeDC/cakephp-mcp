@@ -347,6 +347,15 @@ try {
 The mark is kept with the grant (column `step_up_scope` of
 `mcp_client_connections`) and cleared when the user connects again. The user stays connected meanwhile.
 
+A step-up is tried once per scope. The grant remembers what the sign-in that
+made it asked for (column `requested_scope`), and a challenge that names only
+scopes that sign-in already asked for marks nothing: the authorization server
+was asked and did not grant them (the user does not have them, or it trims
+scopes), so connecting again would ask for the same. `needsMoreScope()` stays
+false and the call's error reaches your code, so the example above does not
+send the user round in a loop. A challenge with a scope not asked for yet
+marks the grant as usual.
+
 ### Storing tokens
 
 By default grants are stored in two tables of the plugin,

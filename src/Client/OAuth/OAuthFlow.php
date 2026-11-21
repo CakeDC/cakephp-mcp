@@ -161,6 +161,8 @@ final class OAuthFlow
             $secret,
             $pending->authMethod,
             $pending->resource,
+            null,
+            $pending->scope,
         );
         $this->store->save($connection);
 

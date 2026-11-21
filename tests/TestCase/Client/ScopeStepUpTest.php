@@ -144,6 +144,42 @@ class ScopeStepUpTest extends TestCase
         McpClients::setRegistry($registry);
     }
 
+    public function testScopesTheLastSignInAlreadyAskedForAreNotAskedForAgain(): void
+    {
+        // The user signed in asking for them, and the authorization server did not grant them (the user does not
+        // have them, or it trims scopes): connecting again would ask for the same, so the user is not sent back.
+        $stored = $this->store->get('linear', '7');
+        $this->assertNotNull($stored);
+        $this->store->save(new StoredConnection(
+            'linear',
+            '7',
+            'at-seed',
+            'rt-seed',
+            $stored->expiresAt,
+            'read write',
+            FakeOAuthServer::ISSUER,
+            FakeOAuthServer::ISSUER . '/token',
+            FakeOAuthServer::ISSUER . '/revoke',
+            'dyn-client-1',
+            null,
+            'none',
+            FakeOAuthServer::MCP,
+            null,
+            'read write files:write admin offline_access',
+        ));
+        $user = McpClients::get('linear')->for(7);
+
+        try {
+            $user->callTool('delete_all');
+            $this->fail('No error');
+        } catch (ExceptionInterface) {
+            $this->addToAssertionCount(1);
+        }
+
+        $this->assertFalse($user->needsMoreScope());
+        $this->assertSame([], $user->stepUpScopes());
+    }
+
     public function testTheMarkIsBounded(): void
     {
         $stored = $this->store->get('linear', '7');

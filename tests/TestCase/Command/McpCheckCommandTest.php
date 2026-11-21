@@ -1084,14 +1084,15 @@ class McpCheckCommandTest extends TestCase
     {
         Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
         $db = ConnectionManager::get('test');
-        $db->execute('ALTER TABLE mcp_client_connections DROP COLUMN step_up_scope');
+        // The newest column: a table of an older pre-release lacks it too.
+        $db->execute('ALTER TABLE mcp_client_connections DROP COLUMN requested_scope');
         try {
             $this->exec('mcp check');
         } finally {
-            $db->execute('ALTER TABLE mcp_client_connections ADD COLUMN step_up_scope TEXT NULL');
+            $db->execute('ALTER TABLE mcp_client_connections ADD COLUMN requested_scope TEXT NULL');
         }
 
-        $this->assertOutputContains('[FAIL] Clients: the table mcp_client_connections has no step_up_scope column');
+        $this->assertOutputContains('[FAIL] Clients: the table mcp_client_connections has no requested_scope column');
         $this->assertOutputContains('a pre-release of 2.2 created it: run bin/cake migrations rollback -p CakeDC/Mcp');
     }
 

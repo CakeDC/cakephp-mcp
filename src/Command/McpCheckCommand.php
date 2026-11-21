@@ -347,9 +347,9 @@ class McpCheckCommand extends Command
         // is the same.
         if (
             in_array('mcp_client_connections', $tables, true)
-            && !$schema->describe('mcp_client_connections')->hasColumn('step_up_scope')
+            && !$schema->describe('mcp_client_connections')->hasColumn('requested_scope')
         ) {
-            $problems[] = 'the table mcp_client_connections has no step_up_scope column, so a pre-release of 2.2 '
+            $problems[] = 'the table mcp_client_connections has no requested_scope column, so a pre-release of 2.2 '
                 . 'created it: run bin/cake migrations rollback -p CakeDC/Mcp, then bin/cake migrations migrate -p '
                 . 'CakeDC/Mcp (users connect again)';
         }

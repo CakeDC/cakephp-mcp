@@ -212,6 +212,11 @@ final class UserConnection
             fn(string $scope): bool => preg_match('/\A[\x21\x23-\x5B\x5D-\x7E]+\z/', $scope) === 1,
         ));
         $stored = $this->stored();
+        // A retry limit (MCP authorization, step-up): scopes the last sign-in already asked for were not granted,
+        // and connecting again would ask for the same. The call fails; the user is not sent round again.
+        if ($stored !== null && array_diff($scopes, $stored->requestedScopes()) === []) {
+            return;
+        }
         if ($stored !== null && $scopes !== []) {
             // Only the mark: the tokens may have been refreshed by another request since they were read.
             $this->registry->store()->markStepUp(

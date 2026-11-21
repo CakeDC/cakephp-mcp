@@ -35,6 +35,8 @@ final class StoredConnection
      * @param string $resource The MCP server the tokens are for (RFC 8707).
      * @param string|null $stepUpScope The scopes to ask for at the next connect, space separated, after the server
      *   answered `403 insufficient_scope`; null when it did not.
+     * @param string|null $requestedScope The scopes the sign-in that made this grant asked for, space separated;
+     *   null when it asked for none or the grant is not a user's sign-in.
      */
     public function __construct(
         public readonly string $client,
@@ -51,7 +53,18 @@ final class StoredConnection
         public readonly string $authMethod,
         public readonly string $resource,
         public readonly ?string $stepUpScope = null,
+        public readonly ?string $requestedScope = null,
     ) {
+    }
+
+    /**
+     * @return list<string> The scopes the sign-in that made this grant asked for.
+     */
+    public function requestedScopes(): array
+    {
+        return $this->requestedScope === null
+            ? []
+            : array_values(array_filter(explode(' ', $this->requestedScope), fn(string $s): bool => $s !== ''));
     }
 
     /**
@@ -104,6 +117,7 @@ final class StoredConnection
             $this->authMethod,
             $this->resource,
             implode(' ', $union),
+            $this->requestedScope,
         );
     }
 
@@ -130,6 +144,8 @@ final class StoredConnection
             $this->clientSecret,
             $this->authMethod,
             $this->resource,
+            $this->stepUpScope,
+            $this->requestedScope,
         );
     }
 

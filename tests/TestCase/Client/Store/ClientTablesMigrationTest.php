@@ -26,5 +26,6 @@ class ClientTablesMigrationTest extends TestCase
         $columns = $db->getSchemaCollection()->describe('mcp_client_connections')->columns();
 
         $this->assertContains('step_up_scope', $columns);
+        $this->assertContains('requested_scope', $columns);
     }
 }

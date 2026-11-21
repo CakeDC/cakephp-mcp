@@ -78,6 +78,7 @@ class TableConnectionStore implements ConnectionStoreInterface
             (string)$row->get('auth_method'),
             (string)$row->get('resource'),
             self::nullableString($row->get('step_up_scope')),
+            self::nullableString($row->get('requested_scope')),
         );
     }
 
@@ -102,6 +103,7 @@ class TableConnectionStore implements ConnectionStoreInterface
             'auth_method' => $connection->authMethod,
             'resource' => $connection->resource,
             'step_up_scope' => $connection->stepUpScope,
+            'requested_scope' => $connection->requestedScope,
             // A refresh of the grant replaced here must not write the old grant's tokens over this one.
             'refresh_claim_id' => null,
             'refresh_claimed_at' => null,
