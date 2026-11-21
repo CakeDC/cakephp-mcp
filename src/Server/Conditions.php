@@ -42,18 +42,20 @@ final class Conditions
             ksort($references, SORT_STRING);
             foreach ($references as $key => $element) {
                 $key = (string)$key;
-                $condition = HandlerAttributes::first($get($key), McpWhen::class);
-                if ($condition === null) {
-                    continue;
-                }
-                try {
-                    $allowed = $condition->allows($server);
-                } catch (InvalidArgumentException $exception) {
-                    throw new InvalidArgumentException(sprintf('%s %s: %s', $kind, $key, $exception->getMessage()));
-                }
-                if (!$allowed) {
-                    $unregister($key);
-                    $skipped[] = sprintf('%s %s (%s)', $kind, self::name($element, $key), $condition->describe());
+                // The method's condition adds to its class's: every one must hold.
+                foreach (HandlerAttributes::all($get($key), McpWhen::class) as $condition) {
+                    try {
+                        $allowed = $condition->allows($server);
+                    } catch (InvalidArgumentException $exception) {
+                        throw new InvalidArgumentException(
+                            sprintf('%s %s: %s', $kind, $key, $exception->getMessage()),
+                        );
+                    }
+                    if (!$allowed) {
+                        $unregister($key);
+                        $skipped[] = sprintf('%s %s (%s)', $kind, self::name($element, $key), $condition->describe());
+                        break;
+                    }
                 }
             }
         }

@@ -16,6 +16,7 @@ use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
 use Mcp\Server\Builder;
+use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
 
 /**
@@ -67,6 +68,59 @@ class ConditionalRegistrationTest extends TestCase
         $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
 
         $this->assertContains('monthly_report', array_column($transport->responseFor(2)['result']['tools'] ?? [], 'name'));
+    }
+
+    /**
+     * @return array<string, array{0: mixed, 1: bool}>
+     */
+    public static function configValues(): array
+    {
+        return [
+            'string false' => ['false', false],
+            'string FALSE' => ['FALSE', false],
+            'string 0' => ['0', false],
+            'string off' => ['off', false],
+            'string No' => [' No ', false],
+            'empty string' => ['', false],
+            'false' => [false, false],
+            'null' => [null, false],
+            'string true' => ['true', true],
+            'string 1' => ['1', true],
+            'string yes' => ['yes', true],
+            'true' => [true, true],
+            'int 1' => [1, true],
+        ];
+    }
+
+    #[DataProvider('configValues')]
+    public function testConfigStringsThatMeanOffAreOff(mixed $value, bool $registered): void
+    {
+        // env('FEATURE_X', false) gives the string "false" when .env has FEATURE_X=false.
+        Configure::write('TestApp.reports', $value);
+
+        $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
+
+        $names = array_column($transport->responseFor(2)['result']['tools'] ?? [], 'name');
+        $this->assertSame($registered, in_array('monthly_report', $names, true));
+    }
+
+    public function testAMethodConditionAddsToItsClassCondition(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpWhenClass']);
+        $listed = function (): array {
+            $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
+            $names = array_column($transport->responseFor(2)['result']['tools'] ?? [], 'name');
+            sort($names);
+
+            return $names;
+        };
+
+        Configure::write('TestApp', ['archive' => false, 'export' => true]);
+        $this->assertSame([], $listed(), 'The class is off: so is every method, conditions of its own or not.');
+        Configure::write('TestApp', ['archive' => true, 'export' => false]);
+        $this->assertSame(['archive_list'], $listed());
+        Configure::write('TestApp', ['archive' => true, 'export' => true]);
+        $this->assertSame(['archive_export', 'archive_list'], $listed());
     }
 
     public function testCallbackGetsTheServer(): void

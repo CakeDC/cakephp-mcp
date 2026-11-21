@@ -274,11 +274,14 @@ class BetaSearchTool
 }
 ```
 
-With `config`, the element exists when that Configure value is truthy. With
-`callback`, a static method decides; it receives the name of the server being
+With `config`, the element exists when that Configure value is truthy. The
+strings `"false"`, `"0"`, `"off"`, `"no"` and `""` (any case) count as off, so
+`env('FEATURE_REPORTS', false)` with `FEATURE_REPORTS=false` in `.env` turns
+the element off. With `callback`, a static method decides; it receives the name of the server being
 built (see [Several servers](configuration.md#several-servers)). The condition is
 read every time the server is built, so a config change applies on the next
-request. A skipped element does not exist for clients: it is not listed, and a
+request. A `#[McpWhen]` on a method adds to the one on its class: both must
+hold, so a class that is off keeps all its methods off. A skipped element does not exist for clients: it is not listed, and a
 call to it answers like a call to an unknown tool. `bin/cake mcp check` lists
 what was skipped on its `Conditions` line.
 

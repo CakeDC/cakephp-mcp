@@ -18,7 +18,8 @@ use InvalidArgumentException;
 final class McpWhen
 {
     /**
-     * @param string|null $config A Configure path: the element is registered when its value is truthy.
+     * @param string|null $config A Configure path: the element is registered when its value is truthy. The strings
+     *   "false", "0", "off", "no" and "" (any case, around spaces) are off, as `env()` values are strings.
      * @param array{0: class-string, 1: string}|null $callback A static method: registered when it returns true.
      * @throws \InvalidArgumentException When neither or both are given.
      */
@@ -39,7 +40,13 @@ final class McpWhen
     public function allows(string $server): bool
     {
         if ($this->config !== null) {
-            return (bool)Configure::read($this->config);
+            $value = Configure::read($this->config);
+            // An env() value is a string: "false", "off" or "no" in a .env file means off.
+            if (is_string($value)) {
+                return !in_array(strtolower(trim($value)), ['', '0', 'false', 'off', 'no'], true);
+            }
+
+            return (bool)$value;
         }
         if (!is_callable($this->callback)) {
             throw new InvalidArgumentException(sprintf(
