@@ -283,12 +283,9 @@ final class Discovery
      * @param string $issuer The expected issuer.
      * @return list<string> Its metadata URLs in the order RFC 8414 and OpenID Connect Discovery give.
      */
-    private function authorizationServerUrls(string $issuer): array
+    public static function metadataUrls(string $issuer): array
     {
-        $parts = (array)parse_url($this->learnedUrl($issuer));
-        if (isset($parts['query'])) {
-            throw self::unusable('');
-        }
+        $parts = (array)parse_url($issuer);
         $origin = self::origin($parts);
         $path = rtrim((string)($parts['path'] ?? ''), '/');
         if ($path === '') {
@@ -296,6 +293,20 @@ final class Discovery
         }
 
         return [$origin . self::OAUTH_SERVER . $path, $origin . self::OPENID . $path, $origin . $path . self::OPENID];
+    }
+
+    /**
+     * @param string $issuer The expected issuer.
+     * @return list<string> Its metadata URLs in the order RFC 8414 and OpenID Connect Discovery give.
+     */
+    private function authorizationServerUrls(string $issuer): array
+    {
+        $parts = (array)parse_url($this->learnedUrl($issuer));
+        if (isset($parts['query'])) {
+            throw self::unusable('');
+        }
+
+        return self::metadataUrls($issuer);
     }
 
     /**

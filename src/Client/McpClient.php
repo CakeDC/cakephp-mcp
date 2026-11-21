@@ -6,6 +6,7 @@ namespace CakeDC\Mcp\Client;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use LogicException;
 use Mcp\Exception\ConnectionException;
+use Mcp\Exception\ExceptionInterface;
 
 /**
  * A named client of `Mcp.clients`. In app mode it calls the server with the app's own credentials; in user mode,
@@ -21,6 +22,11 @@ final class McpClient
     use CallsServerTrait;
 
     private ?ClientSession $session = null;
+
+    /**
+     * The token the session of a `client_credentials` client sends.
+     */
+    private ?string $sessionToken = null;
 
     /**
      * @var array<string, \CakeDC\Mcp\Client\UserConnection>
@@ -118,6 +124,9 @@ final class McpClient
                 $this->config->name,
             ));
         }
+        if ($this->config->isClientCredentials()) {
+            return $this->runWithOwnToken($call);
+        }
         $this->session ??= new ClientSession(
             $this->config,
             $this->registry->http(),
@@ -132,5 +141,48 @@ final class McpClient
             $previous = $e->getPrevious();
             throw $previous instanceof ClientException ? $previous : $e;
         }
+    }
+
+    /**
+     * A call of a `client_credentials` client, with the application's own token; when the server refuses it
+     * (401), once more with a new one.
+     *
+     * @template T
+     * @param callable(\Mcp\Client): T $call The call.
+     * @return T
+     */
+    private function runWithOwnToken(callable $call): mixed
+    {
+        $tokens = $this->registry->clientCredentials($this->config);
+        $session = $this->sessionFor($tokens->token());
+        try {
+            return $session->call($call);
+        } catch (ExceptionInterface $e) {
+            if ($session->lastStatus() !== 401) {
+                throw $e;
+            }
+        }
+
+        return $this->sessionFor($tokens->token(true))->call($call);
+    }
+
+    /**
+     * @param string $token The access token.
+     * @return \CakeDC\Mcp\Client\ClientSession A session that sends it.
+     */
+    private function sessionFor(string $token): ClientSession
+    {
+        if ($this->session === null || $this->sessionToken !== $token) {
+            $this->session?->close();
+            $this->session = new ClientSession(
+                $this->config,
+                $this->registry->http(),
+                ['Authorization' => 'Bearer ' . $token],
+                ListCache::for($this->config, null),
+            );
+            $this->sessionToken = $token;
+        }
+
+        return $this->session;
     }
 }

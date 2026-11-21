@@ -8,6 +8,7 @@ use CakeDC\Mcp\Client\Http\DnsHostResolver;
 use CakeDC\Mcp\Client\Http\EndpointGuard;
 use CakeDC\Mcp\Client\Http\GuardedHttp;
 use CakeDC\Mcp\Client\Http\OutboundHttp;
+use CakeDC\Mcp\Client\OAuth\ClientCredentials;
 use CakeDC\Mcp\Client\OAuth\Discovery;
 use CakeDC\Mcp\Client\OAuth\OAuthFlow;
 use CakeDC\Mcp\Client\OAuth\Registrar;
@@ -116,6 +117,19 @@ class ClientRegistry
     public function outbound(ClientConfig $config): OutboundHttp
     {
         return new OutboundHttp($this->guarded()->forClient($config), $this->http()->create($config));
+    }
+
+    /**
+     * The application's own token of a client with `'auth' => 'client_credentials'`.
+     *
+     * @param \CakeDC\Mcp\Client\ClientConfig $config The client.
+     * @return \CakeDC\Mcp\Client\OAuth\ClientCredentials
+     */
+    public function clientCredentials(ClientConfig $config): ClientCredentials
+    {
+        $outbound = $this->outbound($config);
+
+        return new ClientCredentials($config, $outbound, $this->store(), new TokenClient($outbound, $config->timeout));
     }
 
     /**

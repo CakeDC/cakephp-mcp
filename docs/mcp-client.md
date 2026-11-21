@@ -103,6 +103,35 @@ Results are the SDK's classes. A server or network error is thrown as the SDK's
 exception (`Mcp\Exception\ExceptionInterface`, for example
 `Mcp\Exception\RequestException` or `ConnectionException`).
 
+### The application's own OAuth token
+
+Some servers give machine clients an OAuth client of their own (the client
+credentials grant of OAuth 2.1), instead of a fixed token:
+
+```php
+'reports' => [
+    'url' => 'https://mcp.reports.example/mcp',
+    'auth' => 'client_credentials',
+    'clientId' => env('REPORTS_CLIENT_ID'),
+    'clientSecret' => env('REPORTS_CLIENT_SECRET'),
+    'issuer' => 'https://login.reports.example',   // or 'tokenUrl' => 'https://login.reports.example/oauth/token'
+    'scopes' => ['reports:read'],
+],
+```
+
+The application asks the token endpoint for a token with `grant_type`
+`client_credentials`, its scopes and the `resource` parameter (the server's
+`url`), authenticating with its secret (`client_secret_basic`, or
+`client_secret_post` when that is the only one the authorization server
+lists). The token endpoint is the configured `tokenUrl`, or the one in the
+metadata of the configured `issuer`, which must name itself exactly as
+`issuer`: the secret only ever goes to the authorization server you named,
+never to one the MCP server names. The token is kept in the connection store,
+encrypted like the user grants (run the plugin's migrations), and used until it
+expires within `Mcp.client.refreshLeeway` seconds; when the server refuses it
+(`401`), a new one is asked for once. `bin/cake mcp check` shows such clients
+on its `Clients` line, without their secret.
+
 ## A local server over stdio
 
 `command` starts the server as a process and talks to it on stdin and stdout:

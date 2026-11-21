@@ -67,6 +67,39 @@ final class TokenClient
     }
 
     /**
+     * Asks for an access token of the application itself (OAuth 2.1 client credentials grant).
+     *
+     * @param string $tokenUrl The token endpoint.
+     * @param bool $trusted Whether it comes from the config.
+     * @param string $clientId The client id.
+     * @param string $clientSecret The client secret.
+     * @param string $authMethod How the client authenticates.
+     * @param string $resource The MCP server (RFC 8707).
+     * @param list<string> $scopes The scopes to ask for; none for the server's default.
+     * @return \CakeDC\Mcp\Client\OAuth\TokenSet
+     * @throws \CakeDC\Mcp\Client\OAuth\OAuthException
+     */
+    public function clientCredentials(
+        string $tokenUrl,
+        bool $trusted,
+        string $clientId,
+        string $clientSecret,
+        string $authMethod,
+        string $resource,
+        array $scopes,
+    ): TokenSet {
+        $form = ['grant_type' => 'client_credentials', 'resource' => $resource];
+        if ($scopes !== []) {
+            $form['scope'] = implode(' ', $scopes);
+        }
+
+        return self::read($this->http->send(
+            $this->post($tokenUrl, $form, $clientId, $clientSecret, $authMethod),
+            $trusted,
+        ));
+    }
+
+    /**
      * @param \CakeDC\Mcp\Client\Store\StoredConnection $connection A grant with a refresh token.
      * @param bool $trusted Whether its token endpoint comes from the config.
      * @return \CakeDC\Mcp\Client\OAuth\TokenSet

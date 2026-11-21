@@ -171,7 +171,7 @@ final class FakeOAuthServer
         if ($grant === 'refresh_token' && $this->rejectRefresh) {
             return self::json(400, ['error' => 'invalid_grant']);
         }
-        if ($grant !== 'authorization_code' && $grant !== 'refresh_token') {
+        if (!in_array($grant, ['authorization_code', 'refresh_token', 'client_credentials'], true)) {
             return self::json(400, ['error' => 'unsupported_grant_type']);
         }
         $this->issued++;
@@ -180,11 +180,10 @@ final class FakeOAuthServer
 
         return self::json(200, [
             'access_token' => $access,
-            'refresh_token' => 'rt-' . $this->issued,
             'token_type' => 'Bearer',
             'expires_in' => 3600,
             'scope' => 'read write',
-        ]);
+        ] + ($grant === 'client_credentials' ? [] : ['refresh_token' => 'rt-' . $this->issued]));
     }
 
     /**

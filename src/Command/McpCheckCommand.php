@@ -214,6 +214,16 @@ class McpCheckCommand extends Command
                     $name,
                 );
             }
+            if ($config->isClientCredentials()) {
+                // Its token is kept in the connection store, like user grants.
+                $userMode = true;
+                $described[] = sprintf(
+                    '%s (client credentials from %s)',
+                    $name,
+                    $config->tokenUrl ?? (string)$config->issuer,
+                );
+                continue;
+            }
             if (!$config->isUser()) {
                 // A token callable is never called here: it may read a vault.
                 $kind = $config->tokenProvider !== null ? 'app, token from a callable' : 'app';

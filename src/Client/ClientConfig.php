@@ -29,6 +29,11 @@ final class ClientConfig
     public const USER = 'user';
 
     /**
+     * The application signs in as itself (OAuth client credentials) with `clientId` and `clientSecret`.
+     */
+    public const CLIENT_CREDENTIALS = 'client_credentials';
+
+    /**
      * Settings shared by every client, `Mcp.client`.
      *
      * @var array<string, mixed>
@@ -71,7 +76,7 @@ final class ClientConfig
      * @param array<string, string> $env Environment variables of the stdio server, over a minimal base.
      * @param string|null $cwd The stdio server's working directory.
      * @param array<string, string> $headers Headers sent with every HTTP request, `Authorization` from `token` included.
-     * @param string $auth `app` or `user`.
+     * @param string $auth `app`, `user` or `client_credentials`.
      * @param int $timeout Seconds for one request.
      * @param list<string> $toolsOnly Patterns of the tools allowed; empty for all.
      * @param list<string> $toolsExcept Patterns of the tools refused.
@@ -148,6 +153,14 @@ final class ClientConfig
     public function isUser(): bool
     {
         return $this->auth === self::USER;
+    }
+
+    /**
+     * @return bool Whether the application gets its own token (`auth` `client_credentials`).
+     */
+    public function isClientCredentials(): bool
+    {
+        return $this->auth === self::CLIENT_CREDENTIALS;
     }
 
     /**
@@ -283,8 +296,11 @@ final class ClientConfig
         }
 
         $auth = $config['auth'] ?? self::APP;
-        if ($auth !== self::APP && $auth !== self::USER) {
-            throw new InvalidArgumentException(sprintf('"%s" must be "app" or "user".', $key('auth')));
+        if (!in_array($auth, [self::APP, self::USER, self::CLIENT_CREDENTIALS], true)) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" must be "app" or "user", or "client_credentials" for an OAuth token of the application.',
+                $key('auth'),
+            ));
         }
         $allowInsecure = self::bool($config, 'allowInsecure', $key);
         $url = self::optionalString($config, 'url', $key);
@@ -357,6 +373,46 @@ final class ClientConfig
             }
         }
 
+        if ($auth === self::CLIENT_CREDENTIALS) {
+            if ($url === null) {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.clients.%s": client_credentials needs a "url".',
+                    $name,
+                ));
+            }
+            if ($hasAuthorization) {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.clients.%s": client_credentials gets its own token, so it takes no "token" or '
+                    . 'Authorization header.',
+                    $name,
+                ));
+            }
+            foreach (['authorizationUrl', 'revocationUrl', 'registration'] as $userOnly) {
+                if (array_key_exists($userOnly, $config)) {
+                    throw new InvalidArgumentException(sprintf('"%s" is only for user mode.', $key($userOnly)));
+                }
+            }
+            foreach (['clientId', 'clientSecret'] as $required) {
+                if (self::optionalString($config, $required, $key) === null) {
+                    throw new InvalidArgumentException(sprintf(
+                        '"%s" is required with "auth" => "client_credentials".',
+                        $key($required),
+                    ));
+                }
+            }
+            if (
+                self::optionalString($config, 'issuer', $key) === null
+                && self::optionalString($config, 'tokenUrl', $key) === null
+            ) {
+                // The secret goes to one authorization server only, the one the config names.
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.clients.%s": client_credentials needs "issuer" (its token endpoint is read from the '
+                    . 'issuer\'s metadata) or "tokenUrl".',
+                    $name,
+                ));
+            }
+        }
+
         if ($auth === self::APP) {
             $oauthKeys = [
                 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl', 'issuer',
@@ -395,7 +451,8 @@ final class ClientConfig
             ));
         }
         if (
-            $configured
+            $auth === self::USER
+            && $configured
             && ($endpoints['authorizationUrl'] === null || $endpoints['tokenUrl'] === null || $clientId === null)
         ) {
             throw new InvalidArgumentException(sprintf(

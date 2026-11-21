@@ -943,6 +943,22 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[FAIL] Clients: "Mcp.clients.c.registration" is "metadata", but App.fullBaseUrl');
     }
 
+    public function testClientsLineShowsClientCredentialsClients(): void
+    {
+        Configure::write('Mcp.clients', ['robot' => [
+            'url' => 'https://mcp.example.com/mcp',
+            'auth' => 'client_credentials',
+            'clientId' => 'id',
+            'clientSecret' => 'secret',
+            'issuer' => 'https://auth.example.com',
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Clients: robot (client credentials from https://auth.example.com)');
+        $this->assertOutputNotContains('secret');
+    }
+
     public function testClientsLineNeverCallsATokenCallable(): void
     {
         $called = false;
