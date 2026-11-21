@@ -126,7 +126,10 @@ What a denied resource or prompt does:
   denying a template denies every URI it serves.
 - A `subscriptions/listen` stream (2026-07-28 revision) never carries a
   `notifications/resources/updated` for a resource the caller cannot read,
-  even when the client listed its URI in `resourceSubscriptions`.
+  even when the client listed its URI in `resourceSubscriptions`. It asks
+  the authorizer for each update, with the identity the stream was opened
+  with, also in a server where other requests of the same worker run while
+  the stream waits.
 - [MCP App](apps.md) pages are resources and follow the same rule.
 - With [cache hints](configuration.md#keys), the lists and `resources/read`
   are always sent private, as `tools/list` is.

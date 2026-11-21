@@ -29,6 +29,19 @@ final class ContentGate
     }
 
     /**
+     * @return self This gate for the identity current now, whatever the current identity becomes later: for a
+     *   stream that outlives the moment it was opened (in a server with coroutines, other requests of the same
+     *   worker set theirs meanwhile).
+     */
+    public function pinned(): self
+    {
+        $identity = new CurrentIdentity();
+        $identity->set($this->identity->get());
+
+        return new self($this->authorizer, $identity, $this->trusted, $this->templateOf);
+    }
+
+    /**
      * Whether the authorizer decides for resources or prompts at all; when not, nothing is filtered.
      *
      * @return bool
