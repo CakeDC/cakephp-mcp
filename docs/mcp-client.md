@@ -557,7 +557,7 @@ a message. Default `null`: nothing is cached, as before.
 ```
 
 - `tools.only` and `tools.except` are shell patterns (`fnmatch()`, case sensitive). `except` wins. A tool they leave out is not listed, and calling it throws `CakeDC\Mcp\Client\Exception\ClientException` without sending anything.
-- `timeout` is in seconds, for the connection and for each request (default 30).
+- `timeout` is in seconds, for the connection and for each request (default 30). In user mode it is also the limit for all the requests of one sign-in step together (the discovery and registration of `connect`, the token exchange of `callback`), so a slow authorization server holds a web worker that long at most.
 - `protocolVersion` asks for a revision of the protocol; leave it out to let the SDK negotiate.
 
 ## Presets for well-known servers

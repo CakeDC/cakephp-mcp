@@ -26,6 +26,11 @@ final class ScriptedGuardedTransport implements GuardedTransportInterface
     private array $answers = [];
 
     /**
+     * @var (\Closure(\CakeDC\Mcp\Client\Http\HttpRequest): void)|null Called before each answer (a slow server).
+     */
+    public ?Closure $before = null;
+
+    /**
      * @param string $method HTTP method.
      * @param string $url The exact URL.
      * @param \CakeDC\Mcp\Client\Http\HttpResponse|Closure(\CakeDC\Mcp\Client\Http\HttpRequest): \CakeDC\Mcp\Client\Http\HttpResponse $answer The answer.
@@ -64,6 +69,9 @@ final class ScriptedGuardedTransport implements GuardedTransportInterface
     public function send(HttpRequest $request, CheckedEndpoint $pin, int $maxBytes): HttpResponse
     {
         $this->sent[] = ['request' => $request, 'ip' => $pin->ip];
+        if ($this->before !== null) {
+            ($this->before)($request);
+        }
         $answer = $this->answers[$request->method . ' ' . $request->url] ?? new HttpResponse(404, [], '{}');
 
         return $answer instanceof Closure ? $answer($request) : $answer;

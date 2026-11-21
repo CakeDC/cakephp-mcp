@@ -58,15 +58,17 @@ final class GuardedHttp
      *
      * @param string $url The exact URL.
      * @param float $timeout Seconds for each request.
+     * @param \CakeDC\Mcp\Client\Http\Deadline|null $deadline A limit the redirects share, if any.
      * @return \CakeDC\Mcp\Client\Http\HttpResponse The last answer, any status but a redirect with a Location.
      * @throws \CakeDC\Mcp\Client\Http\BlockedUrlException
      * @throws \CakeDC\Mcp\Client\Exception\ClientException
      */
-    public function get(string $url, float $timeout): HttpResponse
+    public function get(string $url, float $timeout, ?Deadline $deadline = null): HttpResponse
     {
         for ($hop = 0;; $hop++) {
+            $seconds = $deadline?->timeout($timeout, $url) ?? $timeout;
             $response = $this->transport->send(
-                new HttpRequest('GET', $url, ['Accept' => 'application/json'], null, $timeout),
+                new HttpRequest('GET', $url, ['Accept' => 'application/json'], null, $seconds),
                 $this->guard->check($url),
                 $this->maxBytes,
             );

@@ -3,16 +3,21 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Test\TestCase\Client\Http;
 
+use Cake\Http\Client;
+use Cake\Http\Client\AdapterInterface;
 use Cake\Http\Client\Response;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Http\BlockedUrlException;
+use CakeDC\Mcp\Client\Http\Deadline;
 use CakeDC\Mcp\Client\Http\EndpointGuard;
 use CakeDC\Mcp\Client\Http\GuardedHttp;
 use CakeDC\Mcp\Client\Http\HttpRequest;
+use CakeDC\Mcp\Client\Http\HttpResponse;
 use CakeDC\Mcp\Client\Http\OutboundHttp;
 use CakeDC\Mcp\Test\Support\ScriptedGuardedTransport;
 use CakeDC\Mcp\Test\Support\StaticHostResolver;
+use Closure;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -55,6 +60,79 @@ class OutboundHttpTest extends TestCase
             'internal.example.com' => ['10.0.0.1'],
         ]);
         $this->http = new OutboundHttp(new GuardedHttp(new EndpointGuard($resolver), $this->guarded, 4096), $this->trusted);
+    }
+
+    public function testWithADeadlineTheRequestsAndRedirectsShareIt(): void
+    {
+        $now = 0.0;
+        $clock = function () use (&$now): float {
+            return $now;
+        };
+        // Each answer takes 4 seconds; the server redirects three times.
+        $slow = function (int $status, string $location) use (&$now): Closure {
+            return function (HttpRequest $request) use (&$now, $status, $location): HttpResponse {
+                $now += 4.0;
+
+                return new HttpResponse($status, ['Location' => [$location]], '{}');
+            };
+        };
+        $this->guarded->on('GET', 'https://auth.example.com/a', $slow(302, '/b'));
+        $this->guarded->on('GET', 'https://auth.example.com/b', $slow(302, '/c'));
+        $this->guarded->on('GET', 'https://auth.example.com/c', $slow(302, '/d'));
+        $http = $this->http->withDeadline(new Deadline(10.0, $clock));
+
+        try {
+            $http->get('https://auth.example.com/a', false, 30.0);
+            $this->fail('No exception once the time is up');
+        } catch (ClientException $e) {
+            $this->assertStringContainsString('took too long', $e->getMessage());
+        }
+        $this->assertSame([10.0, 6.0, 2.0], array_map(fn(array $sent): float => $sent['request']->timeout, $this->guarded->sent));
+
+        // A trusted request once the time is up is not sent.
+        try {
+            $http->send(new HttpRequest('POST', 'http://localhost:8765/token', [], 'x'), true);
+            $this->fail('No exception once the time is up');
+        } catch (ClientException) {
+        }
+        $this->assertSame([], $this->trusted->sent);
+        // Without one, nothing changes.
+        $this->http->get('https://auth.example.com/c', false, 30.0);
+        $this->assertSame(30.0, $this->guarded->sent[3]['request']->timeout);
+    }
+
+    public function testCakesClientGetsWhatIsLeftAndKeepsItsOwnSettings(): void
+    {
+        $adapter = new class implements AdapterInterface {
+            /**
+             * @var array<string, mixed>
+             */
+            public array $options = [];
+
+            public function send(RequestInterface $request, array $options): array
+            {
+                $this->options = $options;
+
+                return [new Response(['HTTP/1.1 200 OK'], '{}')];
+            }
+        };
+        $client = new Client([
+            'adapter' => $adapter,
+            'timeout' => 30,
+            'redirect' => 0,
+            'proxy' => ['proxy' => 'http://proxy.corp.example:3128'],
+        ]);
+        $clock = new class {
+            public float $now = 0.0;
+        };
+        $http = (new OutboundHttp(new GuardedHttp(new EndpointGuard(new StaticHostResolver([])), $this->guarded, 4096), $client))
+            ->withDeadline(new Deadline(10.0, fn(): float => $clock->now));
+        $clock->now = 7.5;
+
+        $http->send(new HttpRequest('POST', 'https://auth.example.com/token', [], 'x', 30.0), true);
+
+        $this->assertSame(3, $adapter->options['timeout']);
+        $this->assertSame(['proxy' => 'http://proxy.corp.example:3128'], $adapter->options['proxy']);
     }
 
     public function testAFailureOfTheHttpLayerOnAConfiguredUrlIsAClientException(): void

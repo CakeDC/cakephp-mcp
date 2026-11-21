@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Client;
 
 use CakeDC\Mcp\Client\Http\CakeGuardedTransport;
+use CakeDC\Mcp\Client\Http\Deadline;
 use CakeDC\Mcp\Client\Http\DnsHostResolver;
 use CakeDC\Mcp\Client\Http\EndpointGuard;
 use CakeDC\Mcp\Client\Http\GuardedHttp;
@@ -163,7 +164,8 @@ class ClientRegistry
         if (!$config->isUser()) {
             throw new LogicException(sprintf('"Mcp.clients.%s" is not a user mode client.', $name));
         }
-        $outbound = $this->outbound($config);
+        // One flow serves one web request (a connect or a callback): all its requests share the client's timeout.
+        $outbound = $this->outbound($config)->withDeadline(new Deadline((float)$config->timeout));
 
         return new OAuthFlow(
             $config,

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client\Http;
 
+use Cake\Http\Client;
 use Cake\Http\Client\Request;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use Psr\Http\Client\ClientInterface;
@@ -18,9 +19,22 @@ final class OutboundHttp
     /**
      * @param \CakeDC\Mcp\Client\Http\GuardedHttp $guarded For learned URLs.
      * @param \Psr\Http\Client\ClientInterface $trusted For configured URLs (it follows no redirect).
+     * @param \CakeDC\Mcp\Client\Http\Deadline|null $deadline A limit every request shares, if any.
      */
-    public function __construct(private GuardedHttp $guarded, private ClientInterface $trusted)
+    public function __construct(
+        private GuardedHttp $guarded,
+        private ClientInterface $trusted,
+        private ?Deadline $deadline = null,
+    ) {
+    }
+
+    /**
+     * @param \CakeDC\Mcp\Client\Http\Deadline $deadline A limit for all the requests sent through the copy.
+     * @return self A copy that sends each request with what is left of it, and none once it has passed.
+     */
+    public function withDeadline(Deadline $deadline): self
     {
+        return new self($this->guarded, $this->trusted, $deadline);
     }
 
     /**
@@ -35,12 +49,18 @@ final class OutboundHttp
     public function get(string $url, bool $trusted, float $timeout): HttpResponse
     {
         if (!$trusted) {
-            return $this->guarded->get($url, $timeout);
+            return $this->guarded->get($url, $timeout, $this->deadline);
         }
-        $response = $this->trusted(new HttpRequest('GET', $url, ['Accept' => 'application/json'], null, $timeout));
+        $response = $this->trusted(new HttpRequest(
+            'GET',
+            $url,
+            ['Accept' => 'application/json'],
+            null,
+            $this->deadline?->timeout($timeout, $url) ?? $timeout,
+        ));
         $location = $response->header('Location');
         if ($response->isRedirect() && $location !== null && trim($location) !== '') {
-            return $this->guarded->get(GuardedHttp::resolve($url, $location), $timeout);
+            return $this->guarded->get(GuardedHttp::resolve($url, $location), $timeout, $this->deadline);
         }
 
         return $response;
@@ -68,6 +88,15 @@ final class OutboundHttp
      */
     public function send(HttpRequest $request, bool $trusted): HttpResponse
     {
+        if ($this->deadline !== null) {
+            $request = new HttpRequest(
+                $request->method,
+                $request->url,
+                $request->headers,
+                $request->body,
+                $this->deadline->timeout($request->timeout, $request->url),
+            );
+        }
         if (!$trusted) {
             return $this->guarded->send($request);
         }
@@ -86,9 +115,12 @@ final class OutboundHttp
     private function trusted(HttpRequest $request): HttpResponse
     {
         try {
-            $response = $this->trusted->sendRequest(
-                new Request($request->url, $request->method, $request->headers, $request->body),
-            );
+            $psr = new Request($request->url, $request->method, $request->headers, $request->body);
+            // Cake's client takes a timeout for one request; another PSR-18 client keeps its own.
+            $client = $this->trusted;
+            $response = $this->deadline !== null && $client instanceof Client
+                ? $client->send($psr, ['timeout' => max(1, (int)ceil($request->timeout))] + $client->getConfig())
+                : $client->sendRequest($psr);
         } catch (Throwable) {
             // Anything the HTTP layer throws (a PSR-18 error, a gzip body that is not one) is this client's error.
             // The message is left out: it may quote the URL or the request.

@@ -7,6 +7,7 @@ use Cake\Core\Configure;
 use Cake\Datasource\ConnectionManager;
 use Cake\I18n\DateTime;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\OAuth\OAuthException;
 use CakeDC\Mcp\Client\OAuth\OAuthFlow;
 use CakeDC\Mcp\Client\OAuth\PendingAuthorization;
@@ -54,6 +55,30 @@ class OAuthFlowTest extends TestCase
         parse_str((string)parse_url($url, PHP_URL_QUERY), $query);
 
         return [$pending, array_map('strval', $query)];
+    }
+
+    public function testStartingASignInTakesTheClientsTimeoutInAll(): void
+    {
+        Configure::write('Mcp.clients.linear.timeout', 1);
+        // The authorization server's metadata takes the whole second: the registration is not sent.
+        $slow = true;
+        $this->server->guarded->before = function () use (&$slow): void {
+            if ($slow) {
+                $slow = false;
+                usleep(1_050_000);
+            }
+        };
+
+        try {
+            $this->flow()->start('7', self::CALLBACK, '/settings');
+            $this->fail('The sign-in started after its time was up');
+        } catch (ClientException $e) {
+            $this->assertSame(
+                'The server at auth.example.com took too long: the requests of this step may take 1 second in all.',
+                $e->getMessage(),
+            );
+        }
+        $this->assertSame([], $this->server->registrations);
     }
 
     public function testTheAuthorizationUrlCarriesPkceStateAndResource(): void
