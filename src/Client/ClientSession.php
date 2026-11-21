@@ -177,6 +177,33 @@ final class ClientSession
     }
 
     /**
+     * The SDK quotes the arguments but not the command (escapeshellcmd() leaves spaces alone), so a program whose
+     * path has a space ("/Users/me/My Tools/server") would not start. Such a path is passed to /usr/bin/env as an
+     * argument instead, quoted like the others. A command with arguments written into it ("npx -y x") is not a
+     * file and is left as it is; so is everything on Windows.
+     *
+     * @param string $command The configured command.
+     * @param list<string> $args Its arguments.
+     * @param string|null $cwd The directory it runs in.
+     * @return array{0: string, 1: list<string>}
+     */
+    private static function spawnable(string $command, array $args, ?string $cwd): array
+    {
+        $file = $command;
+        if (!str_starts_with($command, '/') && $cwd !== null) {
+            $file = rtrim($cwd, '/') . '/' . $command;
+        }
+        $spaced = preg_match('/\s/', $command) === 1 && is_file($file);
+        // env reads a leading "-" as an option and a "NAME=value" word as a variable.
+        $env = DIRECTORY_SEPARATOR === '/' && is_executable('/usr/bin/env');
+        if (!$spaced || !$env || str_starts_with($command, '-') || str_contains($command, '=')) {
+            return [$command, $args];
+        }
+
+        return ['/usr/bin/env', [$command, ...$args]];
+    }
+
+    /**
      * @return \Mcp\Client\Transport\TransportInterface
      */
     private function transport(): TransportInterface
@@ -190,13 +217,9 @@ final class ClientSession
                 }
             }
 
-            return new StdioTransport(
-                $this->config->command,
-                $this->config->args,
-                $this->config->cwd,
-                $this->config->env + $env,
-                new McpLogger(),
-            );
+            [$command, $args] = self::spawnable($this->config->command, $this->config->args, $this->config->cwd);
+
+            return new StdioTransport($command, $args, $this->config->cwd, $this->config->env + $env, new McpLogger());
         }
 
         $this->http = new WatchedHttpClient($this->factory->create($this->config), $this->config);

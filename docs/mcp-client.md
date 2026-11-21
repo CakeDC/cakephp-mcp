@@ -164,6 +164,12 @@ variables, and what you put in `env`. Nothing else of your application's
 environment (database passwords, keys) is passed on. `cwd` sets its working
 directory.
 
+Give the program in `command` and each argument in `args`: arguments are
+quoted, so a value with spaces stays one argument. A `command` that is the path
+of a program with a space in it (`ROOT . 'bin/my server'`, a project under
+`/Users/me/My Projects`) works on Linux and macOS. On Windows such a path does
+not start yet; put the program in a directory without spaces.
+
 ## User mode: each user signs in
 
 With `auth` set to `user`, the server is called on behalf of each user, with

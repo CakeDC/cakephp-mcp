@@ -37,6 +37,24 @@ class McpClientStdioTest extends TestCase
         $this->assertSame('echo: over stdio', $client->callTool('echo', ['text' => 'over stdio'])->content[0]->text ?? null);
     }
 
+    public function testACommandWhosePathHasASpaceStarts(): void
+    {
+        if (DIRECTORY_SEPARATOR === '\\' || !is_executable('/usr/bin/env')) {
+            $this->markTestSkipped('POSIX only');
+        }
+        $dir = TMP . 'mcp stdio ' . getmypid();
+        mkdir($dir);
+        symlink(PHP_BINARY, $dir . DS . 'php');
+        Configure::write('Mcp.clients.local.command', $dir . DS . 'php');
+        try {
+            $this->assertSame('echo: spaced', McpClients::get('local')->callTool('echo', ['text' => 'spaced'])->content[0]->text ?? null);
+        } finally {
+            McpClients::reset();
+            unlink($dir . DS . 'php');
+            rmdir($dir);
+        }
+    }
+
     public function testEnvIsPassedAndTheParentEnvIsNot(): void
     {
         $client = McpClients::get('local');
