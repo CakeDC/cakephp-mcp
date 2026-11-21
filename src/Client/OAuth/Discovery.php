@@ -37,6 +37,11 @@ final class Discovery
     private const SCOPE_TOKEN = '/\A[\x21\x23-\x5B\x5D-\x7E]+\z/';
 
     /**
+     * Whether the unauthenticated probe was answered without asking for a sign-in.
+     */
+    private bool $answeredWithoutSignIn = false;
+
+    /**
      * @param \CakeDC\Mcp\Client\Http\OutboundHttp $http Every request goes through it.
      * @param \CakeDC\Mcp\Client\ClientConfig $config The user mode client.
      */
@@ -94,9 +99,13 @@ final class Discovery
             $origin = self::origin((array)parse_url($server));
             $originDocument = $this->firstDocument(self::metadataUrls($origin), true);
             if ($originDocument === null || ($originDocument['issuer'] ?? null) !== $origin) {
-                throw new OAuthException(
-                    sprintf('The server of "%s" does not publish how to sign in to it.', $config->name),
-                );
+                throw new OAuthException($this->answeredWithoutSignIn
+                    ? sprintf(
+                        'The server of "%s" does not ask for a sign-in; use it in app mode (without "auth" => '
+                        . '"user").',
+                        $config->name,
+                    )
+                    : sprintf('The server of "%s" does not publish how to sign in to it.', $config->name));
             }
             $resourceMetadata = ['resource' => $server, 'authorization_servers' => [$origin]];
             $trustedIssuer = true;
@@ -218,10 +227,10 @@ final class Discovery
             (float)$this->config->timeout,
         ), true);
         if ($response->status >= 200 && $response->status < 300) {
-            throw new OAuthException(sprintf(
-                'The server of "%s" does not ask for a sign-in; use it in app mode (without "auth" => "user").',
-                $this->config->name,
-            ));
+            // It may ask for a sign-in only for some calls: the well-known URLs still say how.
+            $this->answeredWithoutSignIn = true;
+
+            return [];
         }
         if ($response->status !== 401) {
             return [];

@@ -29,6 +29,8 @@ class ScopeStepUpTest extends TestCase
 
     private TableConnectionStore $store;
 
+    private bool $discoverForbidden = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -41,7 +43,12 @@ class ScopeStepUpTest extends TestCase
         $this->store = new TableConnectionStore();
         $mcp = $this->oauth->mcp;
         $client = new InterceptingHttpClient($mcp, function ($request, array $rpc): ?ClientResponse {
-            if (($rpc['method'] ?? null) === 'tools/call' && ($rpc['params']['name'] ?? null) === 'delete_all') {
+            if ($this->discoverForbidden && ($rpc['method'] ?? null) === 'initialize') {
+                return new ClientResponse(['HTTP/1.1 400 Bad Request', 'Content-Type: application/json'], '{}');
+            }
+            $forbidden = ($rpc['method'] ?? null) === 'tools/call' && ($rpc['params']['name'] ?? null) === 'delete_all'
+                || $this->discoverForbidden && ($rpc['method'] ?? null) === 'server/discover';
+            if ($forbidden) {
                 return new ClientResponse(
                     [
                         'HTTP/1.1 403 Forbidden',
@@ -119,6 +126,23 @@ class ScopeStepUpTest extends TestCase
         foreach (['read', 'write', 'files:write', 'admin'] as $scope) {
             $this->assertContains($scope, $scopes);
         }
+    }
+
+    public function testAnInsufficientScopeBeforeTheCallIsSeenToo(): void
+    {
+        // The server asks for more scope on server/discover, and the SDK's fallback to the handshake then fails:
+        // the 403 is not the last answer, but it is the one that counts.
+        $this->discoverForbidden = true;
+        $user = McpClients::get('linear')->for(7);
+
+        try {
+            $user->listTools();
+            $this->fail('No error');
+        } catch (ExceptionInterface) {
+            $this->addToAssertionCount(1);
+        }
+
+        $this->assertTrue($user->needsMoreScope());
     }
 
     public function testOtherUsersAndCallsAreNotMarked(): void

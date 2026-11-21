@@ -150,12 +150,11 @@ final class UserConnection
     protected function run(callable $call): mixed
     {
         $session = $this->session($this->accessToken(false));
+        $session->takeForbidden();
         try {
             return $session->call($call);
         } catch (ExceptionInterface $e) {
-            if ($session->lastStatus() === 403) {
-                $this->markStepUp($session->lastChallenge());
-            }
+            $this->markStepUp($session->takeForbidden());
             if ($session->lastStatus() !== 401) {
                 throw $e;
             }

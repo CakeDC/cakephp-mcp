@@ -291,9 +291,22 @@ class DiscoveryTest extends TestCase
         $this->discover();
     }
 
+    public function testAServerThatAnswersWithoutASignInIsStillDiscoveredThroughWellKnownUrls(): void
+    {
+        // It may ask for a sign-in only for some calls (a tool, after the handshake).
+        $this->server->mcp->tokens = null;
+        $this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA] = [
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $this->discover()->issuer);
+    }
+
     public function testAServerThatAsksForNoSignInIsReported(): void
     {
         $this->server->mcp->tokens = null;
+        unset($this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA]);
 
         $this->expectException(OAuthException::class);
         $this->expectExceptionMessage('does not ask for a sign-in');

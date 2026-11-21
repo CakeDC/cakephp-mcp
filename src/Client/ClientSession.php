@@ -122,6 +122,14 @@ final class ClientSession
     }
 
     /**
+     * @return string|null The challenge of the server's last 403 since the previous call, which this forgets.
+     */
+    public function takeForbidden(): ?string
+    {
+        return $this->http?->takeForbidden();
+    }
+
+    /**
      * @return string|null The `WWW-Authenticate` header of the server's last answer, null when it had none.
      */
     public function lastChallenge(): ?string

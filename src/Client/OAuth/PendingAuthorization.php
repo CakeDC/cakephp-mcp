@@ -30,6 +30,7 @@ final class PendingAuthorization
      * @param string $resource The `resource` parameter.
      * @param string $clientId The client id.
      * @param string $authMethod How the client authenticates.
+     * @param string|null $scope The scopes asked for, space separated; null for none.
      */
     public function __construct(
         public readonly string $client,
@@ -47,6 +48,7 @@ final class PendingAuthorization
         public readonly string $resource,
         public readonly string $clientId,
         public readonly string $authMethod,
+        public readonly ?string $scope = null,
     ) {
     }
 
@@ -81,6 +83,7 @@ final class PendingAuthorization
             || !is_bool($data['trusted'] ?? null)
             || !is_bool($data['issParameter'] ?? null)
             || !(is_string($data['revocationUrl'] ?? null) || ($data['revocationUrl'] ?? null) === null)
+            || !(is_string($data['scope'] ?? null) || ($data['scope'] ?? null) === null)
         ) {
             return null;
         }
@@ -101,6 +104,7 @@ final class PendingAuthorization
             $data['resource'],
             $data['clientId'],
             $data['authMethod'],
+            $data['scope'] ?? null,
         );
     }
 }

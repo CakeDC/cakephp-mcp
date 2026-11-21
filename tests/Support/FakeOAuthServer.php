@@ -69,6 +69,11 @@ final class FakeOAuthServer
      */
     public bool $revocationFails = false;
 
+    /**
+     * Whether token answers leave `scope` out (RFC 6749 5.1: then the scope granted is the one asked for).
+     */
+    public bool $omitScope = false;
+
     private int $issued = 0;
 
     public function __construct()
@@ -182,8 +187,8 @@ final class FakeOAuthServer
             'access_token' => $access,
             'token_type' => 'Bearer',
             'expires_in' => 3600,
-            'scope' => 'read write',
-        ] + ($grant === 'client_credentials' ? [] : ['refresh_token' => 'rt-' . $this->issued]));
+        ] + ($this->omitScope ? [] : ['scope' => 'read write'])
+            + ($grant === 'client_credentials' ? [] : ['refresh_token' => 'rt-' . $this->issued]));
     }
 
     /**

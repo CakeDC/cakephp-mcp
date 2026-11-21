@@ -45,6 +45,11 @@ final class OAuthFlow
     {
         $server = $this->discovery->discover();
         $registration = $this->registrar->clientFor($server, $redirectUri);
+        // Scope step-up: what the user already had, and what the server asked for with insufficient_scope.
+        $scopes = array_values(array_unique([
+            ...$server->scopes,
+            ...($this->store->get($this->config->name, $userId)?->stepUpScopes() ?? []),
+        ]));
         $verifier = self::base64Url(random_bytes(32));
         $pending = new PendingAuthorization(
             $this->config->name,
@@ -62,6 +67,7 @@ final class OAuthFlow
             $server->resource,
             $registration->clientId,
             $registration->authMethod,
+            $scopes === [] ? null : implode(' ', $scopes),
         );
         $query = [
             'response_type' => 'code',
@@ -72,11 +78,6 @@ final class OAuthFlow
             'code_challenge_method' => 'S256',
             'resource' => $server->resource,
         ];
-        // Scope step-up: what the user already had, and what the server asked for with insufficient_scope.
-        $scopes = array_values(array_unique([
-            ...$server->scopes,
-            ...($this->store->get($this->config->name, $userId)?->stepUpScopes() ?? []),
-        ]));
         if ($scopes !== []) {
             $query['scope'] = implode(' ', $scopes);
         }
@@ -150,7 +151,8 @@ final class OAuthFlow
             $tokens->accessToken,
             $tokens->refreshToken,
             $tokens->expiresIn === null ? null : $now + $tokens->expiresIn,
-            $tokens->scope,
+            // RFC 6749 5.1: without `scope` in the answer, the scope granted is the one asked for.
+            $tokens->scope ?? $pending->scope,
             $pending->issuer,
             $pending->tokenUrl,
             $pending->revocationUrl,

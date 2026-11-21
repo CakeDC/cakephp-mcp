@@ -198,7 +198,11 @@ offer `connectUrl()` again.
    authorization server: the server's `401` challenge and its protected
    resource metadata (RFC 9728), then the authorization server's metadata
    (RFC 8414). The issuer must name itself exactly as the server said, and
-   PKCE with S256 must be supported. A server of the 2025-03-26 revision may
+   PKCE with S256 must be supported. A server that lets the unauthenticated
+   probe through (it asks for a sign-in only on later calls) is still
+   discovered through its well-known metadata URLs. When a token answer has no
+   `scope`, the scopes asked for are kept as the ones granted (RFC 6749). A
+   server of the 2025-03-26 revision may
    publish no protected resource metadata: then its origin (`url` without the
    path) is taken as the authorization server, as that revision says, and its
    metadata must be at `<origin>/.well-known/oauth-authorization-server` (or

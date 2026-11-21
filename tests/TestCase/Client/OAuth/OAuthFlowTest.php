@@ -111,6 +111,22 @@ class OAuthFlowTest extends TestCase
         $this->assertSame(FakeOAuthServer::ISSUER . '/revoke', $connection->revocationUrl);
     }
 
+    public function testATokenAnswerWithoutScopeGrantsTheScopesAskedFor(): void
+    {
+        $this->server->omitScope = true;
+        [$pending, $query] = $this->start();
+
+        $connection = $this->flow()->complete($pending, [
+            'code' => 'good-code',
+            'state' => $query['state'],
+            'iss' => FakeOAuthServer::ISSUER,
+        ]);
+
+        $this->assertSame($query['scope'], $connection->scope);
+        // It survives the session, like the rest of the pending sign-in.
+        $this->assertSame($query['scope'], PendingAuthorization::fromArray($pending->toArray())?->scope);
+    }
+
     public function testAnIssMismatchIsRefused(): void
     {
         [$pending, $query] = $this->start();

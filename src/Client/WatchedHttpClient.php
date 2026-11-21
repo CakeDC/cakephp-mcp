@@ -24,6 +24,12 @@ final class WatchedHttpClient implements ClientInterface
     private ?string $lastChallenge = null;
 
     /**
+     * The `WWW-Authenticate` of the last 403 since `takeForbidden()`: a step-up challenge can come before the
+     * answer that ended a call (the SDK tries the handshake after a refused `server/discover`).
+     */
+    private ?string $forbidden = null;
+
+    /**
      * The raw `result` of the last answer to each list method, for the list cache.
      *
      * @var array<string, array<string, mixed>>
@@ -55,6 +61,9 @@ final class WatchedHttpClient implements ClientInterface
         $this->lastStatus = $response->getStatusCode();
         $challenge = $response->getHeaderLine('WWW-Authenticate');
         $this->lastChallenge = $challenge === '' ? null : $challenge;
+        if ($response->getStatusCode() === 403 && $challenge !== '') {
+            $this->forbidden = $challenge;
+        }
         if (in_array($method, ListCache::METHODS, true) && $response->getStatusCode() === 200) {
             // Read here for its cache hints, which the SDK's list results do not keep, then handed on unread.
             $body = (string)$response->getBody();
@@ -121,6 +130,17 @@ final class WatchedHttpClient implements ClientInterface
         }
 
         return null;
+    }
+
+    /**
+     * @return string|null The challenge of the last 403 since the previous call, which this forgets.
+     */
+    public function takeForbidden(): ?string
+    {
+        $challenge = $this->forbidden;
+        $this->forbidden = null;
+
+        return $challenge;
     }
 
     /**
