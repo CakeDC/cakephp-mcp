@@ -232,6 +232,15 @@ out of the catalog unless that blanket approval is acceptable. A tool run by
 the `call_tools` call itself names the failing tool, never the output of the
 tools it ran.
 
+A tool that asks the user for input (an elicitation through `ClientGateway`,
+or a returned `InputRequiredResult`) cannot finish inside `call_tools` in the
+2026-07-28 revision: the client would answer by sending the whole batch again,
+and the tools before it would run a second time. So that call ends with the tool
+error `<tool> needs input from the user: call it on its own, not through
+call_tools.`, the results of the calls before it are kept, and its audit record
+carries its name. Keep such tools out of the catalog, or let the model call
+them directly.
+
 Catalogued tools can still be called directly by name, so clients that already
 know them keep working. `bin/cake mcp check` lists the catalogued tools on its
 `Catalog` line, warns about patterns that match no tool, and checks their

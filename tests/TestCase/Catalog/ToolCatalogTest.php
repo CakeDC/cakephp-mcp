@@ -17,9 +17,12 @@ use CakeDC\Mcp\TestSuite\McpTestTrait;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry\ReferenceHandlerInterface;
+use Mcp\Schema\Tool;
 use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\Builder;
+use Mcp\Server\ClientGateway;
 use Mcp\Server\Handler\Request\RequestHandlerInterface;
+use Mcp\Server\Handler\ToolHandlerInterface;
 use stdClass;
 
 /**
@@ -271,6 +274,26 @@ class ToolCatalogTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('"call_tools" is the tool catalog\'s own tool');
+
+        $this->mcpListTools();
+    }
+
+    public function testAHookToolNamedLikeTheCatalogAddedWithADefinitionFails(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->add(
+                new Tool('find_tools', null, ['type' => 'object', 'properties' => new stdClass()], 'Mine', null),
+                new class implements ToolHandlerInterface {
+                    public function execute(array $arguments, ClientGateway $gateway): mixed
+                    {
+                        return 'mine';
+                    }
+                },
+            );
+        });
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"find_tools" is the tool catalog\'s own tool');
 
         $this->mcpListTools();
     }

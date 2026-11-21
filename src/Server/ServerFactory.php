@@ -35,6 +35,7 @@ use Mcp\Event\ResponseEvent;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\JsonRpc\Request;
+use Mcp\Schema\Tool;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
@@ -403,7 +404,13 @@ final class ServerFactory
                 implode(' and ', $added),
             ));
         }
-        foreach ((array)$read('tools') as $tool) {
+        $explicit = array_map(
+            fn(mixed $tool): mixed => is_array($tool) && $tool['definition'] instanceof Tool
+                ? ['name' => $tool['definition']->name]
+                : null,
+            (array)$read('explicitTools'),
+        );
+        foreach ([...(array)$read('tools'), ...$explicit] as $tool) {
             $name = is_array($tool) ? $tool['name'] ?? null : null;
             if ($name === ToolCatalog::FIND || $name === ToolCatalog::CALL) {
                 throw new InvalidArgumentException(sprintf(

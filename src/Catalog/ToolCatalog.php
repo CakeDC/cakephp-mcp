@@ -6,6 +6,7 @@ namespace CakeDC\Mcp\Catalog;
 use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Authorization\ToolGate;
 use CakeDC\Mcp\Schema\SchemaNormalizer;
+use Fiber;
 use Mcp\Capability\Registry\ReferenceHandlerInterface;
 use Mcp\Capability\RegistryInterface;
 use Mcp\Event\ErrorEvent;
@@ -15,11 +16,15 @@ use Mcp\Exception\ToolCallException;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\JsonRpc\Error;
 use Mcp\Schema\JsonRpc\Request;
+use Mcp\Schema\JsonRpc\Response;
 use Mcp\Schema\Request\CallToolRequest;
 use Mcp\Schema\Result\CallToolResult;
+use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Schema\Tool;
 use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\RequestContext;
+use Mcp\Server\Session\SessionInterface;
+use Mcp\Server\Suspension\RequestSuspension;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -276,12 +281,20 @@ final class ToolCatalog
             // Like a direct call: a denied tool answers as an unknown one.
             $response = Error::forInvalidParams(sprintf('Tool not found: "%s".', $name), $id);
         } else {
-            $response = $handler->handle($request, $session);
+            $response = $this->handle($handler, $request, $session, $context->getProtocolVersion()->isModern());
         }
         if ($response instanceof Error) {
             $this->events?->dispatch(new ErrorEvent($response, $request, $session, null));
 
             return $this->error($name, $response->message);
+        }
+        if ($response === null || $response->result instanceof InputRequiredResult) {
+            // The client would answer by sending the whole batch again, and the tools before this one would run
+            // a second time: this call ends here instead, with what ran before it kept.
+            $response = new Response($id, new CallToolResult([new TextContent(sprintf(
+                '%s needs input from the user: call it on its own, not through call_tools.',
+                $name,
+            ))], true));
         }
         $this->events?->dispatch(new ResponseEvent($response, $request, $session));
         $result = $response->result;
@@ -301,6 +314,40 @@ final class ToolCatalog
         }
 
         return $entry;
+    }
+
+    /**
+     * Runs one inner call. In the 2026-07-28 revision it runs in a fiber of its own, so a tool that asks the
+     * client (an elicitation through ClientGateway) is stopped there instead of turning the whole `call_tools`
+     * into an `input_required` answer. Notifications (progress, logs) go on to the client as before.
+     *
+     * @param \Mcp\Server\Handler\Request\CallToolHandler $handler The SDK handler.
+     * @param \Mcp\Schema\Request\CallToolRequest $request The inner request.
+     * @param \Mcp\Server\Session\SessionInterface $session The session.
+     * @param bool $modern Whether the call is in the 2026-07-28 revision.
+     * @return \Mcp\Schema\JsonRpc\Response<\Mcp\Schema\Result\CallToolResult|\Mcp\Schema\Result\InputRequiredResult>|\Mcp\Schema\JsonRpc\Error|null
+     *   Null when the tool asked the client.
+     */
+    private function handle(
+        CallToolHandler $handler,
+        CallToolRequest $request,
+        SessionInterface $session,
+        bool $modern,
+    ): Response|Error|null {
+        if (!$modern || Fiber::getCurrent() === null) {
+            return $handler->handle($request, $session);
+        }
+        $fiber = new Fiber(fn(): Response|Error => $handler->handle($request, $session));
+        $suspended = $fiber->start();
+        while (!$fiber->isTerminated()) {
+            if ($suspended instanceof RequestSuspension) {
+                // Left suspended: the fiber is dropped, which unwinds the tool.
+                return null;
+            }
+            $suspended = $fiber->resume(Fiber::suspend($suspended));
+        }
+
+        return $fiber->getReturn();
     }
 
     /**
