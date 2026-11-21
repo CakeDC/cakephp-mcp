@@ -134,7 +134,8 @@ terms apply to it as much as to what the model reads.
 `bin/cake mcp check` reports apps on its `Apps` line, and fails when a tool
 links to a resource that is not a registered app page, or when tools link to
 apps while the server does not announce apps (neither `Mcp.apps.enabled` nor
-the hook). In tests, call the resource method directly to check the page (the
+the hook). It also reads each page and warns about one that does not render
+(a missing template, a template that throws). In tests, call the resource method directly to check the page (the
 test `bake mcp_app` writes loads the plugin for the page's layout), and the
 tools with `McpTestTrait` as usual. Empty `_meta.ui`, `csp` and `permissions`
 of a page are left out, never sent as empty lists.

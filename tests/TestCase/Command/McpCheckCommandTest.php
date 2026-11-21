@@ -675,7 +675,8 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
 
         $this->assertOutputNotContains('[FAIL] Apps');
-        $this->assertOutputContains('[PASS] Apps:');
+        // Not off: it warns only about the fixture's page that does not render.
+        $this->assertOutputContains('] Apps: 2 app resources');
     }
 
     public function testAnInheritedExternalAudienceFails(): void
@@ -868,7 +869,8 @@ class McpCheckCommandTest extends TestCase
 
         Configure::write('Mcp.apps.enabled', true);
         $this->exec('mcp check');
-        $this->assertOutputContains('[PASS] Apps: 2 app resources: ui://test/broken, ui://test/inbox');
+        // The pages are rendered: ui://test/broken's template throws.
+        $this->assertOutputContains('[WARN] Apps: 2 app resources: ui://test/broken, ui://test/inbox; ui://test/broken does not render');
 
         Configure::write('Mcp.servers.apps', [
             'route' => '/mcp/apps',

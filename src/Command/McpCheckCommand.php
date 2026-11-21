@@ -46,10 +46,12 @@ use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Schema\SchemaLint;
 use CakeDC\Mcp\Server\ServerFactory;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
 use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\CacheScope;
+use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
 use ReflectionClass;
 use ReflectionProperty;
@@ -620,11 +622,61 @@ class McpCheckCommand extends Command
             )];
         }
 
-        return ['pass', $apps === [] ? 'on, no app resources' : sprintf(
-            '%d app resources: %s',
-            count($apps),
-            implode(', ', $apps),
-        )];
+        if ($apps === []) {
+            return ['pass', 'on, no app resources'];
+        }
+        $line = sprintf('%d app resources: %s', count($apps), implode(', ', $apps));
+        $broken = $this->unrenderedApps($apps);
+
+        return $broken === []
+            ? ['pass', $line]
+            : ['warn', $line . '; ' . implode('; ', $broken) . ', see ' . self::DOCS . 'apps.md'];
+    }
+
+    /**
+     * Reads each app page through the server, as a host does (trusted, without a caller): a page that needs one
+     * may fail here and render for a user, so a failure only warns.
+     *
+     * @param list<string> $apps The app resource URIs.
+     * @return list<string> `<uri> does not render: <error>` for each page whose read fails.
+     */
+    private function unrenderedApps(array $apps): array
+    {
+        $messages = [
+            ['jsonrpc' => '2.0', 'id' => 'init', 'method' => 'initialize', 'params' => [
+                'protocolVersion' => ProtocolVersion::latestHandshake()->value,
+                'capabilities' => ['extensions' => [McpApps::EXTENSION_ID => ['mimeTypes' => [McpApps::MIME_TYPE]]]],
+                'clientInfo' => ['name' => 'mcp check', 'version' => '1.0'],
+            ]],
+            ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
+        ];
+        foreach ($apps as $index => $uri) {
+            $messages[] = [
+                'jsonrpc' => '2.0',
+                'id' => $index,
+                'method' => 'resources/read',
+                'params' => ['uri' => $uri],
+            ];
+        }
+        $transport = new RecordingTransport(array_map(
+            fn(array $message): string => (string)json_encode($message),
+            $messages,
+        ));
+        try {
+            $this->factory()->create(true)->run($transport);
+        } catch (Throwable $e) {
+            return [sprintf('the pages could not be read: %s', $e->getMessage())];
+        }
+        $broken = [];
+        foreach ($apps as $index => $uri) {
+            $answer = $transport->responseFor($index);
+            if (!isset($answer['result'])) {
+                $error = $answer['error']['message'] ?? 'no answer';
+                $broken[] = sprintf('%s does not render: %s', $uri, is_string($error) ? $error : 'no answer');
+            }
+        }
+
+        return $broken;
     }
 
     /**
