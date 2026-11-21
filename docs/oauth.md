@@ -208,7 +208,7 @@ expected: this plugin validates the MCP tokens itself.
 
 | Check | What it looks at |
 | --- | --- |
-| Endpoint | The URL of the endpoint, or a warning when `Mcp.route` is disabled. |
+| Endpoint | The URL of the endpoint, or a warning when `Mcp.route` is disabled. For a named server on a route with parameters, the pattern and its parameters; for one with `'route' => false`, that it is served over stdio only. Fails when `Mcp.route` has parameters. |
 | Authentication | The mode, or the `Mcp.auth` setting that is invalid. |
 | Resource | The resource URL, the metadata URL and the scopes it advertises. In `oauth` mode it fails when the resource is not declared in `OAuthServer.resources`. In `external` mode it lists the accepted audiences and warns when the resource URL is not among them. |
 | Metadata route | That the plugin routes are connected, and warns when the path the application serves differs from the advertised one (subdirectory installs need a rewrite, see below). |
@@ -227,7 +227,7 @@ expected: this plugin validates the MCP tokens itself.
 | Logging | That a Log engine takes the errors of the `mcp` scope. Without one, a failing tool only answers "Error while executing tool" and its error is lost (the `debug` and `error` engines of the skeleton have `'scopes' => null`). See [Logging](configuration.md#logging). |
 | Audit | When the [audit log](configuration.md#audit-log) is on, that a Log engine takes its lines. |
 | Servers | With several servers, after the lines of each one (also with `--server`): fails when two share a route, a resource or an external audience, and warns when a scan directory of one holds another's. A `Server <name>` line fails for an entry of `Mcp.servers` that is not served because of a mistake. |
-| Clients | The MCP clients of `Mcp.clients`: each config valid, and for user mode the connect and callback routes and the token store's tables. |
+| Clients | The MCP clients of `Mcp.clients`: each config valid, and for user mode and `client_credentials` the connect and callback routes and the token store's tables and columns. It says which registration each user mode client uses (configured client id, metadata document, dynamic registration), shows `Mcp.client.proxy` without its password and a token callable without calling it, and warns for each client with `allowPrivateNetwork`. |
 
 Sample output:
 

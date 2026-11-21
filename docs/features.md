@@ -8,7 +8,9 @@ available too; those parts are listed at the end.
 
 - One endpoint at `Mcp.route`, or several servers in one application, each with
   its route, tools, authentication and authorizer:
-  [Several servers](configuration.md#several-servers).
+  [Several servers](configuration.md#several-servers), also one per value of a route parameter
+  (`/mcp/t/{tenant}`, [Routes with parameters](configuration.md#routes-with-parameters)) and servers for
+  stdio only (`'route' => false`).
 - Local clients over stdio (`bin/cake mcp server`): [stdio](stdio.md).
 - Cache hints for the 2026-07-28 protocol revision (`Mcp.server.cache`):
   [Configuration](configuration.md#keys).
@@ -31,7 +33,8 @@ available too; those parts are listed at the end.
 - Progress and log notifications from long tools:
   [Progress and logs](tools.md#progress-and-logs).
 - A searchable tool catalog (`find_tools`, `call_tools`) for servers with many
-  tools: [Tool catalog](tools.md#tool-catalog).
+  tools, searching names, descriptions and arguments in any language:
+  [Tool catalog](tools.md#tool-catalog).
 - Registration on a condition, for configuration and feature flags
   (`#[McpWhen]`): [Registering only when](tools.md#registering-only-when).
 - Generated classes and tests: `bin/cake bake mcp_tool`, `mcp_resource`,
