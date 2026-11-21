@@ -106,7 +106,8 @@ final class CakeGuardedTransport implements GuardedTransportInterface
             $response = $client->send(
                 new Request($request->url, $request->method, $headers, $request->body),
                 [
-                    'timeout' => $request->timeout,
+                    // Whole seconds for curl, which reads 0 as no limit: a fraction left of a step is rounded up.
+                    'timeout' => max(1, (int)ceil($request->timeout)),
                     'ssl_verify_peer' => true,
                     'ssl_verify_host' => true,
                     'curl' => $curl,

@@ -84,7 +84,7 @@ class CakeGuardedTransportTest extends TestCase
         $this->assertSame('POST', $adapter->request->getMethod());
         $this->assertSame('a=b', (string)$adapter->request->getBody());
         $options = $adapter->options ?? [];
-        $this->assertSame(7.0, $options['timeout']);
+        $this->assertSame(7, $options['timeout']);
         $this->assertFalse(isset($options['proxy']));
         $curl = $options['curl'];
         $this->assertSame(['auth.example.com:443:93.184.216.34'], $curl[CURLOPT_RESOLVE]);
@@ -100,6 +100,21 @@ class CakeGuardedTransportTest extends TestCase
             $this->assertSame('https', $curl[CURLOPT_PROTOCOLS_STR]);
         } else {
             $this->assertSame(CURLPROTO_HTTPS, $curl[CURLOPT_PROTOCOLS]);
+        }
+    }
+
+    public function testAFractionOfASecondIsNeverNoTimeout(): void
+    {
+        // curl takes whole seconds and reads 0 as no limit: what is left of a sign-in step is rounded up.
+        $pin = new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34');
+        foreach ([[0.01, 1], [0.4, 1], [0.9, 1], [2.99, 3], [30.0, 30]] as [$seconds, $expected]) {
+            $adapter = $this->adapter();
+            (new CakeGuardedTransport($adapter))->send(
+                new HttpRequest('GET', 'https://auth.example.com/x', [], null, $seconds),
+                $pin,
+                2048,
+            );
+            $this->assertSame($expected, ($adapter->options ?? [])['timeout'], (string)$seconds);
         }
     }
 
