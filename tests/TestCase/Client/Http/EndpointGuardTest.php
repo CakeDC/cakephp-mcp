@@ -89,6 +89,24 @@ class EndpointGuardTest extends TestCase
         $this->guard->check('https://auth.localhost/token');
     }
 
+    public function testAllowingThePrivateNetworkLetsPrivateLoopbackAndLinkLocalAddressesThrough(): void
+    {
+        $guard = $this->guard->allowingPrivateNetwork(false);
+        foreach (['sso.corp.internal' => '10.1.2.3', 'auth.localhost' => '127.0.0.1', 'meta.example.com' => '169.254.1.1'] as $host => $ip) {
+            $this->resolver->add($host, [$ip]);
+            $this->assertSame($ip, $guard->check('https://' . $host . '/x')->ip);
+        }
+        foreach (['https://10.1.2.3/x', 'https://intranet/x', 'http://sso.corp.internal/x'] as $refused) {
+            try {
+                $guard->check($refused);
+                $this->fail('Accepted ' . $refused);
+            } catch (BlockedUrlException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertSame('http://sso.corp.internal', $this->guard->allowingPrivateNetwork(true)->check('http://sso.corp.internal/x')->origin);
+    }
+
     public function testATrailingDotIsRefused(): void
     {
         // curl would not match the pin for "auth.example.com" against "auth.example.com." and resolve again.

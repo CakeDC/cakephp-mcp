@@ -115,7 +115,7 @@ class ClientRegistry
      */
     public function outbound(ClientConfig $config): OutboundHttp
     {
-        return new OutboundHttp($this->guarded(), $this->http()->create($config));
+        return new OutboundHttp($this->guarded()->forClient($config), $this->http()->create($config));
     }
 
     /**

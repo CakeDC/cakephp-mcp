@@ -883,6 +883,20 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[FAIL] Clients: "Mcp.client.proxy" must be null or a proxy URL');
     }
 
+    public function testClientsLineWarnsForEachClientThatAllowsThePrivateNetwork(): void
+    {
+        Configure::write('Mcp.clients', [
+            'corp' => ['url' => 'https://mcp.corp.example/mcp', 'auth' => 'user', 'allowPrivateNetwork' => true],
+            'github' => ['url' => 'https://api.example.com/mcp', 'token' => 't'],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Clients: ');
+        $this->assertOutputContains('corp has allowPrivateNetwork');
+        $this->assertOutputNotContains('github has allowPrivateNetwork');
+    }
+
     public function testClientsLineNeverCallsATokenCallable(): void
     {
         $called = false;

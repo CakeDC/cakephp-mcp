@@ -18,7 +18,8 @@ use Mcp\Schema\Enum\ProtocolVersion;
  * - User mode (`auth` `user`): `url`, and each user signs in with OAuth. `clientId` and `clientSecret` when the
  *   authorization server's owner gave you a client; `authorizationUrl`, `tokenUrl` and `revocationUrl` to skip
  *   discovery (they are then trusted like `url`); `scopes` to ask for.
- * - Both: `timeout` (seconds), `tools.only` and `tools.except` (patterns), `protocolVersion`, `allowInsecure`.
+ * - Both: `timeout` (seconds), `tools.only` and `tools.except` (patterns), `protocolVersion`, `allowInsecure`,
+ *   `allowPrivateNetwork`.
  */
 final class ClientConfig
 {
@@ -51,7 +52,7 @@ final class ClientConfig
     public const KEYS = [
         'url', 'token', 'headers', 'command', 'args', 'env', 'cwd', 'auth', 'timeout', 'tools', 'protocolVersion',
         'allowInsecure', 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl',
-        'issuer',
+        'issuer', 'allowPrivateNetwork',
     ];
 
     /**
@@ -77,6 +78,8 @@ final class ClientConfig
      * @param string|null $issuer With configured endpoints, the issuer the authorization server names itself by,
      *   compared with the `iss` of its sign-in responses; null to skip that comparison.
      * @param \Closure|null $tokenProvider A `token` given as a callable, called for each request.
+     * @param bool $allowPrivateNetwork Whether the OAuth endpoints learned for this client may resolve to private,
+     *   loopback or link-local addresses (plain http also needs `allowInsecure`).
      */
     public function __construct(
         public readonly string $name,
@@ -100,6 +103,7 @@ final class ClientConfig
         public readonly ?string $revocationUrl = null,
         public readonly ?string $issuer = null,
         public readonly ?Closure $tokenProvider = null,
+        public readonly bool $allowPrivateNetwork = false,
     ) {
     }
 
@@ -438,6 +442,7 @@ final class ClientConfig
             $endpoints['revocationUrl'],
             $issuer,
             $tokenProvider,
+            self::bool($config, 'allowPrivateNetwork', $key),
         );
     }
 

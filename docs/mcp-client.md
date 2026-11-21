@@ -304,7 +304,27 @@ There are two levels of trust:
   a secret or a token never follow one.
 
 An authorization server on a private address is therefore refused when it is
-discovered. Configure its endpoints, as above, to use it.
+discovered. Configure its endpoints, as above, to use it, or set
+`allowPrivateNetwork` on that client:
+
+```php
+'intranet-tools' => [
+    'url' => 'https://mcp.corp.example/mcp',
+    'auth' => 'user',
+    'allowPrivateNetwork' => true,
+],
+```
+
+With it, the OAuth endpoints learned for that client (its authorization
+server, token, registration and revocation endpoints and the metadata URLs)
+may be names that resolve to private, loopback or link-local addresses, and
+names under `.internal`, `.local` and the other local names. IP addresses and
+single-label names stay refused, the connection is still pinned to the
+address that was checked, and plain `http` stays refused unless the client
+also has `allowInsecure`. Other clients are not affected. Only set it for a
+server you trust as much as your own network: a compromised server could make
+the application call internal addresses. `bin/cake mcp check` warns on its
+`Clients` line for each client that sets it.
 
 ### Behind an outbound proxy
 

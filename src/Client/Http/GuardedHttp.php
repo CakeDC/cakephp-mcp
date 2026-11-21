@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client\Http;
 
+use CakeDC\Mcp\Client\ClientConfig;
+
 /**
  * Every request to a URL learned from a remote server. Checks the origin with EndpointGuard and sends the exact URL,
  * query included, through a transport pinned to the address checked.
@@ -30,6 +32,25 @@ final class GuardedHttp
         private GuardedTransportInterface $transport,
         private int $maxBytes,
     ) {
+    }
+
+    /**
+     * This layer for one client: with its `allowPrivateNetwork`, a guard that lets private addresses through.
+     *
+     * @param \CakeDC\Mcp\Client\ClientConfig $config The client.
+     * @return self
+     */
+    public function forClient(ClientConfig $config): self
+    {
+        if (!$config->allowPrivateNetwork) {
+            return $this;
+        }
+
+        return new self(
+            $this->guard->allowingPrivateNetwork($config->allowInsecure),
+            $this->transport,
+            $this->maxBytes,
+        );
     }
 
     /**

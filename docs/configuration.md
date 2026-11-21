@@ -312,6 +312,7 @@ an error the same way as a server's, the other clients and the application keep 
 - `clients.<name>.tools.except`: patterns of the tools it may not. Wins over `only`.
 - `clients.<name>.protocolVersion`: the protocol revision to ask for, such as `2025-06-18`. Default: the SDK's.
 - `clients.<name>.allowInsecure`: `true` accepts plain http to a host other than this machine for the configured addresses. Default `false`.
+- `clients.<name>.allowPrivateNetwork`: `true` lets the OAuth endpoints learned for this client resolve to private, loopback or link-local addresses (an authorization server on your own network). Plain http for them also needs `allowInsecure`. Other clients are not affected, and `bin/cake mcp check` warns. Default `false`. See [MCP client](mcp-client.md#which-addresses-the-client-calls).
 - `clients.<name>.clientId`: user mode: the OAuth client id the authorization server's owner gave you. Without it, the application registers itself (dynamic client registration).
 - `clients.<name>.clientSecret`: user mode: that client's secret, if it has one.
 - `clients.<name>.scopes`: user mode: the scopes to ask for, sent as written. Default: the ones the server names, plus `offline_access` when the authorization server or the server lists it (so a refresh token is issued).

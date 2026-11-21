@@ -29,8 +29,24 @@ final class EndpointGuard
      * @param bool $proxied Whether requests go through `Mcp.client.proxy`, which resolves the name itself: a name
      *   the application cannot resolve is then allowed, and the checked endpoint has no address to pin.
      */
-    public function __construct(private HostResolverInterface $resolver, private bool $proxied = false)
+    public function __construct(
+        private HostResolverInterface $resolver,
+        private bool $proxied = false,
+        private bool $privateNetwork = false,
+        private bool $plainHttp = false,
+    ) {
+    }
+
+    /**
+     * This guard for a client with `allowPrivateNetwork`: names under the local special-use names and names that
+     * resolve to private, loopback or link-local addresses pass; IP addresses and single labels stay refused.
+     *
+     * @param bool $plainHttp Whether plain http passes too (the client's `allowInsecure`).
+     * @return self
+     */
+    public function allowingPrivateNetwork(bool $plainHttp): self
     {
+        return new self($this->resolver, $this->proxied, true, $plainHttp);
     }
 
     /**
@@ -44,9 +60,10 @@ final class EndpointGuard
     {
         $parts = parse_url($url);
         $host = is_array($parts) ? strtolower(trim((string)($parts['host'] ?? ''), '[]')) : '';
+        $scheme = is_array($parts) ? strtolower((string)($parts['scheme'] ?? '')) : '';
         if (
             !is_array($parts)
-            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || !($scheme === 'https' || ($scheme === 'http' && $this->plainHttp))
             || $host === ''
             || isset($parts['user'])
             || isset($parts['pass'])
@@ -66,7 +83,11 @@ final class EndpointGuard
             throw new BlockedUrlException($notPublic);
         }
         // A trailing dot is refused by isHostName(): curl would not match the pin to "host." and resolve again.
-        if (!self::isHostName($host) || !str_contains($host, '.') || self::isLocalName($host)) {
+        if (
+            !self::isHostName($host)
+            || !str_contains($host, '.')
+            || (self::isLocalName($host) && !$this->privateNetwork)
+        ) {
             // A single label could go through the server's DNS search domains.
             throw new BlockedUrlException($notPublic);
         }
@@ -75,14 +96,15 @@ final class EndpointGuard
             throw new BlockedUrlException($notPublic);
         }
         foreach ($addresses as $address) {
-            if (!self::isPublic($address)) {
+            if (!$this->privateNetwork && !self::isPublic($address)) {
                 throw new BlockedUrlException($notPublic);
             }
         }
-        $port = (int)($parts['port'] ?? 443);
+        $default = $scheme === 'http' ? 80 : 443;
+        $port = (int)($parts['port'] ?? $default);
 
         return new CheckedEndpoint(
-            'https://' . $host . ($port === 443 ? '' : ':' . $port),
+            $scheme . '://' . $host . ($port === $default ? '' : ':' . $port),
             $host,
             $port,
             // Behind a proxy nothing is pinned: the proxy resolves the name.

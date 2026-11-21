@@ -81,7 +81,7 @@ final class Discovery
             $prefixAllowed = false;
         } elseif ($metadataUrl !== null) {
             // Named by the server: learned, so through the guard, and its resource must be this server exactly.
-            $resourceMetadata = $this->firstDocument([self::httpsUrl($metadataUrl)], false);
+            $resourceMetadata = $this->firstDocument([$this->learnedUrl($metadataUrl)], false);
             $prefixAllowed = false;
         } else {
             $resourceMetadata = $this->firstDocument(self::protectedResourceUrls($server), true);
@@ -123,7 +123,7 @@ final class Discovery
             $issuer = $config->issuer;
         }
 
-        $document = $this->firstDocument(self::authorizationServerUrls($issuer), false);
+        $document = $this->firstDocument($this->authorizationServerUrls($issuer), false);
         if ($document === null) {
             throw new OAuthException(sprintf(
                 'The authorization server of "%s" does not publish its details.',
@@ -169,7 +169,7 @@ final class Discovery
 
         return new AuthServer(
             $issuer,
-            self::httpsUrl($document['authorization_endpoint'] ?? null),
+            $this->learnedUrl($document['authorization_endpoint'] ?? null),
             (string)$tokenUrl,
             $registrationUrl,
             $revocationUrl,
@@ -246,7 +246,7 @@ final class Discovery
      */
     private function learnedEndpoint(mixed $value): string
     {
-        $url = self::httpsUrl($value);
+        $url = $this->learnedUrl($value);
         $this->http->check($url);
 
         return $url;
@@ -282,9 +282,9 @@ final class Discovery
      * @param string $issuer The expected issuer.
      * @return list<string> Its metadata URLs in the order RFC 8414 and OpenID Connect Discovery give.
      */
-    private static function authorizationServerUrls(string $issuer): array
+    private function authorizationServerUrls(string $issuer): array
     {
-        $parts = (array)parse_url(self::httpsUrl($issuer));
+        $parts = (array)parse_url($this->learnedUrl($issuer));
         if (isset($parts['query'])) {
             throw self::unusable('');
         }
@@ -366,16 +366,18 @@ final class Discovery
 
     /**
      * @param mixed $value A URL from a remote document.
-     * @return string It, when it is an absolute https URL without user info or fragment.
+     * @return string It, when it is an absolute https URL without user info or fragment; plain http too for a
+     *   client with both `allowPrivateNetwork` and `allowInsecure`.
      * @throws \CakeDC\Mcp\Client\OAuth\OAuthException Otherwise.
      */
-    private static function httpsUrl(mixed $value): string
+    private function learnedUrl(mixed $value): string
     {
         $parts = is_string($value) ? parse_url($value) : false;
+        $schemes = $this->config->allowPrivateNetwork && $this->config->allowInsecure ? ['https', 'http'] : ['https'];
         if (
             !is_string($value)
             || !is_array($parts)
-            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || !in_array(strtolower((string)($parts['scheme'] ?? '')), $schemes, true)
             || ($parts['host'] ?? '') === ''
             || isset($parts['user'])
             || isset($parts['pass'])

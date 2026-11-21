@@ -39,9 +39,11 @@ final class CakeGuardedTransport implements GuardedTransportInterface
         $parts = parse_url($request->url);
         $host = is_array($parts) ? strtolower(trim((string)($parts['host'] ?? ''), '[]')) : '';
         // Compared as written: "host." would not match the pin in curl and be resolved again.
-        $port = is_array($parts) ? (int)($parts['port'] ?? 443) : 0;
+        // Plain http only when the guard let it through (a client with allowPrivateNetwork and allowInsecure).
+        $expected = str_starts_with($pin->origin, 'http://') ? 'http' : 'https';
         $scheme = is_array($parts) ? strtolower((string)($parts['scheme'] ?? '')) : '';
-        if ($scheme !== 'https' || $host !== $pin->host || $port !== $pin->port) {
+        $port = is_array($parts) ? (int)($parts['port'] ?? ($scheme === 'http' ? 80 : 443)) : 0;
+        if ($scheme !== $expected || $host !== $pin->host || $port !== $pin->port) {
             throw new BlockedUrlException('The request left the address that was checked.');
         }
 
@@ -83,9 +85,9 @@ final class CakeGuardedTransport implements GuardedTransportInterface
             },
         ];
         if (defined('CURLOPT_PROTOCOLS_STR')) {
-            $curl[CURLOPT_PROTOCOLS_STR] = 'https';
+            $curl[CURLOPT_PROTOCOLS_STR] = $expected;
         } else {
-            $curl[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+            $curl[CURLOPT_PROTOCOLS] = $expected === 'http' ? CURLPROTO_HTTP : CURLPROTO_HTTPS;
         }
         $headers = array_filter(
             $request->headers,

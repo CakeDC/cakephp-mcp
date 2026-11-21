@@ -197,6 +197,7 @@ class McpCheckCommand extends Command
             return ['pass', 'none'];
         }
         $described = [];
+        $warnings = [];
         $userMode = false;
         foreach ($names as $name) {
             try {
@@ -204,6 +205,13 @@ class McpCheckCommand extends Command
             } catch (InvalidArgumentException $e) {
                 $problems[] = $e->getMessage();
                 continue;
+            }
+            if ($config->allowPrivateNetwork) {
+                $warnings[] = sprintf(
+                    '%s has allowPrivateNetwork: the authorization server its server names may be on your private '
+                    . 'network, so a compromised server can make the application call internal addresses',
+                    $name,
+                );
             }
             if (!$config->isUser()) {
                 // A token callable is never called here: it may read a vault.
@@ -240,7 +248,12 @@ class McpCheckCommand extends Command
             return ['fail', implode('; ', array_unique($problems)) . ', see ' . self::DOCS . 'mcp-client.md'];
         }
 
-        return ['pass', implode(', ', $described) . ($proxy === null ? '' : '; through the proxy ' . $proxy)];
+        $line = implode(', ', $described) . ($proxy === null ? '' : '; through the proxy ' . $proxy);
+        if ($warnings !== []) {
+            return ['warn', $line . '; ' . implode('; ', $warnings)];
+        }
+
+        return ['pass', $line];
     }
 
     /**

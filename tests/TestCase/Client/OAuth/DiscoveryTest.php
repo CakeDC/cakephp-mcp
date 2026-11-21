@@ -273,6 +273,71 @@ class DiscoveryTest extends TestCase
         $this->discover();
     }
 
+    public function testAllowPrivateNetworkLetsThatClientUseAPrivateAuthorizationServer(): void
+    {
+        Configure::write('Mcp.clients.corp', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'allowPrivateNetwork' => true,
+        ]);
+        $this->server->dns->add('sso.corp.internal', ['10.0.0.9']);
+        $this->server->resourceMetadata([
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => ['https://sso.corp.internal'],
+        ]);
+        $this->server->guarded->json('https://sso.corp.internal/.well-known/oauth-authorization-server', [
+            'issuer' => 'https://sso.corp.internal',
+            'authorization_endpoint' => 'https://sso.corp.internal/authorize',
+            'token_endpoint' => 'https://sso.corp.internal/token',
+            'code_challenge_methods_supported' => ['S256'],
+        ]);
+
+        $server = $this->discover('corp');
+        $this->assertSame('https://sso.corp.internal/token', $server->tokenUrl);
+        $this->assertContains('10.0.0.9', array_column($this->server->guarded->sent, 'ip'));
+
+        // Another client of the same application is not affected.
+        try {
+            $this->discover();
+            $this->fail('A client without allowPrivateNetwork used a private authorization server.');
+        } catch (BlockedUrlException) {
+            $this->addToAssertionCount(1);
+        }
+    }
+
+    public function testAllowPrivateNetworkStillRefusesPlainHttpWithoutAllowInsecure(): void
+    {
+        Configure::write('Mcp.clients.corp', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'allowPrivateNetwork' => true,
+        ]);
+        $this->server->authorizationServer(['token_endpoint' => 'http://internal.example.com/token']);
+
+        try {
+            $this->discover('corp');
+            $this->fail('Plain http accepted');
+        } catch (BlockedUrlException | OAuthException) {
+            $this->addToAssertionCount(1);
+        }
+
+        Configure::write('Mcp.clients.corp.allowInsecure', true);
+        $this->assertSame('http://internal.example.com/token', $this->discover('corp')->tokenUrl);
+    }
+
+    public function testAllowPrivateNetworkStillRefusesIpLiterals(): void
+    {
+        Configure::write('Mcp.clients.corp', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'allowPrivateNetwork' => true,
+        ]);
+        $this->server->authorizationServer(['token_endpoint' => 'https://10.0.0.1/token']);
+
+        $this->expectException(BlockedUrlException::class);
+        $this->discover('corp');
+    }
+
     public function testAnIpLiteralEndpointIsRefused(): void
     {
         $this->server->authorizationServer(['registration_endpoint' => 'https://10.0.0.1/register']);
