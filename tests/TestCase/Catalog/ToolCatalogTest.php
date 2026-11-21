@@ -11,6 +11,7 @@ use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
@@ -84,6 +85,86 @@ class ToolCatalogTest extends TestCase
         $this->assertMcpToolSucceeded();
         $schema = $this->mcpResult()['structuredContent']['tools'][0]['inputSchema'];
         $this->assertSame('string', $schema['properties']['date_from']['type']);
+    }
+
+    private function searchCatalog(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpCatalog']);
+        Configure::write('Mcp.catalog.tools', ['*']);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function found(string $query): array
+    {
+        $this->mcpCallTool('find_tools', ['query' => $query]);
+        $this->assertMcpToolSucceeded();
+
+        return array_column($this->mcpResult()['structuredContent']['tools'], 'name');
+    }
+
+    public function testFindToolsMatchesWordsOutsideAscii(): void
+    {
+        $this->searchCatalog();
+
+        $this->assertSame(['buscar_facturas'], $this->found('año'));
+        // "año" is one word, not "a" and "o", which would match nearly every tool.
+        $this->assertNotContains('list_orders', $this->found('año'));
+        $this->assertSame(['buscar_facturas'], $this->found('AÑO'));
+    }
+
+    public function testFindToolsSearchesTheInputSchema(): void
+    {
+        $this->searchCatalog();
+
+        $this->assertSame(['send_payment'], $this->found('iban'));
+        $this->assertSame(['send_payment'], $this->found('account'));
+    }
+
+    public function testFindToolsRefusesAnOverlongQuery(): void
+    {
+        $this->searchCatalog();
+
+        $this->mcpCallTool('find_tools', ['query' => str_repeat('a', 201)]);
+
+        // The input schema says so (maxLength), so the arguments are refused before the search runs.
+        $this->assertMcpJsonRpcError(-32602, 'longer than 200 characters');
+    }
+
+    public function testFindToolsSaysWhetherThereIsMore(): void
+    {
+        $this->searchCatalog();
+
+        $this->mcpCallTool('find_tools', ['limit' => 2]);
+        $this->assertTrue($this->mcpResult()['structuredContent']['hasMore']);
+
+        $this->mcpCallTool('find_tools', ['limit' => 3]);
+        $this->assertFalse($this->mcpResult()['structuredContent']['hasMore']);
+    }
+
+    public function testFindToolsCapsTheSizeOfItsResult(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+        Configure::write('Mcp.catalog.tools', ['big_*']);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            for ($i = 0; $i < 30; $i++) {
+                $builder->addTool(
+                    fn(): string => 'ok',
+                    name: sprintf('big_%02d', $i),
+                    description: str_repeat('A long description. ', 300),
+                );
+            }
+        });
+
+        $this->mcpCallTool('find_tools', ['limit' => 50]);
+
+        $this->assertMcpToolSucceeded();
+        $result = $this->mcpResult()['structuredContent'];
+        $this->assertTrue($result['hasMore']);
+        $this->assertGreaterThan(0, count($result['tools']));
+        $this->assertLessThan(30, count($result['tools']));
+        $this->assertLessThanOrEqual(ToolCatalog::MAX_RESULT_BYTES, strlen((string)json_encode($result['tools'])));
     }
 
     public function testFindToolsWithAnEmptyQuery(): void

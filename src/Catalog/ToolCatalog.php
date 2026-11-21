@@ -41,6 +41,16 @@ final class ToolCatalog
     public const CALL = 'call_tools';
 
     /**
+     * The longest `query` find_tools takes, in characters.
+     */
+    public const MAX_QUERY_LENGTH = 200;
+
+    /**
+     * The most JSON bytes of tools one find_tools result holds; past it, `hasMore` says there are more.
+     */
+    public const MAX_RESULT_BYTES = 65536;
+
+    /**
      * @param \Mcp\Capability\RegistryInterface $registry The server's registry.
      * @param \CakeDC\Mcp\Authorization\ToolGate $gate The server's gate.
      * @param list<string> $patterns `Mcp.catalog.tools`.
@@ -99,16 +109,25 @@ final class ToolCatalog
     }
 
     /**
-     * Finds catalogued tools the caller may call, best matches first.
+     * Finds catalogued tools the caller may call, best matches first, as many as $limit and MAX_RESULT_BYTES allow.
      *
      * @param \Mcp\Server\RequestContext $context The call (injected by the SDK).
-     * @param string $query Words to look for in the tool names, titles and descriptions. Empty: every tool.
+     * @param string $query Words to look for in the tool names, titles, descriptions and the names and descriptions
+     *   of their arguments. Empty: every tool.
      * @param int $limit How many tools, 1 to 50.
-     * @return array{tools: list<array{name: string, title: string|null, description: string|null, inputSchema: array<string, mixed>}>}
+     * @return array{tools: list<array<string, mixed>>, hasMore: bool}
+     * @throws \Mcp\Exception\ToolCallException With a query longer than MAX_QUERY_LENGTH.
      */
     public function find(RequestContext $context, string $query = '', int $limit = 10): array
     {
-        $terms = preg_split('/[^a-z0-9]+/', strtolower($query), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (mb_strlen($query) > self::MAX_QUERY_LENGTH) {
+            throw new ToolCallException(sprintf(
+                'The query is too long: at most %d characters. Use a few words.',
+                self::MAX_QUERY_LENGTH,
+            ));
+        }
+        // Words of any script, so a query in another language matches whole words, not their ASCII letters.
+        $terms = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($query), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $ranked = [];
         foreach ($this->registry->getTools()->references as $name => $tool) {
             $name = (string)$name;
@@ -121,9 +140,14 @@ final class ToolCatalog
             }
         }
         usort($ranked, fn(array $a, array $b): int => [$b[0], $a[1]->name] <=> [$a[0], $b[1]->name]);
+        $limit = max(1, min(50, $limit));
         $tools = [];
-        foreach (array_slice($ranked, 0, max(1, min(50, $limit))) as [, $tool]) {
-            $tools[] = [
+        $bytes = 2;
+        foreach ($ranked as [, $tool]) {
+            if (count($tools) >= $limit) {
+                break;
+            }
+            $entry = [
                 'name' => $tool->name,
                 'title' => $tool->title,
                 'description' => $tool->description,
@@ -133,9 +157,15 @@ final class ToolCatalog
                     ? SchemaNormalizer::normalize($tool->inputSchema)
                     : $tool->inputSchema,
             ];
+            $size = strlen((string)json_encode($entry)) + 1;
+            if ($bytes + $size > self::MAX_RESULT_BYTES && $tools !== []) {
+                break;
+            }
+            $bytes += $size;
+            $tools[] = $entry;
         }
 
-        return ['tools' => $tools];
+        return ['tools' => $tools, 'hasMore' => count($tools) < count($ranked)];
     }
 
     /**
@@ -189,7 +219,8 @@ final class ToolCatalog
                 'properties' => [
                     'query' => [
                         'type' => 'string',
-                        'description' => 'Words to look for in tool names and descriptions. '
+                        'maxLength' => self::MAX_QUERY_LENGTH,
+                        'description' => 'Words to look for in tool names, descriptions and arguments. '
                             . 'Leave it out for all tools.',
                     ],
                     'limit' => [
@@ -379,15 +410,28 @@ final class ToolCatalog
     /**
      * @param \Mcp\Schema\Tool $tool A tool.
      * @param list<string> $terms Lowercase query words.
-     * @return int Name matches count 3, title 2, description 1.
+     * @return int Name matches count 3, title 2, description 1, and the name or description of an argument 1.
      */
     private function score(Tool $tool, array $terms): int
     {
+        $arguments = [];
+        $properties = $tool->inputSchema['properties'] ?? [];
+        foreach (is_array($properties) ? $properties : [] as $property => $schema) {
+            $arguments[] = (string)$property;
+            if (is_array($schema) && is_string($schema['description'] ?? null)) {
+                $arguments[] = $schema['description'];
+            }
+        }
+        $arguments = mb_strtolower(implode(' ', $arguments));
+        $name = mb_strtolower($tool->name);
+        $title = mb_strtolower((string)$tool->title);
+        $description = mb_strtolower((string)$tool->description);
         $score = 0;
         foreach ($terms as $term) {
-            $score += str_contains(strtolower($tool->name), $term) ? 3 : 0;
-            $score += str_contains(strtolower((string)$tool->title), $term) ? 2 : 0;
-            $score += str_contains(strtolower((string)$tool->description), $term) ? 1 : 0;
+            $score += str_contains($name, $term) ? 3 : 0;
+            $score += str_contains($title, $term) ? 2 : 0;
+            $score += str_contains($description, $term) ? 1 : 0;
+            $score += str_contains($arguments, $term) ? 1 : 0;
         }
 
         return $score;

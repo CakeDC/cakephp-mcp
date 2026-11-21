@@ -208,9 +208,15 @@ reach them instead:
 ],
 ```
 
-- `find_tools` takes a `query` (words to look for) and a `limit` (1 to 50,
-  default 10), and returns the matching tools with their descriptions and input
-  schemas, best matches first. It only returns tools the caller may call.
+- `find_tools` takes a `query` (words to look for, at most 200 characters) and
+  a `limit` (1 to 50, default 10), and returns the matching tools with their
+  descriptions and input schemas, best matches first. It looks in the tool
+  names, titles and descriptions, and in the names and descriptions of their
+  arguments. Words are matched in any language (`año` is one word, not `a` and
+  `o`), without regard to case. It only returns tools the caller may call. The
+  tools it returns take at most 64 KiB of JSON; `hasMore` is `true` when more
+  tools matched than it returned, so the model can search with other words or
+  a smaller `limit`.
 - `call_tools` takes `calls`, a list of `{"name": ..., "arguments": {...}}`, runs
   them in order and returns each result. It stops at the first error.
 
