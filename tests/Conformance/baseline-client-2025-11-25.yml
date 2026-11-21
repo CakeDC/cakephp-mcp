@@ -1,0 +1,11 @@
+# Client scenarios of the official conformance suite expected to fail at 2025-11-25, with the reason.
+client:
+  # The plugin's MCP client does not answer elicitation requests (no user to ask in a PHP request).
+  - elicitation-sep1034-client-defaults
+  # The plugin's client id is the URL of its own client.json route, not the one the suite names, and the suite
+  # cannot fetch a document on this machine.
+  - auth/basic-cimd
+  # The client learns the first scope from the 401 of its unauthenticated probe (initialize); this server lets the
+  # probe through and challenges later calls, so the first sign-in asks for scopes_supported and the server keeps
+  # answering 403.
+  - auth/scope-step-up

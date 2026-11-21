@@ -118,3 +118,7 @@ jobs:
           node-version: '22'
       - run: tests/Conformance/run.sh
         working-directory: cakephp-mcp
+      # The client side: the plugin's MCP client (tests/Conformance/client.php) against the suite's own servers.
+      - run: tests/Conformance/run-client.sh
+        if: ${{ !cancelled() }}
+        working-directory: cakephp-mcp
