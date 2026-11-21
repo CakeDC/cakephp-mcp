@@ -8,8 +8,7 @@ use Cake\Http\Client\Adapter\Curl;
 use Cake\Http\Client\AdapterInterface;
 use Cake\Http\Client\Request;
 use CakeDC\Mcp\Client\Exception\ClientException;
-use InvalidArgumentException;
-use Psr\Http\Client\ClientExceptionInterface;
+use Throwable;
 
 /**
  * Sends a guarded request with Cake's HTTP client and its Curl adapter, pinned with `CURLOPT_RESOLVE` to the address
@@ -46,6 +45,7 @@ final class CakeGuardedTransport implements GuardedTransportInterface
         }
 
         $tooLarge = false;
+        $compressed = false;
         $ip = str_contains($pin->ip, ':') ? '[' . $pin->ip . ']' : $pin->ip;
         $curl = [
             CURLOPT_RESOLVE => [sprintf('%s:%d:%s', $pin->host, $pin->port, $ip)],
@@ -63,6 +63,16 @@ final class CakeGuardedTransport implements GuardedTransportInterface
 
                 return 0;
             },
+            // A compressed body is inflated whole after it is read, past the cap: stop the transfer at its headers.
+            CURLOPT_HEADERFUNCTION => function ($handle, string $header) use (&$compressed): int {
+                if (self::isCompressed($header)) {
+                    $compressed = true;
+
+                    return 0;
+                }
+
+                return strlen($header);
+            },
         ];
         if (defined('CURLOPT_PROTOCOLS_STR')) {
             $curl[CURLOPT_PROTOCOLS_STR] = 'https';
@@ -74,6 +84,11 @@ final class CakeGuardedTransport implements GuardedTransportInterface
             fn(string $name): bool => strcasecmp($name, 'host') !== 0,
             ARRAY_FILTER_USE_KEY,
         );
+        $headers = array_filter(
+            $headers,
+            fn(string $name): bool => strcasecmp($name, 'accept-encoding') !== 0,
+            ARRAY_FILTER_USE_KEY,
+        ) + ['Accept-Encoding' => 'identity'];
 
         try {
             $client = new Client(['adapter' => $this->adapter ?? Curl::class]);
@@ -86,13 +101,20 @@ final class CakeGuardedTransport implements GuardedTransportInterface
                     'curl' => $curl,
                 ],
             );
-        } catch (ClientExceptionInterface | InvalidArgumentException $e) {
-            // The message is left out: it quotes the URL, whose query may carry a secret.
+        } catch (Throwable $e) {
+            // Anything the HTTP layer throws (a gzip body that is not one, say) is this transport's error. The
+            // message is left out: it quotes the URL, whose query may carry a secret.
+            if ($compressed) {
+                throw self::compressed($pin->host);
+            }
             if ($tooLarge || str_contains($e->getMessage(), '(' . CURLE_FILESIZE_EXCEEDED . ')')) {
                 throw self::tooLarge();
             }
 
             throw new ClientException(sprintf('The server at %s could not be reached.', $pin->host));
+        }
+        if (self::isCompressed('Content-Encoding: ' . $response->getHeaderLine('Content-Encoding'))) {
+            throw self::compressed($pin->host);
         }
         $body = (string)$response->getBody();
         if (strlen($body) > $maxBytes) {
@@ -100,6 +122,32 @@ final class CakeGuardedTransport implements GuardedTransportInterface
         }
 
         return new HttpResponse($response->getStatusCode(), $response->getHeaders(), $body);
+    }
+
+    /**
+     * @param string $header One header line.
+     * @return bool Whether it announces a compressed body (a `Content-Encoding` other than `identity`).
+     */
+    private static function isCompressed(string $header): bool
+    {
+        if (preg_match('/^content-encoding:(.*)$/i', trim($header), $match) !== 1) {
+            return false;
+        }
+        $encoding = strtolower(trim($match[1]));
+
+        return $encoding !== '' && $encoding !== 'identity';
+    }
+
+    /**
+     * @param string $host The server.
+     * @return \CakeDC\Mcp\Client\Exception\ClientException
+     */
+    private static function compressed(string $host): ClientException
+    {
+        return new ClientException(sprintf(
+            'The server at %s sent a compressed answer, which the MCP client does not accept.',
+            $host,
+        ));
     }
 
     /**

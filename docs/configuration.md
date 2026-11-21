@@ -303,7 +303,7 @@ Shared settings:
 - `client.encryptionKey`: the key tokens and client secrets are encrypted with, at least 32 bytes. Default `null`: `Security.salt`.
 - `client.name`, `client.version`: how the application introduces itself to servers and authorization servers. Default `CakePHP MCP Client`, `1.0.0`.
 - `client.refreshLeeway`: seconds before expiry when an access token is refreshed. Default `60`.
-- `client.maxResponseBytes`: the largest answer read from an address a remote server named. Default `1048576` (1 MiB).
+- `client.maxResponseBytes`: the largest answer read from an address a remote server named. Default `1048576` (1 MiB). Those addresses are asked for uncompressed answers (`Accept-Encoding: identity`) and a compressed one is refused, so the cap applies to what is read.
 - `client.identityAttribute`: the request attribute that holds the logged-in user on the connect and callback routes. Default `identity`.
 
 ## Caches

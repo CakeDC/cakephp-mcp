@@ -260,7 +260,8 @@ There are two levels of trust:
   endpoints, and any redirect) go through a guard against server-side request
   forgery: https only, a host name (not an IP address) whose every address is
   public, the connection pinned to the address that was checked, no proxy,
-  and answers capped at `Mcp.client.maxResponseBytes` (1 MiB). A redirect is
+  and answers capped at `Mcp.client.maxResponseBytes` (1 MiB), uncompressed
+  (a compressed answer is refused, so the cap applies to what is read). A redirect is
   followed only for metadata, and checked again; requests that carry a code,
   a secret or a token never follow one.
 

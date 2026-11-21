@@ -308,6 +308,21 @@ class UserConnectionTest extends TestCase
         $this->assertStringNotContainsString('at-seed', $logs);
     }
 
+    public function testDisconnectDeletesTheGrantWhateverRevocationThrows(): void
+    {
+        $this->seed();
+        $this->server->guarded->on('POST', FakeOAuthServer::ISSUER . '/revoke', function (): HttpResponse {
+            throw new LogicException('The revocation endpoint broke the client.');
+        });
+
+        try {
+            McpClients::get('linear')->for(7)->disconnect();
+        } catch (LogicException) {
+        }
+
+        $this->assertNull($this->store->get('linear', '7'));
+    }
+
     public function testDisconnectWithoutAGrantDoesNothing(): void
     {
         McpClients::get('linear')->for(7)->disconnect();

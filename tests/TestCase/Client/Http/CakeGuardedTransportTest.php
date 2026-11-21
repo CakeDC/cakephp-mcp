@@ -85,6 +85,62 @@ class CakeGuardedTransportTest extends TestCase
         }
     }
 
+    public function testOnlyAnUncompressedAnswerIsAskedForAndAcceptedAtItsHeaders(): void
+    {
+        $adapter = $this->adapter();
+        (new CakeGuardedTransport($adapter))->send(
+            new HttpRequest('GET', 'https://auth.example.com/meta'),
+            new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34'),
+            2048,
+        );
+
+        $this->assertSame('identity', $adapter->request?->getHeaderLine('Accept-Encoding'));
+        $headers = $adapter->options['curl'][CURLOPT_HEADERFUNCTION] ?? null;
+        $this->assertIsCallable($headers);
+        $this->assertSame(strlen("Content-Type: text/html\r\n"), $headers(null, "Content-Type: text/html\r\n"));
+        $this->assertSame(strlen("Content-Encoding: identity\r\n"), $headers(null, "Content-Encoding: identity\r\n"));
+        // A compressed body would be inflated whole, past the cap: the transfer stops at its headers.
+        $this->assertSame(0, $headers(null, "Content-Encoding: gzip\r\n"));
+    }
+
+    public function testACompressedAnswerIsRefused(): void
+    {
+        $adapter = new class implements AdapterInterface {
+            public function send(RequestInterface $request, array $options): array
+            {
+                return [new Response(['HTTP/1.1 200 OK', 'Content-Encoding: gzip'], (string)gzencode('{"a":1}'))];
+            }
+        };
+
+        $this->expectException(ClientException::class);
+        $this->expectExceptionMessage('compressed');
+
+        (new CakeGuardedTransport($adapter))->send(
+            new HttpRequest('GET', 'https://auth.example.com/meta'),
+            new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34'),
+            2048,
+        );
+    }
+
+    public function testAnyFailureOfTheHttpLayerIsAClientException(): void
+    {
+        $adapter = new class implements AdapterInterface {
+            public function send(RequestInterface $request, array $options): array
+            {
+                // What Cake's Response does with a body that claims gzip and is not.
+                return [new Response(['HTTP/1.1 200 OK', 'Content-Encoding: gzip'], '{"not":"gzip"}')];
+            }
+        };
+
+        $this->expectException(ClientException::class);
+
+        (new CakeGuardedTransport($adapter))->send(
+            new HttpRequest('GET', 'https://auth.example.com/meta'),
+            new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34'),
+            2048,
+        );
+    }
+
     public function testAnIpv6PinIsBracketed(): void
     {
         $adapter = $this->adapter();

@@ -101,11 +101,16 @@ final class UserConnection
         $this->close();
         $store = $this->registry->store();
         $stored = $store->get($this->config->name, $this->userId);
-        if ($stored !== null) {
-            $trusted = $this->config->revocationUrl !== null && $stored->revocationUrl === $this->config->revocationUrl;
-            $this->registry->tokens($this->config)->revoke($stored, $trusted);
+        try {
+            if ($stored !== null) {
+                $trusted = $this->config->revocationUrl !== null
+                    && $stored->revocationUrl === $this->config->revocationUrl;
+                $this->registry->tokens($this->config)->revoke($stored, $trusted);
+            }
+        } finally {
+            // Whatever revocation does, the local grant goes.
+            $store->delete($this->config->name, $this->userId);
         }
-        $store->delete($this->config->name, $this->userId);
     }
 
     /**
