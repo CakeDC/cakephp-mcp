@@ -179,11 +179,22 @@ trait CallsServerTrait
 
     /**
      * @param string $uri The resource.
-     * @return \Mcp\Schema\Result\ReadResourceResult
+     * @return \Mcp\Schema\Result\ReadResourceResult From the list cache when it holds a fresh read for this caller.
      */
     public function readResource(string $uri): ReadResourceResult
     {
-        return $this->run(fn(Client $client): ReadResourceResult => $client->readResource($uri));
+        $cache = $this->listCache();
+        $cached = $cache?->get('resources/read', $uri);
+        if ($cached instanceof ReadResourceResult) {
+            return $cached;
+        }
+        $read = $this->run(fn(Client $client): ReadResourceResult => $client->readResource($uri));
+        $result = $cache === null ? null : $this->lastResult('resources/read');
+        if ($cache !== null && $result !== null) {
+            $cache->put('resources/read', $uri, $result, $read);
+        }
+
+        return $read;
     }
 
     /**

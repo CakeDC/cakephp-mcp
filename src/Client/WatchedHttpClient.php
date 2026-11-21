@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client;
 
+use Cake\Http\Client\Response;
 use Cake\Http\StreamFactory;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
@@ -10,7 +11,8 @@ use Psr\Http\Message\ResponseInterface;
 
 /**
  * Remembers the status of the last answer, so a `401` (a token the server no longer accepts) can be told apart from
- * other failures: the SDK's transport reports both as the same exception.
+ * other failures: the SDK's transport reports both as the same exception. With a `cache`, answers the connection's
+ * `server/discover` probe from it while a result with cache hints is fresh.
  *
  * @internal
  */
@@ -43,11 +45,21 @@ final class WatchedHttpClient implements ClientInterface
     private bool $accepted = false;
 
     /**
+     * Whether this connection sent its `server/discover` probe: only that one may be answered from the cache, a
+     * later one is a `ping()` that must reach the server.
+     */
+    private bool $probed = false;
+
+    /**
      * @param \Psr\Http\Client\ClientInterface $client The client it wraps.
      * @param \CakeDC\Mcp\Client\ClientConfig|null $config The client, whose `token` callable is called for each request.
+     * @param \CakeDC\Mcp\Client\ListCache|null $cache The client's cache, for the `server/discover` probe.
      */
-    public function __construct(private ClientInterface $client, private ?ClientConfig $config = null)
-    {
+    public function __construct(
+        private ClientInterface $client,
+        private ?ClientConfig $config = null,
+        private ?ListCache $cache = null,
+    ) {
     }
 
     /**
@@ -63,6 +75,23 @@ final class WatchedHttpClient implements ClientInterface
         }
         $method = self::method($request);
         unset($this->results[$method]);
+        $discover = null;
+        if ($method === 'server/discover' && !$this->probed && $this->cache !== null) {
+            // Keyed by the credential this very request carries, as a private list is.
+            $discover = $this->cache->withCredential(
+                $request->getHeaderLine('Authorization') . "\0" . json_encode($this->config->headers ?? []),
+            );
+            $kept = $discover->get('server/discover', null);
+            if (is_array($kept)) {
+                $this->probed = true;
+                $this->lastStatus = 200;
+
+                return self::answer($request, $kept);
+            }
+        }
+        if ($method === 'server/discover') {
+            $this->probed = true;
+        }
         $response = $this->client->sendRequest($request);
         $this->lastStatus = $response->getStatusCode();
         if (
@@ -85,10 +114,29 @@ final class WatchedHttpClient implements ClientInterface
             $result = self::result($body);
             if ($result !== null) {
                 $this->results[$method] = $result;
+                $discover?->put('server/discover', null, $result, $result);
             }
         }
 
         return $response;
+    }
+
+    /**
+     * @param \Psr\Http\Message\RequestInterface $request A `server/discover` request.
+     * @param array<string, mixed> $result A fresh result kept for it.
+     * @return \Psr\Http\Message\ResponseInterface The answer the server gave then, to this request's id.
+     */
+    private static function answer(RequestInterface $request, array $result): ResponseInterface
+    {
+        $body = $request->getBody();
+        $decoded = json_decode((string)$body, true);
+        $body->rewind();
+
+        return new Response(['HTTP/1.1 200 OK', 'Content-Type: application/json'], (string)json_encode([
+            'jsonrpc' => '2.0',
+            'id' => is_array($decoded) ? ($decoded['id'] ?? null) : null,
+            'result' => $result,
+        ], JSON_UNESCAPED_SLASHES));
     }
 
     /**

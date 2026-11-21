@@ -22,6 +22,7 @@ use CakeDC\Mcp\Test\Support\FixedHttpClientFactory;
 use CakeDC\Mcp\Test\Support\SdkServerHttpClient;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\CacheScope;
+use Mcp\Schema\Notification\ResourceUpdatedNotification;
 use Mcp\Schema\Notification\ToolListChangedNotification;
 use Mcp\Server\Wire\CachePolicy;
 use stdClass;
@@ -54,6 +55,15 @@ class ClientCacheTest extends TestCase
         Cache::drop('mcp_client_lists');
         DateTime::setTestNow(null);
         parent::tearDown();
+    }
+
+    /**
+     * A new PHP request: new connections, the same cache.
+     */
+    private function fresh(): void
+    {
+        McpClients::reset();
+        McpClients::setRegistry(new ClientRegistry(new FixedHttpClientFactory($this->server)));
     }
 
     private function sent(string $method): int
@@ -140,6 +150,66 @@ class ClientCacheTest extends TestCase
 
         McpClients::get('remote')->listTools();
         $this->assertSame(2, $this->sent('tools/list'));
+    }
+
+    public function testAResourceReadWithHintsIsServedFromTheCacheUntilItIsUpdated(): void
+    {
+        $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
+
+        $first = McpClients::get('remote')->readResource('docs://readme');
+        $this->fresh();
+        $second = McpClients::get('remote')->readResource('docs://readme');
+
+        $this->assertSame(1, $this->sent('resources/read'));
+        $this->assertEquals($first, $second);
+        $this->assertSame('Read me.', $second->contents[0]->text ?? null);
+
+        // notifications/resources/updated for that URI: read again.
+        $handler = new ListChangedHandler(new ListCache(ClientConfig::fromConfig('remote'), null));
+        $updated = new ResourceUpdatedNotification('docs://readme');
+        $this->assertTrue($handler->supports($updated));
+        $handler->handle($updated);
+        McpClients::get('remote')->readResource('docs://readme');
+        $this->assertSame(2, $this->sent('resources/read'));
+    }
+
+    public function testAResultOverTheEntrySizeIsNotKept(): void
+    {
+        // A resource can be a large blob: the cache holds what is cheap to keep.
+        $cache = new ListCache(ClientConfig::fromConfig('remote'), null, 'app-token');
+        $hints = ['ttlMs' => 60000, 'cacheScope' => 'private'];
+        $big = $hints + ['contents' => [['uri' => 'files://big', 'blob' => str_repeat('A', ListCache::MAX_ENTRY_BYTES)]]];
+
+        $cache->put('resources/read', 'files://big', $big, $big);
+        $cache->put('resources/read', 'files://small', $hints + ['contents' => []], $hints + ['contents' => []]);
+
+        $this->assertNull($cache->get('resources/read', 'files://big'));
+        $this->assertNotNull($cache->get('resources/read', 'files://small'));
+    }
+
+    public function testServerDiscoverIsAnsweredFromTheCacheWithinItsTtl(): void
+    {
+        $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
+
+        $info = McpClients::get('remote')->serverInfo();
+        $this->fresh();
+        $again = McpClients::get('remote');
+
+        $this->assertSame('fake', $again->serverInfo()?->name);
+        $this->assertSame($info?->version, $again->serverInfo()?->version);
+        // The session goes on as with a discover it fetched itself.
+        $this->assertNotSame([], $again->listTools());
+        $this->assertSame(1, $this->sent('server/discover'));
+
+        // ping() checks the server, so it is never answered from the cache.
+        $again->ping();
+        $this->assertSame(2, $this->sent('server/discover'));
+
+        // A private result is kept for its credential only.
+        Configure::write('Mcp.clients.remote.token', 'other-token');
+        $this->fresh();
+        McpClients::get('remote')->serverInfo();
+        $this->assertSame(3, $this->sent('server/discover'));
     }
 
     public function testAToolListWithHeaderAnnotationsIsNotCached(): void

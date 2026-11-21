@@ -223,7 +223,7 @@ final class ClientSession
             return new StdioTransport($command, $args, $this->config->cwd, $this->config->env + $env, new McpLogger());
         }
 
-        $this->http = new WatchedHttpClient($this->factory->create($this->config), $this->config);
+        $this->http = new WatchedHttpClient($this->factory->create($this->config), $this->config, $this->lists);
 
         return new HttpTransport(
             (string)$this->config->url,

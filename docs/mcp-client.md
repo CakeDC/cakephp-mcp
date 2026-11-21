@@ -535,10 +535,11 @@ to a private address is still refused. The proxy can still reach hosts of your
 own network that the application cannot tell apart from public ones, so
 restrict what the proxy itself lets through where that matters.
 
-## Caching lists
+## Caching lists and reads
 
-A server on the 2026-07-28 revision can say how long a list result stays
-fresh (`ttlMs`) and who may share it (`cacheScope`, `private` or `public`).
+A server on the 2026-07-28 revision can say how long a list result, a resource
+read or its `server/discover` answer stays fresh (`ttlMs`) and who may share
+it (`cacheScope`, `private` or `public`).
 Set `cache` on a client to keep such results in a Cake cache config:
 
 ```php
@@ -549,16 +550,21 @@ Set `cache` on a client to keep such results in a Cake cache config:
 ],
 ```
 
-`listTools()`, `listResources()`, `listResourceTemplates()` and
-`listPrompts()` then use a cached page while it is fresh, without asking the
-server. A `private` result is kept per user in user mode and per client in app
+`listTools()`, `listResources()`, `listResourceTemplates()`,
+`listPrompts()` and `readResource()` then use a cached result while it is
+fresh, without asking the server, and a new connection takes the server's
+`server/discover` answer (`serverInfo()`, `capabilities()`, `instructions()`)
+from the cache too. `ping()` always asks the server. A read is kept per exact
+URI, and a result over 512 KiB is not kept. A `private` result is kept per user in user mode and per client in app
 mode, and always per credential it was asked with: the user's access token,
 the configured `token` or `headers`, or what a `token` callable returns (which
 is then called once more for each list). So it is never served for another
 token, to another user, or after a user reconnects with another account. A
 `public` one is shared by every user of that client. A result without hints, or with a ttl of 0, is not
 kept. A `notifications/tools/list_changed` (or the resources and prompts ones)
-from the server drops that client's entries for those lists, for every user.
+from the server drops that client's entries for those lists, for every user;
+`notifications/resources/list_changed` also drops every cached read, and
+`notifications/resources/updated` the reads of its URI.
 In user mode a cached list is only used for a user who is still connected. A
 tool list whose tools have `x-mcp-header` annotations is never cached, because
 the SDK learns the headers it must send for those tools from the listing it
