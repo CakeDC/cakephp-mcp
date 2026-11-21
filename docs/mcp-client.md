@@ -294,8 +294,10 @@ There are two levels of trust:
 - **Addresses a remote server hands the client** (the metadata URL in its
   challenge on another origin, the authorization server, its token, registration and revocation
   endpoints, and any redirect) go through a guard against server-side request
-  forgery: https only, a host name (not an IP address) whose every address is
-  public, the connection pinned to the address that was checked, no proxy,
+  forgery: https only, a host name (not an IP address, not `localhost` or a
+  name under `.localhost`, `.local`, `.localdomain`, `.internal`,
+  `.home.arpa` or `.arpa`) whose every address is public, the connection
+  pinned to the address that was checked, no proxy from the environment,
   and answers capped at `Mcp.client.maxResponseBytes` (1 MiB), uncompressed
   (a compressed answer is refused, so the cap applies to what is read). A redirect is
   followed only for metadata, and checked again; requests that carry a code,
@@ -303,6 +305,36 @@ There are two levels of trust:
 
 An authorization server on a private address is therefore refused when it is
 discovered. Configure its endpoints, as above, to use it.
+
+### Behind an outbound proxy
+
+On a network where the application reaches the internet only through a
+proxy, set `Mcp.client.proxy`:
+
+```php
+'Mcp' => [
+    'client' => [
+        'proxy' => env('MCP_CLIENT_PROXY'), // 'http://user:password@proxy.corp.example:3128'
+    ],
+],
+```
+
+Every HTTP request of every client then goes through it: the MCP sessions,
+configured endpoints and the addresses a remote server names. It is an `http`,
+`https`, `socks5` or `socks5h` URL with no path; anything else fails with a
+message naming the setting. Its user name and password are sent to the proxy
+only, and `bin/cake mcp check` shows the proxy on its `Clients` line without
+them. Default `null`: no proxy, and a proxy from the environment
+(`https_proxy`) is not used for the addresses a remote server names.
+
+What changes in the guard for those addresses: the proxy resolves the host
+name, so the connection is no longer pinned to an address the application
+checked, and a name the application itself cannot resolve is allowed. What
+stays: https only, no IP addresses, no `localhost` or other local names, no
+user name or fragment, and a name that does resolve on the application's side
+to a private address is still refused. The proxy can still reach hosts of your
+own network that the application cannot tell apart from public ones, so
+restrict what the proxy itself lets through where that matters.
 
 ## Tool filters, timeouts and protocol version
 

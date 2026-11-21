@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Client;
 
 use Cake\Core\Configure;
+use Cake\Http\Client;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\CakeHttpClientFactory;
 use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use InvalidArgumentException;
@@ -48,6 +50,41 @@ class ClientConfigTest extends TestCase
         $this->assertFalse($config->isUser());
         $this->assertFalse($config->isStdio());
         $this->assertNull($config->protocolVersion);
+    }
+
+    public function testTheProxyIsOffByDefault(): void
+    {
+        $this->assertNull(ClientConfig::proxy());
+    }
+
+    public function testTheProxyIsReadAndChecked(): void
+    {
+        Configure::write('Mcp.client.proxy', 'http://proxy.corp.example:3128');
+        $this->assertSame('http://proxy.corp.example:3128', ClientConfig::proxy());
+
+        foreach (['proxy.corp.example:3128', 'ftp://proxy.corp.example', 'http://', 'http://proxy.corp.example/path', 42, ''] as $bad) {
+            Configure::write('Mcp.client.proxy', $bad);
+            try {
+                ClientConfig::proxy();
+                $this->fail('Accepted ' . var_export($bad, true));
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('"Mcp.client.proxy"', $e->getMessage());
+            }
+        }
+        Configure::delete('Mcp.client.proxy');
+    }
+
+    public function testTheHttpClientsGoThroughTheProxy(): void
+    {
+        Configure::write('Mcp.client.proxy', 'http://proxy.corp.example:3128');
+        Configure::write('Mcp.clients.remote', ['url' => 'https://mcp.example.com/mcp']);
+        try {
+            $client = (new CakeHttpClientFactory())->create(ClientConfig::fromConfig('remote'));
+            $this->assertInstanceOf(Client::class, $client);
+            $this->assertSame(['proxy' => 'http://proxy.corp.example:3128'], $client->getConfig('proxy'));
+        } finally {
+            Configure::delete('Mcp.client.proxy');
+        }
     }
 
     public function testStdioClient(): void

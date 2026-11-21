@@ -17,6 +17,14 @@ final class CakeHttpClientFactory implements HttpClientFactoryInterface
      */
     public function create(ClientConfig $config): ClientInterface
     {
-        return new Client(['timeout' => $config->timeout, 'redirect' => 0]);
+        $options = ['timeout' => $config->timeout, 'redirect' => 0];
+        $proxy = ClientConfig::proxy();
+        if ($proxy !== null) {
+            // The credentials stay in the URL, so curl sends them to the proxy only (Cake's `username` option
+            // would add a Proxy-Authorization header that reaches the server through the tunnel).
+            $options['proxy'] = ['proxy' => $proxy];
+        }
+
+        return new Client($options);
     }
 }

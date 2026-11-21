@@ -100,9 +100,11 @@ class ClientRegistry
      */
     public function guarded(): GuardedHttp
     {
+        $proxy = ClientConfig::proxy();
+
         return $this->guarded ??= new GuardedHttp(
-            new EndpointGuard(new DnsHostResolver()),
-            new CakeGuardedTransport(),
+            new EndpointGuard(new DnsHostResolver(), $proxy !== null),
+            new CakeGuardedTransport(null, $proxy),
             (int)ClientConfig::setting('maxResponseBytes'),
         );
     }

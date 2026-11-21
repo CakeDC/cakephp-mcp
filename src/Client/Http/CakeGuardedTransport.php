@@ -25,8 +25,9 @@ final class CakeGuardedTransport implements GuardedTransportInterface
     /**
      * @param \Cake\Http\Client\AdapterInterface|null $adapter The adapter; Cake's Curl adapter by default. Another
      *   adapter ignores the `curl` options, so it is for tests only.
+     * @param string|null $proxy `Mcp.client.proxy`, or null to connect directly.
      */
-    public function __construct(private ?AdapterInterface $adapter = null)
+    public function __construct(private ?AdapterInterface $adapter = null, private ?string $proxy = null)
     {
     }
 
@@ -47,10 +48,17 @@ final class CakeGuardedTransport implements GuardedTransportInterface
         $tooLarge = false;
         $compressed = false;
         $ip = str_contains($pin->ip, ':') ? '[' . $pin->ip . ']' : $pin->ip;
-        $curl = [
-            CURLOPT_RESOLVE => [sprintf('%s:%d:%s', $pin->host, $pin->port, $ip)],
-            CURLOPT_PROXY => '',
-            CURLOPT_NOPROXY => '*',
+        // Without `Mcp.client.proxy`: pinned to the address that was checked, and no proxy from the environment.
+        // With it: through it, unpinned, since the proxy resolves the name. Its credentials stay in its URL, so
+        // curl sends them to the proxy only.
+        $route = $this->proxy === null
+            ? [
+                CURLOPT_RESOLVE => [sprintf('%s:%d:%s', $pin->host, $pin->port, $ip)],
+                CURLOPT_PROXY => '',
+                CURLOPT_NOPROXY => '*',
+            ]
+            : [CURLOPT_PROXY => $this->proxy];
+        $curl = $route + [
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_MAXFILESIZE => $maxBytes,
             CURLOPT_NOPROGRESS => false,

@@ -46,6 +46,23 @@ class CakeGuardedTransportTest extends TestCase
         };
     }
 
+    public function testWithAProxyTheRequestGoesThroughItAndIsNotPinned(): void
+    {
+        $adapter = $this->adapter();
+        $transport = new CakeGuardedTransport($adapter, 'http://user:secret@proxy.corp.example:3128');
+        $pin = new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '');
+
+        $transport->send(new HttpRequest('GET', 'https://auth.example.com/.well-known/x', [], null, 5.0), $pin, 2048);
+
+        $curl = ($adapter->options ?? [])['curl'];
+        $this->assertSame('http://user:secret@proxy.corp.example:3128', $curl[CURLOPT_PROXY]);
+        $this->assertArrayNotHasKey(CURLOPT_RESOLVE, $curl);
+        $this->assertArrayNotHasKey(CURLOPT_NOPROXY, $curl);
+        $this->assertFalse($curl[CURLOPT_FOLLOWLOCATION]);
+        // Proxy credentials go to the proxy only, never as a header the server would see.
+        $this->assertSame('', $adapter->request?->getHeaderLine('Proxy-Authorization'));
+    }
+
     public function testTheRequestIsPinnedWithoutProxyOrRedirects(): void
     {
         $adapter = $this->adapter();

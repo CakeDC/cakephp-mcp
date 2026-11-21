@@ -869,6 +869,20 @@ class McpCheckCommandTest extends TestCase
         );
     }
 
+    public function testClientsLineShowsTheProxyWithoutItsPassword(): void
+    {
+        Configure::write('Mcp.clients', ['github' => ['url' => 'https://api.example.com/mcp', 'token' => 't']]);
+        Configure::write('Mcp.client.proxy', 'http://me:secret@proxy.corp.example:3128');
+
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Clients: github (app); through the proxy http://proxy.corp.example:3128');
+        $this->assertOutputNotContains('secret');
+
+        Configure::write('Mcp.client.proxy', 'proxy.corp.example:3128');
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Clients: "Mcp.client.proxy" must be null or a proxy URL');
+    }
+
     public function testClientsLineNeverCallsATokenCallable(): void
     {
         $called = false;

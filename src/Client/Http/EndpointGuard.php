@@ -16,7 +16,20 @@ final class EndpointGuard
     /**
      * @param \CakeDC\Mcp\Client\Http\HostResolverInterface $resolver Looks the host up.
      */
-    public function __construct(private HostResolverInterface $resolver)
+    /**
+     * Special-use names (RFC 6761, RFC 6762, RFC 8375) and the reverse lookup zone, which name this machine or the
+     * local network: refused whatever they resolve to, and the only name check left to do behind a proxy.
+     *
+     * @var list<string>
+     */
+    private const LOCAL_SUFFIXES = ['localhost', 'local', 'localdomain', 'internal', 'home.arpa', 'arpa'];
+
+    /**
+     * @param \CakeDC\Mcp\Client\Http\HostResolverInterface $resolver Resolves host names.
+     * @param bool $proxied Whether requests go through `Mcp.client.proxy`, which resolves the name itself: a name
+     *   the application cannot resolve is then allowed, and the checked endpoint has no address to pin.
+     */
+    public function __construct(private HostResolverInterface $resolver, private bool $proxied = false)
     {
     }
 
@@ -53,12 +66,12 @@ final class EndpointGuard
             throw new BlockedUrlException($notPublic);
         }
         // A trailing dot is refused by isHostName(): curl would not match the pin to "host." and resolve again.
-        if (!self::isHostName($host) || !str_contains($host, '.')) {
+        if (!self::isHostName($host) || !str_contains($host, '.') || self::isLocalName($host)) {
             // A single label could go through the server's DNS search domains.
             throw new BlockedUrlException($notPublic);
         }
         $addresses = $this->resolver->resolve($host);
-        if ($addresses === []) {
+        if ($addresses === [] && !$this->proxied) {
             throw new BlockedUrlException($notPublic);
         }
         foreach ($addresses as $address) {
@@ -72,8 +85,24 @@ final class EndpointGuard
             'https://' . $host . ($port === 443 ? '' : ':' . $port),
             $host,
             $port,
-            $addresses[0],
+            // Behind a proxy nothing is pinned: the proxy resolves the name.
+            $this->proxied ? '' : $addresses[0],
         );
+    }
+
+    /**
+     * @param string $host A host name.
+     * @return bool Whether it is, or is under, a special-use name of this machine or the local network.
+     */
+    private static function isLocalName(string $host): bool
+    {
+        foreach (self::LOCAL_SUFFIXES as $suffix) {
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

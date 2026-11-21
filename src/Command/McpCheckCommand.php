@@ -230,11 +230,17 @@ class McpCheckCommand extends Command
         if ($userMode) {
             $problems = array_merge($problems, $this->clientStore());
         }
+        $proxy = null;
+        try {
+            $proxy = ClientConfig::proxyForDisplay();
+        } catch (InvalidArgumentException $e) {
+            $problems[] = $e->getMessage();
+        }
         if ($problems !== []) {
             return ['fail', implode('; ', array_unique($problems)) . ', see ' . self::DOCS . 'mcp-client.md'];
         }
 
-        return ['pass', implode(', ', $described)];
+        return ['pass', implode(', ', $described) . ($proxy === null ? '' : '; through the proxy ' . $proxy)];
     }
 
     /**

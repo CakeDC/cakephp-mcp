@@ -40,6 +40,7 @@ final class ClientConfig
         'refreshLeeway' => 60,
         'maxResponseBytes' => 1024 * 1024,
         'identityAttribute' => 'identity',
+        'proxy' => null,
     ];
 
     /**
@@ -168,6 +169,54 @@ final class ClientConfig
         $value = Configure::read('Mcp.client.' . $key);
 
         return $value ?? self::SETTINGS[$key] ?? null;
+    }
+
+    /**
+     * `Mcp.client.proxy`: the proxy every client HTTP request goes through, or null to connect directly.
+     *
+     * @return string|null An `http`, `https`, `socks5` or `socks5h` URL with a host, maybe a user and password and
+     *   a port, and no path.
+     * @throws \InvalidArgumentException When it is set to anything else.
+     */
+    public static function proxy(): ?string
+    {
+        $proxy = Configure::read('Mcp.client.proxy');
+        if ($proxy === null) {
+            return null;
+        }
+        $parts = is_string($proxy) ? parse_url($proxy) : false;
+        if (
+            !is_array($parts)
+            || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https', 'socks5', 'socks5h'], true)
+            || (string)($parts['host'] ?? '') === ''
+            || !in_array($parts['path'] ?? '/', ['', '/'], true)
+            || isset($parts['query'])
+            || isset($parts['fragment'])
+        ) {
+            throw new InvalidArgumentException(
+                '"Mcp.client.proxy" must be null or a proxy URL such as "http://proxy.example.com:3128" (http, '
+                . 'https, socks5 or socks5h, with no path).',
+            );
+        }
+
+        return (string)$proxy;
+    }
+
+    /**
+     * `Mcp.client.proxy` without its user name and password, for messages.
+     *
+     * @return string|null
+     */
+    public static function proxyForDisplay(): ?string
+    {
+        $proxy = self::proxy();
+        if ($proxy === null) {
+            return null;
+        }
+        $parts = parse_url($proxy);
+        $port = is_array($parts) && isset($parts['port']) ? ':' . $parts['port'] : '';
+
+        return is_array($parts) ? ($parts['scheme'] ?? '') . '://' . ($parts['host'] ?? '') . $port : null;
     }
 
     /**

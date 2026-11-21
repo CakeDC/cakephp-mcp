@@ -32,6 +32,63 @@ class EndpointGuardTest extends TestCase
         $this->assertSame('93.184.216.34', $checked->ip);
     }
 
+    public function testBehindAProxyAHostTheAppCannotResolvePasses(): void
+    {
+        $guard = new EndpointGuard($this->resolver, proxied: true);
+
+        $checked = $guard->check('https://auth.partner.example/oauth/token');
+
+        $this->assertSame('auth.partner.example', $checked->host);
+        $this->assertSame('', $checked->ip);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function refusedBehindAProxy(): array
+    {
+        return [
+            'private literal' => ['https://10.0.0.5/token'],
+            'loopback literal' => ['https://127.0.0.1/token'],
+            'ipv6 literal' => ['https://[::1]/token'],
+            'numeric host' => ['https://2130706433/token'],
+            'localhost' => ['https://localhost/token'],
+            'a localhost name' => ['https://auth.localhost/token'],
+            'an mdns name' => ['https://printer.local/token'],
+            'an internal name' => ['https://sso.internal/token'],
+            'home.arpa' => ['https://router.home.arpa/token'],
+            'a reverse lookup name' => ['https://1.0.0.127.in-addr.arpa/token'],
+            'plain http' => ['http://auth.example.com/token'],
+            'a single label' => ['https://intranet/token'],
+        ];
+    }
+
+    #[DataProvider('refusedBehindAProxy')]
+    public function testBehindAProxyNameChecksStay(string $url): void
+    {
+        $guard = new EndpointGuard($this->resolver, proxied: true);
+
+        $this->expectException(BlockedUrlException::class);
+        $guard->check($url);
+    }
+
+    public function testBehindAProxyAHostThatResolvesToAPrivateAddressIsStillRefused(): void
+    {
+        $this->resolver->add('evil.example.com', ['10.0.0.8']);
+        $guard = new EndpointGuard($this->resolver, proxied: true);
+
+        $this->expectException(BlockedUrlException::class);
+        $guard->check('https://evil.example.com/token');
+    }
+
+    public function testSpecialUseNamesAreRefusedWithoutAProxyToo(): void
+    {
+        $this->resolver->add('auth.localhost', ['93.184.216.34']);
+
+        $this->expectException(BlockedUrlException::class);
+        $this->guard->check('https://auth.localhost/token');
+    }
+
     public function testATrailingDotIsRefused(): void
     {
         // curl would not match the pin for "auth.example.com" against "auth.example.com." and resolve again.
