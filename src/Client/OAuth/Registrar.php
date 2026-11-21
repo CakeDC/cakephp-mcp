@@ -84,13 +84,7 @@ final class Registrar
             'POST',
             $server->registrationUrl,
             ['Content-Type' => 'application/json', 'Accept' => 'application/json'],
-            (string)json_encode([
-                'client_name' => (string)ClientConfig::setting('name'),
-                'redirect_uris' => [$redirectUri],
-                'grant_types' => ['authorization_code', 'refresh_token'],
-                'response_types' => ['code'],
-                'token_endpoint_auth_method' => 'none',
-            ], JSON_UNESCAPED_SLASHES),
+            (string)json_encode(self::registrationRequest($redirectUri, $server->scopes), JSON_UNESCAPED_SLASHES),
             (float)$config->timeout,
         ), false);
         $answer = $response->json();
@@ -116,6 +110,36 @@ final class Registrar
         $this->store->saveRegistration($registration);
 
         return $registration;
+    }
+
+    /**
+     * The dynamic registration request (RFC 7591). `application_type` is `native` for a callback on this machine
+     * and `web` otherwise, as the MCP specification asks of OpenID Connect servers; `scope` is the scopes the
+     * client will ask for, when there are any.
+     *
+     * @param string $redirectUri The callback URL.
+     * @param list<string> $scopes The scopes to ask for.
+     * @return array<string, mixed>
+     */
+    private static function registrationRequest(string $redirectUri, array $scopes): array
+    {
+        $host = strtolower(trim((string)parse_url($redirectUri, PHP_URL_HOST), '[]'));
+        $local = $host === 'localhost' || str_ends_with($host, '.localhost')
+            || filter_var($host, FILTER_VALIDATE_IP) !== false
+            && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_RES_RANGE) === false;
+        $request = [
+            'client_name' => (string)ClientConfig::setting('name'),
+            'redirect_uris' => [$redirectUri],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'response_types' => ['code'],
+            'token_endpoint_auth_method' => 'none',
+            'application_type' => $local ? 'native' : 'web',
+        ];
+        if ($scopes !== []) {
+            $request['scope'] = implode(' ', $scopes);
+        }
+
+        return $request;
     }
 
     /**

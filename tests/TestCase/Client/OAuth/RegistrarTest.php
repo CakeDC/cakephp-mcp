@@ -193,6 +193,31 @@ class RegistrarTest extends TestCase
         $this->assertSame('CakePHP MCP Client', $sent['client_name']);
     }
 
+    public function testRegistrationSendsTheApplicationTypeAndTheScopes(): void
+    {
+        $server = new AuthServer(
+            issuer: FakeOAuthServer::ISSUER,
+            authorizationUrl: FakeOAuthServer::ISSUER . '/authorize',
+            tokenUrl: FakeOAuthServer::ISSUER . '/token',
+            registrationUrl: FakeOAuthServer::ISSUER . '/register',
+            revocationUrl: null,
+            scopes: ['read', 'write'],
+            resource: FakeOAuthServer::MCP,
+            issParameter: false,
+            authMethods: [],
+            trusted: false,
+        );
+
+        $this->registrar()->clientFor($server, 'https://app.example.com/mcp-client/linear/callback');
+        $this->registrar()->clientFor(self::authServer(), self::CALLBACK);
+
+        $this->assertSame('web', $this->server->registrations[0]['application_type'] ?? null);
+        $this->assertSame('read write', $this->server->registrations[0]['scope'] ?? null);
+        // A callback on this machine is a native application in OpenID Connect terms; no scopes, no scope.
+        $this->assertSame('native', $this->server->registrations[1]['application_type'] ?? null);
+        $this->assertArrayNotHasKey('scope', $this->server->registrations[1]);
+    }
+
     public function testANewCallbackRegistersAgain(): void
     {
         $this->registrar()->clientFor(self::authServer(), self::CALLBACK);

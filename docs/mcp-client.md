@@ -176,7 +176,10 @@ offer `connectUrl()` again.
    Client ID Metadata Document, the client id is the URL of a document the
    application serves, and nothing is registered or stored. Otherwise the
    application registers itself there once (dynamic client registration, RFC
-   7591) as a public client, and keeps the registration for every user. The callback URL it registers is built from
+   7591) as a public client, and keeps the registration for every user. The
+   registration names the scopes it will ask for (`scope`) and an
+   `application_type`: `web`, or `native` when the callback is on this machine
+   (`localhost`), as the MCP specification asks for OpenID Connect servers. The callback URL it registers is built from
    `App.fullBaseUrl`, which by default comes from the `Host` header of the
    request: set `App.fullBaseUrl` in production, or a request with another
    host registers the application again with that callback. When the
