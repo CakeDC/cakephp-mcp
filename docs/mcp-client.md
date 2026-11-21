@@ -250,13 +250,15 @@ pins the authorization server, as above.
 There are two levels of trust:
 
 - **Addresses you write in `Mcp.clients`** (`url`, `authorizationUrl`,
-  `tokenUrl`, `revocationUrl`, and the well-known metadata paths of `url`) are
-  trusted, internal hosts included. Plain `http` is accepted only for this
+  `tokenUrl`, `revocationUrl`, the well-known metadata paths of `url`, and a
+  metadata URL in the server's challenge on the same origin as `url`: scheme,
+  host and port) are trusted, internal hosts included, so a server on your
+  network or on `localhost` can be discovered. Plain `http` is accepted only for this
   machine (`localhost`, a `.localhost` name, a loopback address); for another
   host set `'allowInsecure' => true` on the client, and only on a network you
   trust, since tokens travel in the clear.
 - **Addresses a remote server hands the client** (the metadata URL in its
-  challenge, the authorization server, its token, registration and revocation
+  challenge on another origin, the authorization server, its token, registration and revocation
   endpoints, and any redirect) go through a guard against server-side request
   forgery: https only, a host name (not an IP address) whose every address is
   public, the connection pinned to the address that was checked, no proxy,

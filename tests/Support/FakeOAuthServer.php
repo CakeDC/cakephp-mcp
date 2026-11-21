@@ -85,7 +85,7 @@ final class FakeOAuthServer
             'internal.example.com' => ['10.0.0.1'],
         ]);
         $this->guarded = new ScriptedGuardedTransport();
-        $this->guarded->json(self::RESOURCE_METADATA, [
+        $this->resourceMetadata([
             'resource' => self::MCP,
             'authorization_servers' => [self::ISSUER],
             'scopes_supported' => ['read', 'write', 'offline_access'],
@@ -103,6 +103,19 @@ final class FakeOAuthServer
 
             return $this->revocationFails ? new HttpResponse(503, [], '') : new HttpResponse(200, [], '');
         });
+    }
+
+    /**
+     * Serves the MCP server's protected resource metadata at RESOURCE_METADATA, on the MCP server's own origin
+     * (read like the configured url) and through the guard (as an address the server named).
+     *
+     * @param array<string, mixed> $document The document.
+     * @return void
+     */
+    public function resourceMetadata(array $document): void
+    {
+        $this->mcp->documents[self::RESOURCE_METADATA] = $document;
+        $this->guarded->json(self::RESOURCE_METADATA, $document);
     }
 
     /**

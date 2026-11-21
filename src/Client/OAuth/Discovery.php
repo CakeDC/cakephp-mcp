@@ -74,7 +74,12 @@ final class Discovery
 
         $challenge = $this->probe($server);
         $metadataUrl = $challenge['resource_metadata'] ?? null;
-        if ($metadataUrl !== null) {
+        if ($metadataUrl !== null && self::sameOrigin($metadataUrl, $server)) {
+            // On the origin of the configured url: trusted like it (an internal or localhost server), but named by
+            // the server, so its resource must be this server exactly.
+            $resourceMetadata = $this->firstDocument([$metadataUrl], true);
+            $prefixAllowed = false;
+        } elseif ($metadataUrl !== null) {
             // Named by the server: learned, so through the guard, and its resource must be this server exactly.
             $resourceMetadata = $this->firstDocument([self::httpsUrl($metadataUrl)], false);
             $prefixAllowed = false;
@@ -455,5 +460,30 @@ final class Discovery
         }
 
         return $parameters;
+    }
+
+    /**
+     * Whether $url has the scheme, host and port of $server, the configured url (default ports included), and no
+     * credentials.
+     *
+     * @param string $url A URL the server named.
+     * @param string $server The configured url.
+     * @return bool
+     */
+    private static function sameOrigin(string $url, string $server): bool
+    {
+        $origin = function (string $value): ?string {
+            $parts = parse_url($value);
+            if (!is_array($parts) || !isset($parts['scheme'], $parts['host']) || isset($parts['user'])) {
+                return null;
+            }
+            $scheme = strtolower($parts['scheme']);
+            $port = $parts['port'] ?? ($scheme === 'https' ? 443 : ($scheme === 'http' ? 80 : null));
+
+            return $scheme . '://' . strtolower($parts['host']) . ':' . $port;
+        };
+        $mine = $origin($server);
+
+        return $mine !== null && $origin($url) === $mine;
     }
 }

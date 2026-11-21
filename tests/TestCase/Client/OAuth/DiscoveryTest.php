@@ -44,12 +44,10 @@ class DiscoveryTest extends TestCase
         $this->assertTrue($server->issParameter);
         $this->assertFalse($server->trusted);
         $this->assertSame(['none', 'client_secret_basic'], $server->authMethods);
-        // The probe went to the configured server; the metadata through the guard.
+        // The probe and the resource metadata (on the configured origin) went to the configured server; the
+        // authorization server's metadata through the guard.
         $this->assertSame('POST', $this->server->mcp->requests[0]['method']);
-        $this->assertSame(
-            ['GET ' . FakeOAuthServer::RESOURCE_METADATA, 'GET ' . FakeOAuthServer::AS_METADATA],
-            $this->server->guarded->urls(),
-        );
+        $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
     }
 
     public function testFallsBackToWellKnownUrls(): void
@@ -104,7 +102,7 @@ class DiscoveryTest extends TestCase
             $this->assertStringContainsString(FakeOAuthServer::ISSUER, $e->getMessage());
         }
         // Nothing was asked of the authorization server the MCP server named.
-        $this->assertSame(['GET ' . FakeOAuthServer::RESOURCE_METADATA], $this->server->guarded->urls());
+        $this->assertSame([], $this->server->guarded->urls());
     }
 
     public function testAMatchingConfiguredIssuerIsDiscovered(): void
@@ -123,9 +121,55 @@ class DiscoveryTest extends TestCase
         $this->assertSame(FakeOAuthServer::ISSUER . '/token', $server->tokenUrl);
     }
 
+    public function testChallengeMetadataOnTheConfiguredOriginIsTrustedLikeTheUrl(): void
+    {
+        // The MCP server is on the application's network; its authorization server is public.
+        $this->server->dns->add('mcp.example.com', ['10.0.0.5']);
+        $this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA] = [
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        $server = $this->discover();
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $server->issuer);
+        // Read from the configured server, not through the guard.
+        $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
+    }
+
+    public function testChallengeMetadataOnLocalhostOverHttpIsDiscovered(): void
+    {
+        Configure::write('Mcp.clients.linear', ['url' => 'http://localhost:8765/mcp', 'auth' => 'user']);
+        $metadata = 'http://localhost:8765/.well-known/oauth-protected-resource/mcp';
+        $this->server->mcp->challenge = sprintf('Bearer resource_metadata="%s"', $metadata);
+        $this->server->mcp->documents[$metadata] = [
+            'resource' => 'http://localhost:8765/mcp',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        $this->assertSame('http://localhost:8765/mcp', $this->discover()->resource);
+    }
+
+    public function testChallengeMetadataOnAnotherPortIsStillRefused(): void
+    {
+        Configure::write('Mcp.clients.linear', ['url' => 'http://localhost:8765/mcp', 'auth' => 'user']);
+        $metadata = 'http://localhost:9999/.well-known/oauth-protected-resource/mcp';
+        $this->server->mcp->challenge = sprintf('Bearer resource_metadata="%s"', $metadata);
+        $this->server->mcp->documents[$metadata] = [
+            'resource' => 'http://localhost:8765/mcp',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        // Another origin is a learned address: https and a public host only.
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('name an address the MCP client cannot use');
+
+        $this->discover();
+    }
+
     public function testRefusesAnotherServersResource(): void
     {
-        $this->server->guarded->json(FakeOAuthServer::RESOURCE_METADATA, [
+        $this->server->resourceMetadata([
             'resource' => 'https://other.example.com/mcp',
             'authorization_servers' => [FakeOAuthServer::ISSUER],
         ]);
@@ -138,7 +182,7 @@ class DiscoveryTest extends TestCase
 
     public function testAPrefixResourceOnlyFromAWellKnownUrl(): void
     {
-        $this->server->guarded->json(FakeOAuthServer::RESOURCE_METADATA, [
+        $this->server->resourceMetadata([
             'resource' => 'https://mcp.example.com',
             'authorization_servers' => [FakeOAuthServer::ISSUER],
         ]);
@@ -182,7 +226,7 @@ class DiscoveryTest extends TestCase
 
     public function testAnIssuerOnAPrivateHostIsRefused(): void
     {
-        $this->server->guarded->json(FakeOAuthServer::RESOURCE_METADATA, [
+        $this->server->resourceMetadata([
             'resource' => FakeOAuthServer::MCP,
             'authorization_servers' => ['https://internal.example.com'],
         ]);
