@@ -37,11 +37,13 @@ final class ClientSession
      * @param \CakeDC\Mcp\Client\ClientConfig $config The client.
      * @param \CakeDC\Mcp\Client\HttpClientFactoryInterface $factory Makes the PSR-18 client for an HTTP server.
      * @param array<string, string> $headers Headers on top of the configured ones (a user's token).
+     * @param \CakeDC\Mcp\Client\ListCache|null $lists The client's list cache, dropped on `list_changed`.
      */
     public function __construct(
         private ClientConfig $config,
         private HttpClientFactoryInterface $factory,
         private array $headers = [],
+        private ?ListCache $lists = null,
     ) {
     }
 
@@ -61,6 +63,9 @@ final class ClientSession
             // The caller decides whether to try again; retries here would multiply the timeout.
             ->setMaxRetries(0)
             ->setLogger(new McpLogger());
+        if ($this->lists !== null) {
+            $builder->addNotificationHandler(new ListChangedHandler($this->lists));
+        }
         if ($this->config->protocolVersion !== null) {
             $builder->setProtocolVersion($this->config->protocolVersion);
         }
@@ -69,6 +74,15 @@ final class ClientSession
         $this->client = $client;
 
         return $client;
+    }
+
+    /**
+     * @param string $method A list method.
+     * @return array<string, mixed>|null The raw `result` of the last answer to it, with its cache hints.
+     */
+    public function lastResult(string $method): ?array
+    {
+        return $this->http?->lastResult($method);
     }
 
     /**

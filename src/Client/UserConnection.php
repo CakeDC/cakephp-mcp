@@ -128,6 +128,25 @@ final class UserConnection
     /**
      * @inheritDoc
      */
+    protected function listCache(): ?ListCache
+    {
+        // Only for a user who is still connected: a cached list is no way around a lost grant.
+        return $this->config->cache !== null && $this->isConnected()
+            ? ListCache::for($this->config, $this->userId)
+            : null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    protected function lastResult(string $method): ?array
+    {
+        return $this->session?->lastResult($method);
+    }
+
+    /**
+     * @inheritDoc
+     */
     protected function run(callable $call): mixed
     {
         $session = $this->session($this->accessToken(false));
@@ -312,6 +331,7 @@ final class UserConnection
                 $this->config,
                 $this->registry->http(),
                 ['Authorization' => 'Bearer ' . $token],
+                ListCache::for($this->config, $this->userId),
             );
             $this->sessionToken = $token;
         }

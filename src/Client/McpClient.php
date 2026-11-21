@@ -92,6 +92,22 @@ final class McpClient
     /**
      * @inheritDoc
      */
+    protected function listCache(): ?ListCache
+    {
+        return $this->config->isUser() ? null : ListCache::for($this->config, null);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    protected function lastResult(string $method): ?array
+    {
+        return $this->session?->lastResult($method);
+    }
+
+    /**
+     * @inheritDoc
+     */
     protected function run(callable $call): mixed
     {
         if ($this->config->isUser()) {
@@ -102,7 +118,12 @@ final class McpClient
                 $this->config->name,
             ));
         }
-        $this->session ??= new ClientSession($this->config, $this->registry->http());
+        $this->session ??= new ClientSession(
+            $this->config,
+            $this->registry->http(),
+            [],
+            ListCache::for($this->config, null),
+        );
 
         try {
             return $call($this->session->client());

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client;
 
+use Cake\Cache\Cache;
 use Cake\Core\Configure;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
@@ -52,7 +53,7 @@ final class ClientConfig
     public const KEYS = [
         'url', 'token', 'headers', 'command', 'args', 'env', 'cwd', 'auth', 'timeout', 'tools', 'protocolVersion',
         'allowInsecure', 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl',
-        'issuer', 'allowPrivateNetwork', 'registration',
+        'issuer', 'allowPrivateNetwork', 'registration', 'cache',
     ];
 
     /**
@@ -88,6 +89,7 @@ final class ClientConfig
      * @param bool $allowPrivateNetwork Whether the OAuth endpoints learned for this client may resolve to private,
      *   loopback or link-local addresses (plain http also needs `allowInsecure`).
      * @param string $registration `auto`, `metadata` or `dynamic`: see `REGISTRATIONS`.
+     * @param string|null $cache The Cake cache config list results with cache hints are kept in; null for none.
      */
     public function __construct(
         public readonly string $name,
@@ -113,6 +115,7 @@ final class ClientConfig
         public readonly ?Closure $tokenProvider = null,
         public readonly bool $allowPrivateNetwork = false,
         public readonly string $registration = 'auto',
+        public readonly ?string $cache = null,
     ) {
     }
 
@@ -307,6 +310,14 @@ final class ClientConfig
                 throw new InvalidArgumentException(sprintf('"%s" must be an array of name => value.', $key('headers')));
             }
         }
+        $cache = self::optionalString($config, 'cache', $key);
+        if ($cache !== null && Cache::getConfig($cache) === null) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" names the cache config "%s", which does not exist.',
+                $key('cache'),
+                $cache,
+            ));
+        }
         $registration = $config['registration'] ?? 'auto';
         if (!in_array($registration, self::REGISTRATIONS, true)) {
             throw new InvalidArgumentException(sprintf(
@@ -461,6 +472,7 @@ final class ClientConfig
             $tokenProvider,
             self::bool($config, 'allowPrivateNetwork', $key),
             $registration,
+            $cache,
         );
     }
 

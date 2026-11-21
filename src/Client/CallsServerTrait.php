@@ -7,6 +7,10 @@ use CakeDC\Mcp\Client\Exception\ClientException;
 use Mcp\Client;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\GetPromptResult;
+use Mcp\Schema\Result\ListPromptsResult;
+use Mcp\Schema\Result\ListResourcesResult;
+use Mcp\Schema\Result\ListResourceTemplatesResult;
+use Mcp\Schema\Result\ListToolsResult;
 use Mcp\Schema\Result\ReadResourceResult;
 
 /**
@@ -37,13 +41,25 @@ trait CallsServerTrait
     abstract public function config(): ClientConfig;
 
     /**
+     * @return \CakeDC\Mcp\Client\ListCache|null The list cache for this caller, or null to fetch every list.
+     */
+    abstract protected function listCache(): ?ListCache;
+
+    /**
+     * @param string $method A list method.
+     * @return array<string, mixed>|null The raw `result` of the last answer to it.
+     */
+    abstract protected function lastResult(string $method): ?array;
+
+    /**
      * @return list<\Mcp\Schema\Tool> The tools the server offers that the client's filters allow.
      */
     public function listTools(): array
     {
         $filter = $this->config()->toolFilter();
         $tools = [];
-        foreach ($this->pages(fn(Client $client, ?string $cursor) => $client->listTools($cursor)) as $page) {
+        $list = fn(Client $client, ?string $cursor) => $client->listTools($cursor);
+        foreach ($this->pages('tools/list', ListToolsResult::class, $list) as $page) {
             foreach ($page->tools as $tool) {
                 if ($filter->allows($tool->name)) {
                     $tools[] = $tool;
@@ -79,11 +95,26 @@ trait CallsServerTrait
     public function listResources(): array
     {
         $resources = [];
-        foreach ($this->pages(fn(Client $client, ?string $cursor) => $client->listResources($cursor)) as $page) {
+        $list = fn(Client $client, ?string $cursor) => $client->listResources($cursor);
+        foreach ($this->pages('resources/list', ListResourcesResult::class, $list) as $page) {
             array_push($resources, ...array_values($page->resources));
         }
 
         return $resources;
+    }
+
+    /**
+     * @return list<\Mcp\Schema\ResourceTemplate> The server's resource templates.
+     */
+    public function listResourceTemplates(): array
+    {
+        $templates = [];
+        $list = fn(Client $client, ?string $cursor) => $client->listResourceTemplates($cursor);
+        foreach ($this->pages('resources/templates/list', ListResourceTemplatesResult::class, $list) as $page) {
+            array_push($templates, ...array_values($page->resourceTemplates));
+        }
+
+        return $templates;
     }
 
     /**
@@ -101,7 +132,8 @@ trait CallsServerTrait
     public function listPrompts(): array
     {
         $prompts = [];
-        foreach ($this->pages(fn(Client $client, ?string $cursor) => $client->listPrompts($cursor)) as $page) {
+        $list = fn(Client $client, ?string $cursor) => $client->listPrompts($cursor);
+        foreach ($this->pages('prompts/list', ListPromptsResult::class, $list) as $page) {
             array_push($prompts, ...array_values($page->prompts));
         }
 
@@ -119,17 +151,31 @@ trait CallsServerTrait
     }
 
     /**
-     * @template P of \Mcp\Schema\Result\ListToolsResult|\Mcp\Schema\Result\ListResourcesResult|\Mcp\Schema\Result\ListPromptsResult
+     * Every page of a list, each from the list cache when it holds a fresh one for this caller.
+     *
+     * @template P of \Mcp\Schema\Result\ListToolsResult|\Mcp\Schema\Result\ListResourcesResult|\Mcp\Schema\Result\ListResourceTemplatesResult|\Mcp\Schema\Result\ListPromptsResult
+     * @param string $method The list method.
+     * @param class-string<P> $class The result class.
      * @param callable(\Mcp\Client, ?string): P $list Lists one page.
      * @return list<P>
      */
-    private function pages(callable $list): array
+    private function pages(string $method, string $class, callable $list): array
     {
+        $cache = $this->listCache();
         $pages = [];
         $cursor = null;
         $left = self::$maxPages;
         do {
-            $page = $this->run(fn(Client $client) => $list($client, $cursor));
+            $cached = $cache?->get($method, $cursor);
+            if ($cached instanceof $class) {
+                $page = $cached;
+            } else {
+                $page = $this->run(fn(Client $client) => $list($client, $cursor));
+                $result = $cache === null ? null : $this->lastResult($method);
+                if ($cache !== null && $result !== null) {
+                    $cache->put($method, $cursor, $result, $page);
+                }
+            }
             $pages[] = $page;
             $cursor = $page->nextCursor;
             $left--;

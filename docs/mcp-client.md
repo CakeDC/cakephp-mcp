@@ -405,6 +405,33 @@ to a private address is still refused. The proxy can still reach hosts of your
 own network that the application cannot tell apart from public ones, so
 restrict what the proxy itself lets through where that matters.
 
+## Caching lists
+
+A server on the 2026-07-28 revision can say how long a list result stays
+fresh (`ttlMs`) and who may share it (`cacheScope`, `private` or `public`).
+Set `cache` on a client to keep such results in a Cake cache config:
+
+```php
+'github' => [
+    'url' => 'https://api.githubcopilot.com/mcp/',
+    'token' => env('GITHUB_MCP_TOKEN'),
+    'cache' => 'default',
+],
+```
+
+`listTools()`, `listResources()`, `listResourceTemplates()` and
+`listPrompts()` then use a cached page while it is fresh, without asking the
+server. A `private` result is kept per user in user mode and per client in app
+mode, so it is never served to another user; a `public` one is shared by
+every user of that client. A result without hints, or with a ttl of 0, is not
+kept. A `notifications/tools/list_changed` (or the resources and prompts ones)
+from the server drops that client's entries for those lists, for every user.
+In user mode a cached list is only used for a user who is still connected. A
+tool list whose tools have `x-mcp-header` annotations is never cached, because
+the SDK learns the headers it must send for those tools from the listing it
+fetches. `cache` must name an existing cache config, or the client fails with
+a message. Default `null`: nothing is cached, as before.
+
 ## Tool filters, timeouts and protocol version
 
 ```php

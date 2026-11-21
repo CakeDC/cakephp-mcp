@@ -10,6 +10,7 @@ use Cake\Http\StreamFactory;
 use Mcp\Server;
 use Mcp\Server\Session\InMemorySessionStore;
 use Mcp\Server\Transport\StreamableHttpTransport;
+use Mcp\Server\Wire\CachePolicy;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -46,6 +47,11 @@ final class SdkServerHttpClient implements ClientInterface
      * @var array<string, array<string, mixed>>
      */
     public array $documents = [];
+
+    /**
+     * The cache hints the server sends with list results (2026-07-28), if any.
+     */
+    public ?CachePolicy $cachePolicy = null;
 
     private InMemorySessionStore $sessions;
 
@@ -108,7 +114,11 @@ final class SdkServerHttpClient implements ClientInterface
         }
 
         $token = $this->currentToken;
-        $server = Server::builder()
+        $builder = Server::builder();
+        if ($this->cachePolicy !== null) {
+            $builder->setCachePolicy($this->cachePolicy);
+        }
+        $server = $builder
             ->setServerInfo('fake', '1.0.0')
             ->setSession($this->sessions)
             ->setPaginationLimit($this->pageSize)
