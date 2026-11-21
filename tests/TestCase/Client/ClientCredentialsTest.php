@@ -245,6 +245,10 @@ class ClientCredentialsTest extends TestCase
             'a token too' => [$base + ['issuer' => FakeOAuthServer::ISSUER, 'token' => 't'], 'token'],
             'an authorization url' => [$base + ['tokenUrl' => 'https://sso.example.com/token', 'authorizationUrl' => 'https://sso.example.com/a'], 'authorizationUrl'],
             'stdio' => [['command' => 'php', 'auth' => 'client_credentials', 'clientId' => 'i', 'clientSecret' => 's', 'issuer' => FakeOAuthServer::ISSUER], 'url'],
+            // Its metadata names the endpoint the secret goes to: read like the other configured addresses.
+            'a plain http issuer' => [$base + ['issuer' => 'http://login.reports.example'], 'plain http'],
+            'an issuer that is no URL' => [$base + ['issuer' => 'login.reports.example'], 'issuer'],
+            'a plain http issuer in user mode' => [['url' => FakeOAuthServer::MCP, 'auth' => 'user', 'clientId' => 'i', 'clientSecret' => 's', 'issuer' => 'http://login.reports.example'], 'plain http'],
         ];
     }
 

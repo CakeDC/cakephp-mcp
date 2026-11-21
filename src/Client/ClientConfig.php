@@ -440,6 +440,10 @@ final class ClientConfig
             throw new InvalidArgumentException(sprintf('"%s" needs "clientId".', $key('clientSecret')));
         }
         $issuer = self::optionalString($config, 'issuer', $key);
+        if ($issuer !== null) {
+            // Its metadata names the token endpoint a secret goes to: the same rule as the configured addresses.
+            ServerUrlPolicy::check($issuer, $allowInsecure, $key('issuer'));
+        }
         $configured = array_filter($endpoints, fn(?string $value): bool => $value !== null) !== [];
         $secret = self::optionalString($config, 'clientSecret', $key);
         if ($auth === self::USER && $secret !== null && !$configured && $issuer === null) {
