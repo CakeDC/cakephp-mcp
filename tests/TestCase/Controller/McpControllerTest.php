@@ -144,6 +144,20 @@ class McpControllerTest extends TestCase
         $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
     }
 
+    public function testAToolListThatDependsOnTheClientsAppsSupportIsNeverPublic(): void
+    {
+        // With MCP Apps on, a client that renders apps gets app-only tools listed and one that does not, not:
+        // a shared cache keyed by method and cursor would serve one client's list to the other.
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+
+        $this->assertResponseOk();
+        $this->assertSame(60000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+    }
+
     public function testANamedServerTurnsInheritedHintsOffWithAnEmptyArrayOrNull(): void
     {
         Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);

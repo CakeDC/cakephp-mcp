@@ -1540,9 +1540,13 @@ class McpCheckCommand extends Command
             return ['pass', 'off (private, not cached)'];
         }
         $perUser = !$this->factory()->authorizer() instanceof AllowAllToolAuthorizer;
-        $note = $perUser && $policy->scopeFor('tools/list') === CacheScope::Public
-            ? 'tools/list is sent private, because the authorizer can give each user different tools'
-            : null;
+        $perClient = McpConfig::get('apps.enabled', $this->server) === true;
+        $note = null;
+        if ($policy->scopeFor('tools/list') === CacheScope::Public && ($perUser || $perClient)) {
+            $note = $perUser
+                ? 'tools/list is sent private, because the authorizer can give each user different tools'
+                : 'tools/list is sent private, because clients with and without MCP Apps get different tools';
+        }
         // Over HTTP, an authorizer that decides who reads which resource makes the plugin send resources/read
         // private (the check builds the server trusted, where nothing is filtered).
         $readsPerUser = (new ContentGate($this->factory()->authorizer(), new CurrentIdentity()))->decidesResources();

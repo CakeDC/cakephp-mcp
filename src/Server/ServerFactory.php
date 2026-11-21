@@ -320,7 +320,9 @@ final class ServerFactory
         $this->cachePolicy = $policy instanceof CachePolicy ? $policy : null;
         if ($policy instanceof CachePolicy) {
             $private = array_merge(
-                $authorizer instanceof AllowAllToolAuthorizer ? [] : ['tools/list'],
+                // Per caller with an authorizer; per client with MCP Apps, which lists app-only tools only to a
+                // client that renders apps (a shared cache keyed by method and cursor would mix the two lists).
+                $authorizer instanceof AllowAllToolAuthorizer && !$appsOn ? [] : ['tools/list'],
                 // A resource or prompt an authorizer filters is never in a shared cache either.
                 $contentGate->decidesResources()
                     ? ['resources/list', 'resources/templates/list', 'resources/read']

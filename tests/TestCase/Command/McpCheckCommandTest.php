@@ -1152,6 +1152,21 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Cache hints: ttl 60000 ms; tools/list is sent private');
     }
 
+    public function testCacheHintsSayAToolListThatDependsOnAppsSupportIsSentPrivate(): void
+    {
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public', 'methods' => [
+            'resources/read' => ['scope' => 'private'],
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains(
+            '[PASS] Cache hints: ttl 60000 ms; tools/list is sent private, because clients with and without MCP Apps '
+            . 'get different tools',
+        );
+    }
+
     public function testCacheHintsReadAPolicyTheHookSet(): void
     {
         // As the factory does: the hook's policy is the one the server sends.
