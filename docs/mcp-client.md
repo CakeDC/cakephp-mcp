@@ -324,9 +324,8 @@ try {
 }
 ```
 
-The mark is kept with the grant (column `step_up_scope`, added by the plugin's
-migration of 2026-11-21: run the migrations again after upgrading) and
-cleared when the user connects again. The user stays connected meanwhile.
+The mark is kept with the grant (column `step_up_scope` of
+`mcp_client_connections`) and cleared when the user connects again. The user stays connected meanwhile.
 
 ### Storing tokens
 

@@ -998,7 +998,7 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[FAIL] Clients: the connect and callback routes of user mode clients are not connected');
     }
 
-    public function testClientsLineFailsWhenTheLatestMigrationDidNotRun(): void
+    public function testClientsLineFailsOnTablesOfAPreRelease(): void
     {
         Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
         $db = ConnectionManager::get('test');
@@ -1010,6 +1010,7 @@ class McpCheckCommandTest extends TestCase
         }
 
         $this->assertOutputContains('[FAIL] Clients: the table mcp_client_connections has no step_up_scope column');
+        $this->assertOutputContains('a pre-release of 2.2 created it: run bin/cake migrations rollback -p CakeDC/Mcp');
     }
 
     public function testClientsLineFailsWithoutTheTables(): void

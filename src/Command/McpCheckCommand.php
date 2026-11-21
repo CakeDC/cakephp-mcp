@@ -334,13 +334,15 @@ class McpCheckCommand extends Command
                 );
             }
         }
-        // The column of the plugin's latest migration, which an application that migrated before lacks.
+        // Only a table that a pre-release of 2.2 created lacks it: migrating again adds nothing, as the migration
+        // is the same.
         if (
             in_array('mcp_client_connections', $tables, true)
             && !$schema->describe('mcp_client_connections')->hasColumn('step_up_scope')
         ) {
-            $problems[] = 'the table mcp_client_connections has no step_up_scope column: run bin/cake migrations '
-                . 'migrate -p CakeDC/Mcp';
+            $problems[] = 'the table mcp_client_connections has no step_up_scope column, so a pre-release of 2.2 '
+                . 'created it: run bin/cake migrations rollback -p CakeDC/Mcp, then bin/cake migrations migrate -p '
+                . 'CakeDC/Mcp (users connect again)';
         }
 
         return $problems;
