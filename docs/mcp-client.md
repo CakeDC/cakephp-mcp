@@ -86,7 +86,18 @@ The calls:
 - `ping()`: checks that the server answers (`ping`, or `server/discover` in the 2026-07-28 revision).
 - `serverInfo()`, `capabilities()`, `instructions()`: what the server said about itself when the connection
   started (`Mcp\Schema\Implementation`, `Mcp\Schema\ServerCapabilities`, its instructions for the model).
-- `close()`: ends the connection now. It is opened on the first call and kept for the rest of the request (or the command).
+- `close()`: ends the connection now. It is opened on the first call and kept for the rest of the request (or the command), and closed when the PHP process ends (a server of the handshake revisions gets its `DELETE`).
+
+The list calls take an optional `$limit` (`listTools(20)`): they stop fetching
+pages once they have that many, and return at most that many.
+
+A request the server refused before running it is sent once more, never more:
+after a header mismatch (`-32020`, the headers of the 2026-07-28 revision do
+not match the body), the tool list is fetched again first, so the SDK learns
+the headers each tool needs, as the specification advises; after an expired
+session (HTTP `404` in the handshake revisions), on a new session. Any other
+error is thrown as it is, so a call that may have run is never run twice. The
+client also answers the `ping` a server of the handshake revisions sends.
 
 Results are the SDK's classes. A server or network error is thrown as the SDK's
 exception (`Mcp\Exception\ExceptionInterface`, for example

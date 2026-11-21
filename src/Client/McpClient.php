@@ -126,7 +126,7 @@ final class McpClient
         );
 
         try {
-            return $call($this->session->client());
+            return $this->session->call($call);
         } catch (ConnectionException $e) {
             // A `token` callable that failed: its own message, not the transport's.
             $previous = $e->getPrevious();

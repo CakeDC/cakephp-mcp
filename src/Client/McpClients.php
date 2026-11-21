@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client;
 
+use Throwable;
+
 /**
  * The entry point to the clients of `Mcp.clients`:
  *
@@ -14,6 +16,8 @@ namespace CakeDC\Mcp\Client;
 final class McpClients
 {
     private static ?ClientRegistry $registry = null;
+
+    private static bool $shutdown = false;
 
     /**
      * @param string $name A key of `Mcp.clients`.
@@ -30,7 +34,28 @@ final class McpClients
      */
     public static function registry(): ClientRegistry
     {
+        if (!self::$shutdown) {
+            // The sessions end with the process: a server of the handshake revisions gets its DELETE.
+            register_shutdown_function([self::class, 'closeAtShutdown']);
+            self::$shutdown = true;
+        }
+
         return self::$registry ??= new ClientRegistry();
+    }
+
+    /**
+     * Closes every session; registered as a shutdown function by the first `registry()` call. A server that
+     * cannot be reached then is left alone.
+     *
+     * @return void
+     */
+    public static function closeAtShutdown(): void
+    {
+        try {
+            self::$registry?->close();
+        } catch (Throwable) {
+            // The process is ending: nothing is left to tell.
+        }
     }
 
     /**

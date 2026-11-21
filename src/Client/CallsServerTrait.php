@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Client;
 
 use CakeDC\Mcp\Client\Exception\ClientException;
+use Generator;
+use InvalidArgumentException;
 use Mcp\Client;
 use Mcp\Schema\Implementation;
 use Mcp\Schema\Result\CallToolResult;
@@ -89,22 +91,26 @@ trait CallsServerTrait
     }
 
     /**
+     * @param int|null $limit At most this many; pages past it are not fetched. Null for every tool.
      * @return list<\Mcp\Schema\Tool> The tools the server offers that the client's filters allow.
      */
-    public function listTools(): array
+    public function listTools(?int $limit = null): array
     {
         $filter = $this->config()->toolFilter();
         $tools = [];
         $list = fn(Client $client, ?string $cursor) => $client->listTools($cursor);
-        foreach ($this->pages('tools/list', ListToolsResult::class, $list) as $page) {
+        foreach ($this->pages('tools/list', ListToolsResult::class, $list, $limit) as $page) {
             foreach ($page->tools as $tool) {
                 if ($filter->allows($tool->name)) {
                     $tools[] = $tool;
                 }
             }
+            if ($limit !== null && count($tools) >= $limit) {
+                break;
+            }
         }
 
-        return $tools;
+        return self::limited($tools, $limit);
     }
 
     /**
@@ -127,31 +133,39 @@ trait CallsServerTrait
     }
 
     /**
+     * @param int|null $limit At most this many; pages past it are not fetched. Null for every resource.
      * @return list<\Mcp\Schema\ResourceDefinition> The server's resources.
      */
-    public function listResources(): array
+    public function listResources(?int $limit = null): array
     {
         $resources = [];
         $list = fn(Client $client, ?string $cursor) => $client->listResources($cursor);
-        foreach ($this->pages('resources/list', ListResourcesResult::class, $list) as $page) {
+        foreach ($this->pages('resources/list', ListResourcesResult::class, $list, $limit) as $page) {
             array_push($resources, ...array_values($page->resources));
+            if ($limit !== null && count($resources) >= $limit) {
+                break;
+            }
         }
 
-        return $resources;
+        return self::limited($resources, $limit);
     }
 
     /**
+     * @param int|null $limit At most this many; pages past it are not fetched. Null for every template.
      * @return list<\Mcp\Schema\ResourceTemplate> The server's resource templates.
      */
-    public function listResourceTemplates(): array
+    public function listResourceTemplates(?int $limit = null): array
     {
         $templates = [];
         $list = fn(Client $client, ?string $cursor) => $client->listResourceTemplates($cursor);
-        foreach ($this->pages('resources/templates/list', ListResourceTemplatesResult::class, $list) as $page) {
+        foreach ($this->pages('resources/templates/list', ListResourceTemplatesResult::class, $list, $limit) as $page) {
             array_push($templates, ...array_values($page->resourceTemplates));
+            if ($limit !== null && count($templates) >= $limit) {
+                break;
+            }
         }
 
-        return $templates;
+        return self::limited($templates, $limit);
     }
 
     /**
@@ -164,17 +178,21 @@ trait CallsServerTrait
     }
 
     /**
+     * @param int|null $limit At most this many; pages past it are not fetched. Null for every prompt.
      * @return list<\Mcp\Schema\Prompt> The server's prompts.
      */
-    public function listPrompts(): array
+    public function listPrompts(?int $limit = null): array
     {
         $prompts = [];
         $list = fn(Client $client, ?string $cursor) => $client->listPrompts($cursor);
-        foreach ($this->pages('prompts/list', ListPromptsResult::class, $list) as $page) {
+        foreach ($this->pages('prompts/list', ListPromptsResult::class, $list, $limit) as $page) {
             array_push($prompts, ...array_values($page->prompts));
+            if ($limit !== null && count($prompts) >= $limit) {
+                break;
+            }
         }
 
-        return $prompts;
+        return self::limited($prompts, $limit);
     }
 
     /**
@@ -188,18 +206,23 @@ trait CallsServerTrait
     }
 
     /**
-     * Every page of a list, each from the list cache when it holds a fresh one for this caller.
+     * The pages of a list, fetched as they are read, each from the list cache when it holds a fresh one for this
+     * caller.
      *
      * @template P of \Mcp\Schema\Result\ListToolsResult|\Mcp\Schema\Result\ListResourcesResult|\Mcp\Schema\Result\ListResourceTemplatesResult|\Mcp\Schema\Result\ListPromptsResult
      * @param string $method The list method.
      * @param class-string<P> $class The result class.
      * @param callable(\Mcp\Client, ?string): P $list Lists one page.
-     * @return list<P>
+     * @param int|null $limit The caller's limit, checked before any page is fetched.
+     * @return \Generator<int, P>
+     * @throws \InvalidArgumentException When $limit is below 1.
      */
-    private function pages(string $method, string $class, callable $list): array
+    private function pages(string $method, string $class, callable $list, ?int $limit = null): Generator
     {
+        if ($limit !== null && $limit < 1) {
+            throw new InvalidArgumentException('A list limit must be 1 or more.');
+        }
         $cache = $this->listCache();
-        $pages = [];
         $cursor = null;
         $left = self::$maxPages;
         do {
@@ -213,11 +236,20 @@ trait CallsServerTrait
                     $cache->put($method, $cursor, $result, $page);
                 }
             }
-            $pages[] = $page;
+            yield $page;
             $cursor = $page->nextCursor;
             $left--;
         } while ($cursor !== null && $cursor !== '' && $left > 0);
+    }
 
-        return $pages;
+    /**
+     * @template I
+     * @param list<I> $items The items.
+     * @param int|null $limit At most this many.
+     * @return list<I>
+     */
+    private static function limited(array $items, ?int $limit): array
+    {
+        return $limit === null ? $items : array_slice($items, 0, $limit);
     }
 }

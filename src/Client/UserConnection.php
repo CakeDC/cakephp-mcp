@@ -151,7 +151,7 @@ final class UserConnection
     {
         $session = $this->session($this->accessToken(false));
         try {
-            return $call($session->client());
+            return $session->call($call);
         } catch (ExceptionInterface $e) {
             if ($session->lastStatus() !== 401) {
                 throw $e;
@@ -160,7 +160,7 @@ final class UserConnection
         // The server no longer accepts the token: refresh once and try again.
         $session = $this->session($this->accessToken(true));
         try {
-            return $call($session->client());
+            return $session->call($call);
         } catch (ExceptionInterface $e) {
             if ($session->lastStatus() !== 401) {
                 throw $e;

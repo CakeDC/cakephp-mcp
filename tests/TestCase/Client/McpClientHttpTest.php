@@ -4,14 +4,18 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Client;
 
 use Cake\Core\Configure;
+use Cake\Http\Client\Response as ClientResponse;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\ClientRegistry;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Test\Support\FixedHttpClientFactory;
+use CakeDC\Mcp\Test\Support\InterceptingHttpClient;
 use CakeDC\Mcp\Test\Support\SdkServerHttpClient;
+use Closure;
 use InvalidArgumentException;
 use LogicException;
+use Mcp\Exception\RequestException;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Content\TextResourceContents;
 use Mcp\Schema\Tool;
@@ -124,6 +128,106 @@ class McpClientHttpTest extends TestCase
         $this->assertContains('server/discover', $this->server->methods());
     }
 
+    private function intercepting(Closure $intercept): void
+    {
+        $this->factory = new FixedHttpClientFactory(new InterceptingHttpClient($this->server, $intercept));
+        McpClients::setRegistry(new ClientRegistry($this->factory));
+    }
+
+    private static function jsonRpcError(mixed $id, int $code, int $status = 400): ClientResponse
+    {
+        return new ClientResponse(
+            [sprintf('HTTP/1.1 %d X', $status), 'Content-Type: application/json'],
+            (string)json_encode(['jsonrpc' => '2.0', 'id' => $id, 'error' => ['code' => $code, 'message' => 'Header mismatch']]),
+        );
+    }
+
+    public function testAHeaderMismatchRefreshesTheToolListAndRetriesOnce(): void
+    {
+        $refused = 0;
+        $this->intercepting(function ($request, array $rpc) use (&$refused): ?ClientResponse {
+            if (($rpc['method'] ?? null) === 'tools/call' && $refused === 0) {
+                $refused++;
+
+                return self::jsonRpcError($rpc['id'], -32020);
+            }
+
+            return null;
+        });
+
+        $result = McpClients::get('remote')->callTool('echo', ['text' => 'hi']);
+
+        $this->assertSame('echo: hi', $result->content[0]->text ?? null);
+        $methods = $this->server->methods();
+        $this->assertSame(['tools/list', 'tools/call'], array_values(array_slice($methods, -2)));
+    }
+
+    public function testAHeaderMismatchIsRetriedOnlyOnce(): void
+    {
+        $calls = 0;
+        $this->intercepting(function ($request, array $rpc) use (&$calls): ?ClientResponse {
+            if (($rpc['method'] ?? null) === 'tools/call') {
+                $calls++;
+
+                return self::jsonRpcError($rpc['id'], -32020);
+            }
+
+            return null;
+        });
+
+        try {
+            McpClients::get('remote')->callTool('echo', ['text' => 'hi']);
+            $this->fail('No error');
+        } catch (RequestException $e) {
+            $this->assertSame(-32020, $e->getCode());
+        }
+        $this->assertSame(2, $calls);
+    }
+
+    public function testOtherErrorsAreNotRetried(): void
+    {
+        $calls = 0;
+        $this->intercepting(function ($request, array $rpc) use (&$calls): ?ClientResponse {
+            if (($rpc['method'] ?? null) === 'tools/call') {
+                $calls++;
+
+                return self::jsonRpcError($rpc['id'], -32603, 500);
+            }
+
+            return null;
+        });
+
+        try {
+            McpClients::get('remote')->callTool('echo', ['text' => 'hi']);
+            $this->fail('No error');
+        } catch (RequestException) {
+            $this->addToAssertionCount(1);
+        }
+        $this->assertSame(1, $calls);
+    }
+
+    public function testAnExpiredSessionStartsANewOneAndRetriesOnce(): void
+    {
+        Configure::write('Mcp.clients.remote.protocolVersion', '2025-06-18');
+        $expired = 0;
+        $this->intercepting(function ($request, array $rpc) use (&$expired): ?ClientResponse {
+            if (($rpc['method'] ?? null) === 'tools/call' && $request->hasHeader('Mcp-Session-Id') && $expired === 0) {
+                $expired++;
+
+                return new ClientResponse(['HTTP/1.1 404 Not Found'], '');
+            }
+
+            return null;
+        });
+
+        $result = McpClients::get('remote')->callTool('echo', ['text' => 'hi']);
+
+        $this->assertSame('echo: hi', $result->content[0]->text ?? null);
+        $methods = $this->server->methods();
+        $this->assertSame(2, count(array_keys($methods, 'initialize', true)));
+        $this->assertSame(1, count(array_keys($methods, 'tools/call', true)));
+    }
+
     public function testHeadersAreSent(): void
     {
         Configure::write('Mcp.clients.keyed', [
@@ -160,6 +264,26 @@ class McpClientHttpTest extends TestCase
         }
         $this->assertNotContains('tools/call', $this->server->methods());
         $this->assertSame('echo: x', $client->callTool('echo', ['text' => 'x'])->content[0]->text ?? null);
+    }
+
+    public function testALimitStopsFetchingPages(): void
+    {
+        $this->server = new SdkServerHttpClient(2);
+        McpClients::setRegistry(new ClientRegistry(new FixedHttpClientFactory($this->server)));
+
+        $tools = McpClients::get('remote')->listTools(3);
+
+        $this->assertSame(['echo', 'whoami', 'delete_all'], self::names($tools));
+        $this->assertSame(2, count(array_keys($this->server->methods(), 'tools/list', true)));
+        $this->assertCount(1, McpClients::get('remote')->listResources(1));
+        $this->assertCount(1, McpClients::get('remote')->listPrompts(1));
+        $this->assertSame([], McpClients::get('remote')->listResourceTemplates(5));
+    }
+
+    public function testALimitBelowOneFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        McpClients::get('remote')->listTools(0);
     }
 
     public function testListsEveryPage(): void
