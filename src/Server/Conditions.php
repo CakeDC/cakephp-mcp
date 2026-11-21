@@ -76,7 +76,7 @@ final class Conditions
      *
      * @internal
      * @param mixed $element A definition from a registry page.
-     * @param int|string $key Its key in the page, used when the definition has none of these.
+     * @param string|int $key Its key in the page, used when the definition has none of these.
      * @return string
      */
     public static function key(mixed $element, int|string $key): string
