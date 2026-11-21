@@ -18,14 +18,21 @@ trait ResolvesServerTrait
     protected function mcpServer(): ?string
     {
         $server = $this->request->getParam('server');
-        $server = is_string($server) && $server !== '' ? $server : McpConfig::DEFAULT_SERVER;
+        $named = is_string($server) && $server !== '';
+        $server = $named ? $server : McpConfig::DEFAULT_SERVER;
         try {
             $route = McpConfig::get('route', $server);
         } catch (InvalidArgumentException) {
             return null;
         }
-        // Only the server whose own route (or its metadata route) is this path: never a stdio only server, nor
-        // another server named by a route param.
+        // Without a server param this is the default server, at whatever path the route that reached the controller
+        // has: the plugin's own, the plugin's routes loaded inside a scope, or a route the application connected
+        // itself (2.1 served all of them).
+        if (!$named) {
+            return $server;
+        }
+        // A named server only at its own route (or its metadata route): never a stdio only server, nor another
+        // server named by a route param.
         if (!is_string($route) || trim($route, '/') === '') {
             return null;
         }
