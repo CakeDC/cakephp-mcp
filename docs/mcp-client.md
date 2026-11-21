@@ -511,8 +511,8 @@ proxy, set `Mcp.client.proxy`:
 
 Every HTTP request of every client then goes through it: the MCP sessions,
 configured endpoints and the addresses a remote server names. The one
-exception is a configured `url` on this machine (`localhost`, `127.0.0.1`,
-`::1`), which is reached directly: through the proxy its token would cross the
+exception is a configured address on this machine (`localhost` and its
+subdomains, any `127.x.y.z`, `::1`), which is reached directly: through the proxy its token would cross the
 network in clear and land on the proxy's own `localhost`. `NO_PROXY` in the
 environment is not followed. It is an `http`, `https` or `socks5h` URL with no
 path; anything else fails with a message naming the setting. Use `socks5h`,

@@ -55,7 +55,7 @@ final class ServerUrlPolicy
      * @param string $host Lowercase host, without IPv6 brackets.
      * @return bool Whether it names this machine.
      */
-    private static function isLocal(string $host): bool
+    public static function isLocal(string $host): bool
     {
         if ($host === 'localhost' || str_ends_with($host, '.localhost') || $host === '::1') {
             return true;

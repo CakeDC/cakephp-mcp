@@ -126,6 +126,28 @@ class ClientConfigTest extends TestCase
         }
     }
 
+    public function testEveryConfiguredAddressOnThisMachineBypassesTheProxy(): void
+    {
+        // The URL policy takes all of 127.0.0.0/8 and *.localhost as this machine (plain http allowed): none of
+        // them crosses the proxy, whatever curl knows of address ranges.
+        Configure::write('Mcp.client.proxy', 'http://proxy.corp.example:3128');
+        Configure::write('Mcp.clients.local', [
+            'url' => 'http://127.0.0.2:8080/mcp',
+            'auth' => 'user',
+            'clientId' => 'app',
+            'authorizationUrl' => 'http://127.0.0.3/authorize',
+            'tokenUrl' => 'http://127.0.0.3/token',
+            'revocationUrl' => 'https://auth.example.com/revoke',
+        ]);
+        try {
+            $client = (new CakeHttpClientFactory())->create(ClientConfig::fromConfig('local'));
+            $this->assertInstanceOf(Client::class, $client);
+            $this->assertSame([CURLOPT_NOPROXY => 'localhost,127.0.0.1,::1,127.0.0.2,127.0.0.3'], $client->getConfig('curl'));
+        } finally {
+            Configure::delete('Mcp.client.proxy');
+        }
+    }
+
     public function testStdioClient(): void
     {
         Configure::write('Mcp.clients.local', [
