@@ -35,6 +35,30 @@ abstract class McpBakeCommand extends SimpleBakeCommand
     }
 
     /**
+     * Refuses a name that is not a class name (`Admin/ListOrders`, `list-orders`, `2fa`), which would write a file
+     * of invalid PHP.
+     *
+     * @inheritDoc
+     */
+    public function execute(Arguments $args, ConsoleIo $io): ?int
+    {
+        $raw = $args->getArgumentAt(0);
+        if (is_string($raw) && $raw !== '') {
+            [, $name] = pluginSplit($raw);
+            if (preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $name) !== 1) {
+                $io->error(sprintf(
+                    '"%s" is not a class name: use letters, digits and "_", starting with a letter (ListOrders).',
+                    $name,
+                ));
+
+                return static::CODE_ERROR;
+            }
+        }
+
+        return parent::execute($args, $io);
+    }
+
+    /**
      * @inheritDoc
      */
     public function fileName(string $name): string

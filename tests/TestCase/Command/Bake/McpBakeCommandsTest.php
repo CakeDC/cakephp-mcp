@@ -74,6 +74,17 @@ class McpBakeCommandsTest extends TestCase
         $this->assertStringContainsString("mcpCallTool('list_orders'", $test);
     }
 
+    public function testANameThatIsNotAClassNameFailsAndWritesNothing(): void
+    {
+        foreach (['Admin/ListOrders', 'list-orders', '2fa', 'List Orders'] as $name) {
+            $this->exec(sprintf('bake mcp_tool "%s" --plugin BakeTarget --force --no-test', $name));
+
+            $this->assertExitError($name);
+            $this->assertErrorContains('is not a class name', $name);
+        }
+        $this->assertSame([], glob(self::PLUGIN . 'src/Mcp/*rders*') ?: []);
+    }
+
     public function testThePluginDotNameForm(): void
     {
         $this->exec('bake mcp_tool BakeTarget.ListOrders --force');
