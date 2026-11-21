@@ -55,6 +55,25 @@ class McpClientStdioTest extends TestCase
         }
     }
 
+    public function testABareNameWithASpaceIsFoundInItsCwd(): void
+    {
+        if (DIRECTORY_SEPARATOR === '\\' || !is_executable('/usr/bin/env')) {
+            $this->markTestSkipped('POSIX only');
+        }
+        $dir = TMP . 'mcp stdio cwd ' . getmypid();
+        mkdir($dir);
+        symlink(PHP_BINARY, $dir . DS . 'my php');
+        Configure::write('Mcp.clients.local.command', 'my php');
+        Configure::write('Mcp.clients.local.cwd', $dir);
+        try {
+            $this->assertSame('echo: bare', McpClients::get('local')->callTool('echo', ['text' => 'bare'])->content[0]->text ?? null);
+        } finally {
+            McpClients::reset();
+            unlink($dir . DS . 'my php');
+            rmdir($dir);
+        }
+    }
+
     public function testEnvIsPassedAndTheParentEnvIsNot(): void
     {
         $client = McpClients::get('local');

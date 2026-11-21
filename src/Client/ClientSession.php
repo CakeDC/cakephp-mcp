@@ -200,7 +200,8 @@ final class ClientSession
             return [$command, $args];
         }
 
-        return ['/usr/bin/env', [$command, ...$args]];
+        // A bare name is the file found in cwd (env would look for it in PATH); a path is run from cwd as written.
+        return ['/usr/bin/env', [str_contains($command, '/') ? $command : './' . $command, ...$args]];
     }
 
     /**
