@@ -1084,6 +1084,8 @@ trait McpTestTrait
         if ($params !== null) {
             $request['params'] = $params;
         }
+        // A request refused before it reaches the server (a missing scope) sends no notifications either.
+        $this->_mcpLastNotifications = [];
 
         $factory = $this->mcpContainer()->get(ServerFactory::class);
         if (!$factory instanceof ServerFactory) {

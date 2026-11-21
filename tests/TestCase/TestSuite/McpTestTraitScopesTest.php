@@ -85,6 +85,20 @@ class McpTestTraitScopesTest extends TestCase
         $this->assertMcpInsufficientScope(['notes:read', 'notes:write']);
     }
 
+    public function testARefusedCallKeepsNoNotificationOfTheCallBefore(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpProgress']);
+        $this->mcpActingAs(new ArrayObject(['id' => 1]), ['notes:read']);
+        $this->mcpCallTool('import_orders');
+        $this->assertMcpProgressSent();
+
+        $this->mcpCallTool('create_note', ['title' => 'Groceries']);
+        $this->assertMcpInsufficientScope();
+
+        $this->expectException(AssertionFailedError::class);
+        $this->assertMcpProgressSent();
+    }
+
     public function testInsufficientScopeAssertionFailsOnSuccess(): void
     {
         $this->mcpActingAs(new ArrayObject(['id' => 1]), ['notes:read', 'notes:write']);
