@@ -173,6 +173,23 @@ class ClientCacheTest extends TestCase
         $this->assertSame(2, $this->sent('resources/read'));
     }
 
+    public function testNothingKeptIsServedOnceTheClientPointsElsewhere(): void
+    {
+        $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
+        McpClients::get('remote')->listTools();
+        McpClients::get('remote')->readResource('docs://readme');
+
+        // Same token, another server.
+        Configure::write('Mcp.clients.remote.url', 'https://other.example.com/mcp');
+        $this->fresh();
+        McpClients::get('remote')->listTools();
+        McpClients::get('remote')->readResource('docs://readme');
+
+        $this->assertSame(2, $this->sent('tools/list'));
+        $this->assertSame(2, $this->sent('resources/read'));
+        $this->assertSame(2, $this->sent('server/discover'));
+    }
+
     public function testAResultOverTheEntrySizeIsNotKept(): void
     {
         // A resource can be a large blob: the cache holds what is cheap to keep.

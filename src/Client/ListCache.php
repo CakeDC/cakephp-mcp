@@ -156,6 +156,8 @@ final class ListCache
 
         return 'mcp_client_list_' . hash('sha256', (string)json_encode([
             $this->config->name,
+            // A client that now points to another server never gets what the previous one answered.
+            $this->config->url,
             $method,
             $cursor,
             $owner,
