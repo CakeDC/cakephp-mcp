@@ -236,12 +236,14 @@ class McpConfigTest extends TestCase
 
     public function testServerNamesAreSlugs(): void
     {
-        Configure::write('Mcp.servers', ['back office' => ['route' => '/mcp/bo']]);
+        Configure::write('Mcp.servers', ['back office' => ['route' => '/mcp/bo'], 'admin' => ['route' => '/mcp/admin']]);
 
+        $this->assertSame(['default', 'admin'], McpConfig::servers());
+        $this->assertStringContainsString('letters, digits, "-" and "_"', McpConfig::serverErrors()['back office']);
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('letters, digits, "-" and "_"');
 
-        McpConfig::servers();
+        McpConfig::get('route', 'back office');
     }
 
     public function testForReturnsTheResolvedConfig(): void
@@ -274,10 +276,9 @@ class McpConfigTest extends TestCase
     {
         Configure::write('Mcp.servers.default', ['route' => '/other']);
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('"Mcp.servers.default"');
-
-        McpConfig::servers();
+        $this->assertSame(['default'], McpConfig::servers());
+        $this->assertStringContainsString('"Mcp.servers.default"', McpConfig::serverErrors()['default']);
+        $this->assertSame('/mcp', McpConfig::get('route'));
     }
 
     public function testIsEndpointAndServerForMatchEveryServer(): void

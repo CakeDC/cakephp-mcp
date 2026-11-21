@@ -205,6 +205,12 @@ host mode, where scopes are not checked: set `authorizer` and `mode` too.
 `null` or `[]` (an unset `env()` value, for example) fails instead of falling
 back to the defaults.
 
+A mistake in one entry of `Mcp.servers` (no `route`, a name that is not a slug,
+a section that is `null`) stops that server only. The plugin logs it under the
+`mcp` scope and does not connect its routes, so its URL reaches no MCP server.
+The rest of the application and the other servers keep working, and
+`bin/cake mcp check` fails with a `Server <name>` line that names the mistake.
+
 Every server gets its endpoint and, in `oauth` and `external` modes, its
 protected resource metadata at `/.well-known/oauth-protected-resource` plus its
 route. Its resource defaults to its own URL; in `oauth` mode declare that URL in
@@ -244,7 +250,9 @@ does not change them. The guide is [Calling other MCP servers](mcp-client.md).
 ```
 
 Each client (a mistake fails with a message naming the key, and an unknown key
-is refused):
+is refused). A mistake in one client stops that client only: it is logged under
+the `mcp` scope, the other clients and the application keep working, and
+`bin/cake mcp check` fails on it. The settings:
 
 - `clients.<name>.url`: the server's HTTP address. https, or plain http for this machine or with `allowInsecure`. Set `url` or `command`, not both.
 - `clients.<name>.command`: a local server to start, spoken to over stdio.

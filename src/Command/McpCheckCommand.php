@@ -106,21 +106,27 @@ class McpCheckCommand extends Command
      */
     public function execute(Arguments $args, ConsoleIo $io): int
     {
-        try {
-            $all = McpConfig::servers();
-        } catch (InvalidArgumentException $e) {
-            $io->err(sprintf('<error>%s</error>', $e->getMessage()));
+        $all = McpConfig::servers();
+        $broken = McpConfig::serverErrors();
+        $only = $args->getOption('server');
+        if (is_string($only) && isset($broken[$only])) {
+            $this->runChecks(['Server ' . $only => fn(): array => ['fail', $broken[$only]]], $io);
 
             return static::CODE_ERROR;
         }
-        $only = $args->getOption('server');
         if (is_string($only) && !in_array($only, $all, true)) {
             $io->err(sprintf('<error>"Mcp.servers.%s" is not configured.</error>', $only));
 
             return static::CODE_ERROR;
         }
 
+        // Entries of Mcp.servers that are not served: the plugin left their routes out.
         $failed = false;
+        if (!is_string($only)) {
+            foreach ($broken as $name => $error) {
+                $failed = $this->runChecks(['Server ' . $name => fn(): array => ['fail', $error]], $io) || $failed;
+            }
+        }
         foreach (is_string($only) ? [$only] : $all as $server) {
             $this->server = $server;
             $this->tools = null;
@@ -183,10 +189,10 @@ class McpCheckCommand extends Command
     private function clients(): array
     {
         $names = ClientConfig::names();
-        if ($names === []) {
+        $problems = array_values(ClientConfig::errors());
+        if ($names === [] && $problems === []) {
             return ['pass', 'none'];
         }
-        $problems = [];
         $described = [];
         $userMode = false;
         foreach ($names as $name) {

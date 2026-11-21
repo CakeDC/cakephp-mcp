@@ -144,8 +144,7 @@ final class ClientConfig
     }
 
     /**
-     * @return list<string> The configured client names, in order.
-     * @throws \InvalidArgumentException When `Mcp.clients` is not an array of name => config.
+     * @return list<string> The configured client names whose entry has a valid shape, in order (see `errors()`).
      */
     public static function names(): array
     {
@@ -154,7 +153,6 @@ final class ClientConfig
 
     /**
      * @return bool Whether a configured client uses user mode, so the connect and callback routes are needed.
-     * @throws \InvalidArgumentException When `Mcp.clients` is not an array of name => config.
      */
     public static function anyUserMode(): bool
     {
@@ -174,7 +172,11 @@ final class ClientConfig
      */
     public static function fromConfig(string $name): self
     {
-        $config = self::all()[$name] ?? null;
+        [$valid, $errors] = self::scan();
+        if (isset($errors[$name])) {
+            throw new InvalidArgumentException($errors[$name]);
+        }
+        $config = $valid[$name] ?? null;
         if ($config === null) {
             throw new InvalidArgumentException(sprintf('"Mcp.clients.%s" is not configured.', $name));
         }
@@ -356,29 +358,60 @@ final class ClientConfig
     }
 
     /**
-     * @return array<string, array<string, mixed>> `Mcp.clients`, checked for its shape.
-     * @throws \InvalidArgumentException
+     * The entries of `Mcp.clients` that cannot be used because of their shape, as entry name => what is wrong.
+     * The name is `Mcp.clients` when the whole setting is not an array of client name => config. The other
+     * clients keep working; `bin/cake mcp check` fails on these.
+     *
+     * @return array<string, string>
+     */
+    public static function errors(): array
+    {
+        return self::scan()[1];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>> The entries of `Mcp.clients` whose shape is valid.
      */
     private static function all(): array
     {
+        return self::scan()[0];
+    }
+
+    /**
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, string>} The entries of `Mcp.clients`
+     *   with a valid shape, and the others with what is wrong with them.
+     */
+    private static function scan(): array
+    {
         $clients = Configure::read('Mcp.clients') ?? [];
         if (!is_array($clients)) {
-            throw new InvalidArgumentException('"Mcp.clients" must be an array of client name => config.');
+            return [[], ['Mcp.clients' => '"Mcp.clients" must be an array of client name => config.']];
         }
+        if ($clients !== [] && array_is_list($clients)) {
+            return [[], ['Mcp.clients' => '"Mcp.clients" must be an array of client name => config, not a list.']];
+        }
+        $valid = [];
+        $errors = [];
         foreach ($clients as $name => $config) {
-            if (!is_string($name) || !is_array($config)) {
-                throw new InvalidArgumentException('"Mcp.clients" must be an array of client name => config.');
-            }
-            if (preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
-                throw new InvalidArgumentException(sprintf(
+            $name = (string)$name;
+            if (!is_array($config)) {
+                $errors[$name] = sprintf(
+                    '"Mcp.clients.%s" must be the config array of the client; "Mcp.clients" is an array of client '
+                    . 'name => config.',
+                    $name,
+                );
+            } elseif (preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
+                $errors[$name] = sprintf(
                     'The client name "%s" in "Mcp.clients" may only have letters, digits, "-" and "_".',
                     $name,
-                ));
+                );
+            } else {
+                $valid[$name] = $config;
             }
         }
 
-        /** @var array<string, array<string, mixed>> $clients */
-        return $clients;
+        /** @var array<string, array<string, mixed>> $valid */
+        return [$valid, $errors];
     }
 
     /**

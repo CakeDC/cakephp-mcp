@@ -181,9 +181,15 @@ class ClientConfigTest extends TestCase
         Configure::write('Mcp.clients.c', ['url' => 'https://c.example.com', 'auth' => 'user']);
         $this->assertTrue(ClientConfig::anyUserMode());
 
-        Configure::write('Mcp.clients', ['bad name' => ['url' => 'https://a.example.com']]);
+        Configure::write('Mcp.clients', [
+            'bad name' => ['url' => 'https://a.example.com'],
+            'a' => ['url' => 'https://a.example.com'],
+        ]);
+        $this->assertSame(['a'], ClientConfig::names());
+        $this->assertStringContainsString('letters, digits', ClientConfig::errors()['bad name']);
         $this->expectException(InvalidArgumentException::class);
-        ClientConfig::names();
+        $this->expectExceptionMessage('letters, digits');
+        ClientConfig::fromConfig('bad name');
     }
 
     public function testSettingsHaveDefaults(): void

@@ -116,14 +116,45 @@ final class McpConfig
     }
 
     /**
-     * The configured servers: `default` first, then the keys of `Mcp.servers` in order.
+     * The servers the plugin serves: `default` first, then the keys of `Mcp.servers` in order, without the named
+     * servers whose config is invalid. Those are listed by `serverErrors()`: the plugin logs them, does not
+     * connect their routes and `bin/cake mcp check` fails on them, while the rest of the application keeps working.
      *
      * @return list<string>
-     * @throws \InvalidArgumentException When `Mcp.servers` is invalid.
      */
     public static function servers(): array
     {
-        return [self::DEFAULT_SERVER, ...array_keys(self::named())];
+        $servers = [self::DEFAULT_SERVER];
+        foreach (array_keys(self::named()[0]) as $name) {
+            try {
+                self::resolve($name);
+            } catch (InvalidArgumentException) {
+                continue;
+            }
+            $servers[] = $name;
+        }
+
+        return $servers;
+    }
+
+    /**
+     * The entries of `Mcp.servers` that cannot be served, as entry name => what is wrong. The name is
+     * `Mcp.servers` when the whole setting is not an array of server name => config.
+     *
+     * @return array<string, string>
+     */
+    public static function serverErrors(): array
+    {
+        [$valid, $errors] = self::named();
+        foreach (array_keys($valid) as $name) {
+            try {
+                self::resolve($name);
+            } catch (InvalidArgumentException $e) {
+                $errors[$name] = $e->getMessage();
+            }
+        }
+
+        return $errors;
     }
 
     /**
@@ -163,7 +194,11 @@ final class McpConfig
             return $default;
         }
 
-        $named = self::named()[$server] ?? null;
+        [$valid, $errors] = self::named();
+        if (isset($errors[$server])) {
+            throw new InvalidArgumentException($errors[$server]);
+        }
+        $named = $valid[$server] ?? null;
         if ($named === null) {
             throw new InvalidArgumentException(sprintf('"Mcp.servers.%s" is not configured.', $server));
         }
@@ -195,40 +230,48 @@ final class McpConfig
     }
 
     /**
-     * @return array<string, array<string, mixed>> The named servers, validated.
+     * The entries of `Mcp.servers` whose shape is valid, and the others with what is wrong with them. One wrong
+     * entry never hides the valid ones.
+     *
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, string>}
      */
     private static function named(): array
     {
         $servers = Configure::read('Mcp.servers') ?? [];
         if (!is_array($servers)) {
-            throw new InvalidArgumentException('"Mcp.servers" must be an array of server name => config.');
+            return [[], ['Mcp.servers' => '"Mcp.servers" must be an array of server name => config.']];
         }
+        $valid = [];
+        $errors = [];
         foreach ($servers as $name => $config) {
-            if (!is_string($name) || !is_array($config)) {
-                throw new InvalidArgumentException('"Mcp.servers" must be an array of server name => config.');
-            }
-            if (preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
-                throw new InvalidArgumentException(sprintf(
+            $name = (string)$name;
+            if (!is_array($config)) {
+                $errors[$name] = sprintf(
+                    '"Mcp.servers.%s" must be the config array of the server; "Mcp.servers" is an array of server '
+                    . 'name => config.',
+                    $name,
+                );
+            } elseif (preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
+                $errors[$name] = sprintf(
                     'The server name "%s" in "Mcp.servers" may only have letters, digits, "-" and "_".',
                     $name,
-                ));
-            }
-            if ($name === self::DEFAULT_SERVER) {
-                throw new InvalidArgumentException(
-                    '"Mcp.servers.default" is not allowed: the top-level "Mcp" config is the default server.',
                 );
-            }
-            if (!is_string($config['route'] ?? null) || trim($config['route'], '/') === '') {
-                throw new InvalidArgumentException(sprintf(
+            } elseif ($name === self::DEFAULT_SERVER) {
+                $errors[$name] = '"Mcp.servers.default" is not allowed: the top-level "Mcp" config is the default '
+                    . 'server.';
+            } elseif (!is_string($config['route'] ?? null) || trim($config['route'], '/') === '') {
+                $errors[$name] = sprintf(
                     '"Mcp.servers.%s.route" must be the path of the server, for example "/mcp/%s".',
                     $name,
                     $name,
-                ));
+                );
+            } else {
+                $valid[$name] = $config;
             }
         }
 
-        /** @var array<string, array<string, mixed>> $servers */
-        return $servers;
+        /** @var array<string, array<string, mixed>> $valid */
+        return [$valid, $errors];
     }
 
     /**
