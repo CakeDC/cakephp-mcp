@@ -80,6 +80,30 @@ class OAuthRouteParamsTest extends TestCase
         $this->assertSame([], $this->errors());
     }
 
+    public function testAValueInTheResourcesHostIsServedOnlyInLowercase(): void
+    {
+        // The host of the resource is lowercased, so ACME would share acme's resource and audience while the tool
+        // got "ACME": one spelling per value.
+        $resources = (array)Configure::read('OAuthServer.resources');
+        $resources['https://acme.example.com/mcp'] = $resources[OAuthTestConfig::MCP];
+        Configure::write('OAuthServer.resources', $resources);
+        OAuthServer::reset();
+        Configure::write('Mcp.servers.hosts', [
+            'route' => '/mcp/h/{tenant}',
+            'discovery' => ['scanDirs' => ['src/McpTenant']],
+            'auth' => ['mode' => 'oauth', 'resource' => 'https://{tenant}.example.com/mcp'],
+        ]);
+
+        $this->listTools('/mcp/h/acme');
+        $this->assertResponseCode(401);
+
+        foreach (['/mcp/h/ACME', '/mcp/h/Acme', '/.well-known/oauth-protected-resource/mcp/h/ACME'] as $path) {
+            str_starts_with($path, '/.well-known') ? $this->get($path) : $this->listTools($path);
+            $this->assertResponseCode(404, $path);
+        }
+        $this->assertSame([], $this->errors());
+    }
+
     public function testAValueThatIsNotDeclaredIsNotFoundAndNotLogged(): void
     {
         $this->listTools('/mcp/t/unknown');

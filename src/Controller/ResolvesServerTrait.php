@@ -41,6 +41,12 @@ trait ResolvesServerTrait
         if (McpConfig::routeValues($route, $path) === null && McpConfig::routeValues($metadata, $path) === null) {
             return null;
         }
+        foreach (McpConfig::hostRouteParams($server) as $name) {
+            $value = $this->request->getParam($name);
+            if (is_string($value) && $value !== strtolower($value)) {
+                return null;
+            }
+        }
 
         return $server;
     }

@@ -253,6 +253,31 @@ final class McpConfig
     }
 
     /**
+     * The parameters of $server's route that its `auth.resource` puts in its host
+     * (`https://{tenant}.example.com/mcp`). The resource's host is lowercased, so such a value is served only in
+     * lowercase: `ACME` would share `acme`'s resource and audience while the tools got `ACME`.
+     *
+     * @param string $server The server.
+     * @return list<string>
+     */
+    public static function hostRouteParams(string $server): array
+    {
+        try {
+            $auth = self::get('auth', $server);
+        } catch (InvalidArgumentException) {
+            return [];
+        }
+        $resource = is_array($auth) ? ($auth['resource'] ?? null) : null;
+        if (!is_string($resource) || preg_match('#^[A-Za-z][A-Za-z0-9+.-]*://([^/?\#]*)#', $resource, $match) !== 1) {
+            return [];
+        }
+
+        $params = self::routeParams(self::get('route', $server));
+
+        return array_values(array_intersect(self::routeParams($match[1]), $params));
+    }
+
+    /**
      * What is wrong with the parameters of a named server's route, or null. A parameter is a whole path segment,
      * `{name}` with a name of letters, digits and `_`, each name once; its values are slugs (letters, digits, `-`
      * and `_`).

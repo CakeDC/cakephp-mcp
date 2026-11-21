@@ -273,7 +273,10 @@ route. Its resource is its own URL: derived from `App.fullBaseUrl` and its
 route, or, when it inherits an `auth` that sets `resource`, that URL with the
 default server's route replaced by its own (`https://example.com/mcp` becomes
 `https://example.com/mcp/admin`). In `oauth` mode declare that URL in
-`OAuthServer.resources` as well. Tokens stay apart:
+`OAuthServer.resources` as well. A route parameter that `auth.resource` puts
+in its host (`'resource' => 'https://{tenant}.example.com/mcp'`) is served only
+in lowercase, as host names are compared: `/mcp/ACME` answers 404 rather than
+share the resource and audience of `/mcp/acme`. Tokens stay apart:
 
 - In `oauth` mode the authorization server issues each token for one resource,
   so a token for one server is not accepted by another, unless two servers
