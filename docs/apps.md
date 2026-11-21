@@ -93,6 +93,18 @@ may connect to or load from (`UiResourceCsp`), permissions such as the
 clipboard (`UiResourcePermissions`), and whether it wants a border. Hosts apply
 a strict policy by default, so declare every outside domain the page uses.
 
+`UiResourceContentMeta` also has `domain`, a dedicated origin for the page's
+sandbox, for pages that need a stable origin (an OAuth callback, a CORS policy
+or an API key allowlist). The MCP Apps extension leaves its format to each host
+(a hash-based subdomain of the host's own domain, or one derived from your
+URL), so the plugin does not make one up: without `domain` the host uses its
+default sandbox origin, usually one per conversation. Set it from the host's
+documentation when you need it:
+
+```php
+new UiResourceContentMeta(domain: 'a904794854a047f6.claudemcpcontent.com')
+```
+
 ## Visibility
 
 `#[McpApp]` writes `_meta.ui` into the tool's entry of `tools/list`:
@@ -109,9 +121,10 @@ a pattern matched on its `Catalog` line.
 Visibility is a hint for the host, not access control. An app-only tool can
 still be called by anyone who knows its name and holds a valid token, so it is
 gated by your authorizer, needs its scopes and is audited like any other tool
-(its audit records carry `app=1`). The page itself is a resource, and
-resources do not go through the tool authorizer: anyone who may call the
-endpoint can read it with `resources/read`. Keep data out of the page template
+(its audit records carry `app=1`). The page itself is a resource: anyone who
+may call the endpoint can read it with `resources/read`, unless your authorizer
+also implements `ResourceAuthorizerInterface` (see
+[Resources and prompts](authorization.md#resources-and-prompts)). Keep data out of the page template
 and load it with a tool call from the page, where the authorizer and the scopes
 apply. Data an app shows also passes through the host, so the host vendor's
 terms apply to it as much as to what the model reads.
