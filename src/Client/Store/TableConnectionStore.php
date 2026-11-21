@@ -107,6 +107,25 @@ class TableConnectionStore implements ConnectionStoreInterface
     /**
      * @inheritDoc
      */
+    public function saveRefreshed(StoredConnection $connection, string $claimId): bool
+    {
+        // One conditional UPDATE: a deleted row, or a claim that is no longer this one, matches nothing.
+        return $this->connections()->updateAll(
+            [
+                'access_token' => $this->encrypt($connection->accessToken),
+                'refresh_token' => $this->encrypt($connection->refreshToken),
+                'expires' => $connection->expiresAt === null
+                    ? null
+                    : DateTime::createFromTimestamp($connection->expiresAt),
+                'scope' => $connection->scope,
+            ],
+            ['client' => $connection->client, 'user_id' => $connection->userId, 'refresh_claim_id' => $claimId],
+        ) === 1;
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function claimRefresh(string $client, string $userId, string $claimId, int $leaseSeconds): bool
     {
         $now = DateTime::now();

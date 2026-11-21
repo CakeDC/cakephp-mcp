@@ -164,6 +164,22 @@ class TableConnectionStoreTest extends TestCase
         }
     }
 
+    public function testARefreshedGrantIsStoredOnlyUnderItsClaim(): void
+    {
+        $this->store->save(self::connection());
+        $refreshed = self::connection()->withTokens('at-new', 'rt-new', null, null);
+
+        $this->assertFalse($this->store->saveRefreshed($refreshed, 'claim-a'), 'Stored without a claim.');
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-a', 60));
+        $this->assertFalse($this->store->saveRefreshed($refreshed, 'claim-b'), 'Stored under another claim.');
+        $this->assertTrue($this->store->saveRefreshed($refreshed, 'claim-a'));
+        $this->assertSame('at-new', $this->store->get('linear', '7')?->accessToken);
+
+        $this->store->delete('linear', '7');
+        $this->assertFalse($this->store->saveRefreshed($refreshed, 'claim-a'), 'A deleted grant came back.');
+        $this->assertNull($this->store->get('linear', '7'));
+    }
+
     public function testNoGrantNoClaim(): void
     {
         $this->assertFalse($this->store->claimRefresh('linear', '7', 'claim-a', 60));

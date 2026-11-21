@@ -26,6 +26,17 @@ interface ConnectionStoreInterface
     public function save(StoredConnection $connection): void;
 
     /**
+     * Replaces the user's grant with what a refresh produced, only while $claimId is still its refresh claim:
+     * a grant deleted meanwhile (the user disconnected) is never stored again, and neither is one whose claim
+     * another request took over.
+     *
+     * @param \CakeDC\Mcp\Client\Store\StoredConnection $connection The refreshed grant.
+     * @param string $claimId The id given to claimRefresh().
+     * @return bool Whether it was stored.
+     */
+    public function saveRefreshed(StoredConnection $connection, string $claimId): bool;
+
+    /**
      * @param string $client The client's name.
      * @param string $userId The user.
      * @return void

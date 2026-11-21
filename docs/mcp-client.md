@@ -185,7 +185,14 @@ To keep grants elsewhere, implement
 `CakeDC\Mcp\Client\Store\ConnectionStoreInterface` and set its class in
 `Mcp.client.store`. Keep tokens and secrets unreadable at rest, and make
 `claimRefresh()` atomic (one conditional update, for example), since it is what
-keeps two requests from refreshing the same grant.
+keeps two requests from refreshing the same grant. `saveRefreshed()` stores what
+a refresh produced only while the request still holds that claim (one
+conditional update on the claim id), so a user who disconnects while a refresh
+is running stays disconnected.
+
+After it claims the refresh, a request reads the grant again: when another
+request refreshed it in the meantime, it uses that token and never sends the
+refresh token that request already spent.
 
 ### A server whose owner gave you a client
 

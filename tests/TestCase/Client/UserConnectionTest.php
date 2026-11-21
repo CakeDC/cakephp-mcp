@@ -12,11 +12,13 @@ use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Exception\NotConnectedException;
+use CakeDC\Mcp\Client\Http\HttpResponse;
 use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Client\Store\StoredConnection;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\McpPlugin;
 use CakeDC\Mcp\Test\Support\FakeOAuthServer;
+use CakeDC\Mcp\Test\Support\InterleavingStore;
 use LogicException;
 
 class UserConnectionTest extends TestCase
@@ -174,6 +176,51 @@ class UserConnectionTest extends TestCase
         }
         $this->assertSame([], $this->server->tokenRequests);
         $this->assertNotNull($this->store->get('linear', '7'));
+    }
+
+    public function testARefreshThatAnotherRequestFinishedBeforeTheClaimIsNotSentAgain(): void
+    {
+        $this->seed('7', 30);
+        $store = new InterleavingStore($this->store);
+        // Another request reads, refreshes, stores and releases between this request's read and its claim.
+        $store->beforeClaim = function (): void {
+            $stored = $this->store->get('linear', '7');
+            $this->assertNotNull($stored);
+            $this->store->save($stored->withTokens('at-other', 'rt-other', DateTime::now()->getTimestamp() + 3600, null));
+            $this->server->mcp->tokens[] = 'at-other';
+        };
+        McpClients::setRegistry($this->server->registry($store));
+
+        $this->assertSame('at-other', $this->whoami());
+        $this->assertSame([], $this->server->tokenRequests, 'rt-seed was already used by the other request.');
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'next', 60), 'The claim was not released.');
+    }
+
+    public function testADisconnectDuringARefreshStaysDisconnected(): void
+    {
+        $this->seed('7', 30);
+        $other = McpClients::get('linear')->for('7');
+        $this->server->guarded->on('POST', FakeOAuthServer::ISSUER . '/token', function () use ($other): HttpResponse {
+            // While this request's token request is at the authorization server, the user disconnects.
+            $other->disconnect();
+
+            return new HttpResponse(200, [], (string)json_encode([
+                'access_token' => 'at-late',
+                'refresh_token' => 'rt-late',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+            ]));
+        });
+        $this->server->mcp->tokens[] = 'at-late';
+        McpClients::setRegistry($this->server->registry($this->store));
+
+        try {
+            $this->whoami();
+        } catch (NotConnectedException) {
+        }
+
+        $this->assertNull($this->store->get('linear', '7'), 'The disconnected grant came back with live tokens.');
+        $this->assertFalse(McpClients::get('linear')->for('7')->isConnected());
     }
 
     public function testTheClaimIsReleasedAfterARefresh(): void

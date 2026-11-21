@@ -204,7 +204,17 @@ final class UserConnection
             return $this->waitForRefresh($stored);
         }
         try {
-            return $this->refreshClaimed($stored, $now);
+            // Read again: another request may have refreshed, stored and released between our read and our claim,
+            // and the refresh token we read is then already spent.
+            $fresh = $this->stored();
+            if ($fresh === null) {
+                throw $this->notConnected();
+            }
+            if ($fresh->accessToken !== $stored->accessToken) {
+                return $fresh->accessToken;
+            }
+
+            return $this->refreshClaimed($fresh, $now, $claimId);
         } finally {
             $store->releaseRefresh($this->config->name, $this->userId, $claimId);
         }
@@ -241,10 +251,11 @@ final class UserConnection
     /**
      * @param \CakeDC\Mcp\Client\Store\StoredConnection $stored The grant.
      * @param int $now The time now.
+     * @param string $claimId This request's refresh claim.
      * @return string The new access token.
      * @throws \CakeDC\Mcp\Client\Exception\NotConnectedException When the grant is no longer accepted.
      */
-    private function refreshClaimed(StoredConnection $stored, int $now): string
+    private function refreshClaimed(StoredConnection $stored, int $now, string $claimId): string
     {
         $store = $this->registry->store();
         $trusted = $this->config->tokenUrl !== null && $stored->tokenUrl === $this->config->tokenUrl;
@@ -269,7 +280,17 @@ final class UserConnection
             $tokens->expiresIn === null ? null : $now + $tokens->expiresIn,
             $tokens->scope ?? $stored->scope,
         );
-        $store->save($updated);
+        if (!$store->saveRefreshed($updated, $claimId)) {
+            if ($this->stored() === null) {
+                // The user disconnected while the token request ran: the new tokens are not kept, and not left live.
+                $this->registry->tokens($this->config)->revoke(
+                    $updated,
+                    $this->config->revocationUrl !== null && $updated->revocationUrl === $this->config->revocationUrl,
+                );
+
+                throw $this->notConnected();
+            }
+        }
 
         return $updated->accessToken;
     }
