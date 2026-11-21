@@ -44,7 +44,7 @@ class ProtectedResourceController extends Controller
 
         try {
             $server = $this->mcpServer();
-            $settings = $server === null ? null : AuthSettings::fromConfig($server);
+            $settings = $server === null ? null : AuthSettings::fromConfig($server, $this->mcpRouteValues($server));
             if ($settings === null || $settings->mode === AuthSettings::HOST) {
                 return $response->withStatus(404)
                     ->withType('application/json')

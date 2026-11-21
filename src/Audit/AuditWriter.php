@@ -100,6 +100,9 @@ final class AuditWriter
             if ($this->settings->server !== McpConfig::DEFAULT_SERVER) {
                 $data['server'] = $this->settings->server;
             }
+            if ($this->settings->route !== []) {
+                $data['route'] = $this->settings->route;
+            }
             EventManager::instance()->dispatch(new Event(self::EVENT, null, $data));
         } catch (Throwable $exception) {
             $this->report('a listener of the Mcp.audit event failed', $exception);
@@ -125,6 +128,13 @@ final class AuditWriter
         );
         if ($this->settings->server !== McpConfig::DEFAULT_SERVER) {
             $line .= ' server=' . $this->field($this->settings->server);
+        }
+        if ($this->settings->route !== []) {
+            $pairs = [];
+            foreach ($this->settings->route as $name => $value) {
+                $pairs[] = $name . ':' . $value;
+            }
+            $line .= ' route=' . $this->field(implode(',', $pairs));
         }
         if ($record->via !== null) {
             $line .= ' via=' . $this->field($record->via);

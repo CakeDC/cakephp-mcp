@@ -932,7 +932,19 @@ class McpCheckCommand extends Command
             return ['warn', 'Mcp.route is disabled: only stdio (bin/cake mcp server) is served'];
         }
 
-        return ['pass', rtrim((string)Configure::read('App.fullBaseUrl'), '/') . $route];
+        $url = rtrim((string)Configure::read('App.fullBaseUrl'), '/') . $route;
+        $params = McpConfig::routeParams($route);
+        if ($params !== [] && $this->server === McpConfig::DEFAULT_SERVER) {
+            return ['fail', sprintf(
+                'Mcp.route %s has parameters, which only a named server may have (Mcp.servers), see %s',
+                $route,
+                self::DOCS . 'configuration.md#routes-with-parameters',
+            )];
+        }
+
+        $values = $params === [] ? '' : sprintf(' (one server per value of %s)', implode(', ', $params));
+
+        return ['pass', $url . $values];
     }
 
     /**

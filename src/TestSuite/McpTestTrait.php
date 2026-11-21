@@ -62,6 +62,13 @@ trait McpTestTrait
     protected string $_mcpServer = McpConfig::DEFAULT_SERVER;
 
     /**
+     * The values of the server's route parameters (`/mcp/{tenant}`) the requests are made with.
+     *
+     * @var array<string, string>
+     */
+    protected array $_mcpRoute = [];
+
+    /**
      * The notifications the server sent during the last `mcpCallTool()`.
      *
      * @var list<array<string, mixed>>
@@ -129,14 +136,18 @@ trait McpTestTrait
     }
 
     /**
-     * Sends the following requests to another MCP server: `default` or a key of `Mcp.servers`.
+     * Sends the following requests to another MCP server: `default` or a key of `Mcp.servers`. For a server on a
+     * route with parameters (`/mcp/{tenant}`), $route gives their values, as the HTTP endpoint would read them from
+     * the path: tools see them through `McpRoute`, and the scope policy uses that value's resource.
      *
      * @param string $server The server.
+     * @param array<string, string> $route The values of the route's parameters.
      * @return void
      */
-    public function mcpUseServer(string $server): void
+    public function mcpUseServer(string $server, array $route = []): void
     {
         $this->_mcpServer = $server;
+        $this->_mcpRoute = $route;
     }
 
     /**
@@ -1078,6 +1089,7 @@ trait McpTestTrait
         }
         $factory = $factory->forServer($this->_mcpServer);
         $factory->identity()->set($this->_mcpIdentity);
+        $factory->route()->set($this->_mcpRoute);
 
         $scopes = McpConfig::get('identity.scopes', $this->_mcpServer);
         $token = null;
@@ -1094,7 +1106,7 @@ trait McpTestTrait
             }
         }
         if ($token !== null && $this->_mcpScopes !== null && !$trusted) {
-            $settings = AuthSettings::fromConfig($this->_mcpServer);
+            $settings = AuthSettings::fromConfig($this->_mcpServer, $this->_mcpRoute);
             $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
             if ($policy !== null) {
                 $catalog = McpConfig::get('catalog.enabled', $this->_mcpServer) === true

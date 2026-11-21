@@ -17,6 +17,7 @@ use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\ConfigMistakes;
 use CakeDC\Mcp\OAuth\AuthSettings;
+use CakeDC\Mcp\Server\McpRoute;
 use CakeDC\Mcp\Server\ServerFactory;
 
 /**
@@ -85,16 +86,18 @@ class McpPlugin extends BasePlugin
             // The default server keeps the 2.1 routes, without a `server` param, so reverse routing to them still
             // matches; the controllers read a missing param as `default`.
             $param = $server === McpConfig::DEFAULT_SERVER ? [] : ['server' => $server];
+            // A route such as /mcp/{tenant}: each parameter is one path segment, a slug.
+            $patterns = array_fill_keys(McpConfig::routeParams($path), McpConfig::ROUTE_VALUE);
             $routes->connect(
                 $path,
                 ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'] + $param,
-            )->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
+            )->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS'])->setPatterns($patterns);
             // Always connected: routes are cached, and a mode switch must not need a cache clear.
             // In host mode the controller answers 404.
             $routes->connect(
                 McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
                 ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'] + $param,
-            )->setMethods(['GET', 'OPTIONS']);
+            )->setMethods(['GET', 'OPTIONS'])->setPatterns($patterns);
         }
 
         // The sign-in of user mode clients (Mcp.clients with `auth` `user`), only when one is configured.
@@ -132,6 +135,7 @@ class McpPlugin extends BasePlugin
     public function services(ContainerInterface $container): void
     {
         $container->addShared(CurrentIdentity::class);
+        $container->addShared(McpRoute::class);
         $container->addShared(ServerFactory::class)
             ->addArgument($container)
             ->addArgument(CurrentIdentity::class);

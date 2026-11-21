@@ -85,6 +85,11 @@ final class ServerFactory
     private ?CachePolicy $cachePolicy = null;
 
     /**
+     * The route values when the container has no McpRoute (a container without the plugin's services).
+     */
+    private ?McpRoute $route = null;
+
+    /**
      * @param \Psr\Container\ContainerInterface $container The host container.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The shared current identity.
      * @param string $server The MCP server this factory builds: `default` or a key of `Mcp.servers`.
@@ -187,7 +192,7 @@ final class ServerFactory
         // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
         $registry = new Registry($events, $logger);
         $builder->setRegistry($registry);
-        $audit = AuditSettings::fromConfig($this->server);
+        $audit = AuditSettings::fromConfig($this->server, $this->route()->values());
         if ($audit->enabled) {
             $listener = new AuditListener(
                 $audit,
@@ -249,7 +254,7 @@ final class ServerFactory
             ->setEventDispatcher($events)
             ->setSession(new Psr16SessionStore(
                 Cache::pool((string)McpConfig::get('session.cache', $this->server)),
-                $this->server === McpConfig::DEFAULT_SERVER ? 'mcp-' : 'mcp-' . $this->server . '-',
+                $this->sessionPrefix(),
                 (int)McpConfig::get('session.ttl', $this->server),
             ));
 
@@ -602,6 +607,37 @@ final class ServerFactory
         $this->build(true, $this->quietLogger());
 
         return $this->appsAnnounced;
+    }
+
+    /**
+     * The values of the parameters of this server's route in the current request (`/mcp/{tenant}`), shared with
+     * the tools through the container.
+     *
+     * @return \CakeDC\Mcp\Server\McpRoute
+     */
+    public function route(): McpRoute
+    {
+        if ($this->container->has(McpRoute::class)) {
+            $route = $this->container->get(McpRoute::class);
+            if ($route instanceof McpRoute) {
+                return $route;
+            }
+        }
+
+        return $this->route ??= new McpRoute();
+    }
+
+    /**
+     * The session keys of this server, and of this value of its route parameters, kept apart from the others.
+     *
+     * @return string
+     */
+    private function sessionPrefix(): string
+    {
+        $prefix = $this->server === McpConfig::DEFAULT_SERVER ? 'mcp-' : 'mcp-' . $this->server . '-';
+        $values = $this->route()->values();
+
+        return $values === [] ? $prefix : $prefix . hash('sha256', (string)json_encode($values)) . '-';
     }
 
     /**

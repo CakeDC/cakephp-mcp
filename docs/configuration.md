@@ -296,6 +296,54 @@ resource, and warns when a scan directory holds another server's. `mcp check`, `
 `--server <name>` (`mcp check --server <name>` still runs the `Servers` line
 across all servers), and tests pick a server with `mcpUseServer('admin')`.
 
+### Routes with parameters
+
+A named server can serve many values of one route, such as one per tenant:
+
+```php
+'servers' => [
+    'tenants' => [
+        'route' => '/mcp/t/{tenant}',
+        'discovery' => ['scanDirs' => ['src/McpTenant']],
+        'auth' => ['mode' => 'external', 'external' => ['issuer' => 'https://login.example.com']],
+    ],
+],
+```
+
+Every value shares the server's config and tools. A parameter is a whole path
+segment, `{name}` with letters, digits and `_`, each name once; its values are
+slugs (letters, digits, `-` and `_`), and any other path is not routed to the
+server. A pattern that breaks these rules stops that server, and
+`bin/cake mcp check` fails on it; its `Endpoint` line shows the pattern.
+
+The value reaches tools as a request param (`$request->getParam('tenant')`)
+and through the `CakeDC\Mcp\Server\McpRoute` service, which a tool can take
+in its constructor:
+
+```php
+public function __construct(private McpRoute $route)
+{
+}
+
+#[McpTool(name: 'list_invoices')]
+public function invoices(): array
+{
+    return $this->invoices->forTenant((string)$this->route->get('tenant'));
+}
+```
+
+In `oauth` and `external` modes each value is its own protected resource: the
+resource (`https://app.example.com/mcp/t/acme`) and the protected resource
+metadata URL (`/.well-known/oauth-protected-resource/mcp/t/acme`) are derived
+with the value of the request, so a token issued for one tenant is refused for
+another. A configured `auth.resource` or `external.audience` may hold the
+same `{tenant}` placeholder. In `oauth` mode, declare in
+`OAuthServer.resources` the resource of each value you serve. Sessions of one
+value are kept apart from the others, audit records carry the values (a
+`route` field, `route=tenant:acme` on the log line), and tests give them with
+`mcpUseServer('tenants', ['tenant' => 'acme'])`. Parameters are for named
+servers only: `bin/cake mcp check` fails on a `Mcp.route` with one.
+
 ## MCP clients
 
 `Mcp.clients` names the MCP servers your application calls, and `Mcp.client`
@@ -464,6 +512,7 @@ named in the `mcp` log) and makes `bin/cake mcp check` fail.
 | `via` | `call_tools` when the tool catalog ran the call; left out otherwise (`via=call_tools` on the log line) |
 | `app` | `true` for a call of an app-only tool, refused calls included; left out otherwise (`app=1` on the log line) |
 | `server` | the named server that took the call; left out for the default server (`server=admin` on the log line) |
+| `route` | the values of the parameters of the server's route, such as `{"tenant": "acme"}`; left out when the route has none (`route=tenant:acme` on the log line) |
 
 | Outcome | When | Log level |
 |---|---|---|

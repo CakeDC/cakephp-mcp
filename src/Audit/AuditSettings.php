@@ -26,6 +26,8 @@ final class AuditSettings
      * @param bool $arguments Record the call arguments.
      * @param list<string> $redact Argument names whose value is hidden, lower case.
      * @param int $maxLength Longest string value kept, in characters.
+     * @param string $server The server.
+     * @param array<string, string> $route The values of the server's route parameters, which records carry.
      */
     private function __construct(
         public readonly bool $enabled,
@@ -35,6 +37,7 @@ final class AuditSettings
         public readonly array $redact,
         public readonly int $maxLength,
         public readonly string $server = McpConfig::DEFAULT_SERVER,
+        public readonly array $route = [],
     ) {
     }
 
@@ -42,10 +45,11 @@ final class AuditSettings
      * Reads and validates `Mcp.audit`.
      *
      * @param string $server The MCP server whose audit settings to read.
+     * @param array<string, string> $route The values of its route's parameters, which records carry.
      * @return self
      * @throws \InvalidArgumentException For an invalid setting, named in the message.
      */
-    public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER): self
+    public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER, array $route = []): self
     {
         $audit = McpConfig::get('audit', $server);
         if (!is_array($audit)) {
@@ -83,6 +87,7 @@ final class AuditSettings
             array_map('strtolower', $redact),
             $maxLength,
             $server,
+            $route,
         );
     }
 

@@ -21,6 +21,11 @@ use Psr\Http\Message\ServerRequestInterface;
 final class McpConfig
 {
     /**
+     * The values a route parameter takes: a slug.
+     */
+    public const ROUTE_VALUE = '[A-Za-z0-9_-]+';
+
+    /**
      * Path prefix of the protected resource metadata (RFC 9728), followed by the MCP route.
      */
     public const METADATA_PREFIX = '/.well-known/oauth-protected-resource';
@@ -174,13 +179,110 @@ final class McpConfig
             if (!is_string($route) || trim($route, '/') === '') {
                 continue;
             }
-            $route = '/' . trim($route, '/');
-            if ($path === $route || $path === self::METADATA_PREFIX . $route) {
+            $metadata = self::METADATA_PREFIX . '/' . trim($route, '/');
+            if (self::routeValues($route, $path) !== null || self::routeValues($metadata, $path) !== null) {
                 return $server;
             }
         }
 
         return null;
+    }
+
+    /**
+     * The parameters of a route such as `/mcp/{tenant}`, in order.
+     *
+     * @param mixed $route A route.
+     * @return list<string>
+     */
+    public static function routeParams(mixed $route): array
+    {
+        if (!is_string($route)) {
+            return [];
+        }
+        preg_match_all('/\{([A-Za-z_][A-Za-z0-9_]*)\}/', $route, $matches);
+
+        return $matches[1];
+    }
+
+    /**
+     * What is wrong with the parameters of a named server's route, or null. A parameter is a whole path segment,
+     * `{name}` with a name of letters, digits and `_`, each name once; its values are slugs (letters, digits, `-`
+     * and `_`).
+     *
+     * @param string $route The route.
+     * @return string|null
+     */
+    public static function routeError(string $route): ?string
+    {
+        $names = [];
+        foreach (explode('/', trim($route, '/')) as $segment) {
+            if (!str_contains($segment, '{') && !str_contains($segment, '}')) {
+                continue;
+            }
+            if (preg_match('/^\{([A-Za-z_][A-Za-z0-9_]*)\}$/', $segment, $match) !== 1) {
+                return sprintf(
+                    'the segment "%s" is not a parameter: write a whole segment as {name}, with letters, digits '
+                    . 'and "_"',
+                    $segment,
+                );
+            }
+            if (in_array($match[1], $names, true)) {
+                return sprintf('the parameter {%s} is there twice', $match[1]);
+            }
+            $names[] = $match[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * The values of $route's parameters in $path, or null when $path is not that route.
+     *
+     * @param string $route A route, maybe with parameters.
+     * @param string $path A request path.
+     * @return array<string, string>|null
+     */
+    public static function routeValues(string $route, string $path): ?array
+    {
+        $route = '/' . trim($route, '/');
+        $path = '/' . trim($path, '/');
+        $params = self::routeParams($route);
+        if ($params === []) {
+            return $route === $path ? [] : null;
+        }
+        $segments = [];
+        foreach (explode('/', trim($route, '/')) as $segment) {
+            $segments[] = preg_match('/^\{([A-Za-z_][A-Za-z0-9_]*)\}$/', $segment, $param) === 1
+                ? '(?P<' . $param[1] . '>' . self::ROUTE_VALUE . ')'
+                : preg_quote($segment, '#');
+        }
+        $regex = '#^/' . implode('/', $segments) . '$#';
+        if (preg_match($regex, $path, $match) !== 1) {
+            return null;
+        }
+        $values = [];
+        foreach ($params as $name) {
+            $values[$name] = (string)$match[$name];
+        }
+
+        return $values;
+    }
+
+    /**
+     * $template (a route, a resource URL, an audience) with its `{name}` parameters replaced by $values.
+     *
+     * @param string $template The template.
+     * @param array<string, string> $values Parameter name => value.
+     * @return string
+     */
+    public static function withRouteValues(string $template, array $values): string
+    {
+        $pairs = [];
+        foreach ($values as $name => $value) {
+            $pairs['{' . $name . '}'] = $value;
+        }
+
+        return strtr($template, $pairs);
     }
 
     /**
@@ -409,6 +511,12 @@ final class McpConfig
                     . 'server served over stdio only.',
                     $name,
                     $name,
+                );
+            } elseif (is_string($config['route']) && self::routeError($config['route']) !== null) {
+                $errors[$name] = sprintf(
+                    '"Mcp.servers.%s.route": %s.',
+                    $name,
+                    (string)self::routeError($config['route']),
                 );
             } else {
                 $valid[$name] = $config;

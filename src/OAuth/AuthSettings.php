@@ -51,10 +51,12 @@ final class AuthSettings
      * Reads and validates `Mcp.auth`.
      *
      * @param string $server The MCP server whose settings to read.
+     * @param array<string, string> $route The values of the parameters of its route in this request
+     *   (`/mcp/{tenant}`): the resource and a configured audience are those of that value.
      * @return self
      * @throws \InvalidArgumentException For an invalid setting, named in the message.
      */
-    public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER): self
+    public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER, array $route = []): self
     {
         $auth = McpConfig::get('auth', $server);
         // A non-array (null included) is a typo, never a request for the defaults: fail closed.
@@ -87,7 +89,18 @@ final class AuthSettings
         if ($identity !== null && !is_callable($identity)) {
             throw new InvalidArgumentException('"Mcp.auth.identity" must be a callable or null.');
         }
-        $resource = $mode === self::HOST ? '' : self::resource($auth['resource'] ?? null, $server);
+        $resource = $mode === self::HOST ? '' : self::resource($auth['resource'] ?? null, $server, $route);
+        // On a route such as /mcp/{tenant}, each value is its own resource: so is a configured audience.
+        if ($route !== [] && is_string($external['audience'] ?? null)) {
+            $external['audience'] = McpConfig::withRouteValues($external['audience'], $route);
+        } elseif ($route !== [] && is_array($external['audience'] ?? null)) {
+            $external['audience'] = array_map(
+                fn(mixed $audience): mixed => is_string($audience)
+                    ? McpConfig::withRouteValues($audience, $route)
+                    : $audience,
+                $external['audience'],
+            );
+        }
 
         return new self(
             $mode,
@@ -185,16 +198,17 @@ final class AuthSettings
      *
      * @param mixed $configured `Mcp.auth.resource`.
      * @param string $server The server, whose route the derived resource ends with.
+     * @param array<string, string> $values The values of the route's parameters.
      * @return string
      */
-    private static function resource(mixed $configured, string $server): string
+    private static function resource(mixed $configured, string $server, array $values = []): string
     {
         if ($configured !== null) {
             if (!is_string($configured)) {
                 throw new InvalidArgumentException('"Mcp.auth.resource" must be a URL or null.');
             }
 
-            return self::canonicalUrl($configured, '"Mcp.auth.resource"');
+            return self::canonicalUrl(McpConfig::withRouteValues($configured, $values), '"Mcp.auth.resource"');
         }
         $base = Configure::read('App.base');
         $route = McpConfig::get('route', $server);
@@ -202,7 +216,7 @@ final class AuthSettings
         return self::canonicalUrl(
             rtrim((string)Configure::read('App.fullBaseUrl'), '/')
             . (is_string($base) ? rtrim($base, '/') : '')
-            . (is_string($route) ? $route : ''),
+            . (is_string($route) ? McpConfig::withRouteValues($route, $values) : ''),
             '"Mcp.auth.resource" (derived from App.fullBaseUrl, App.base and Mcp.route)',
         );
     }

@@ -27,4 +27,23 @@ trait ResolvesServerTrait
 
         return $server;
     }
+
+    /**
+     * The values of the parameters of $server's route in this request (`/mcp/{tenant}`).
+     *
+     * @param string $server The server.
+     * @return array<string, string>
+     */
+    protected function mcpRouteValues(string $server): array
+    {
+        $values = [];
+        foreach (McpConfig::routeParams(McpConfig::get('route', $server)) as $name) {
+            $value = $this->request->getParam($name);
+            if (is_string($value) && $value !== '') {
+                $values[$name] = $value;
+            }
+        }
+
+        return $values;
+    }
 }

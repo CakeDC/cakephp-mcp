@@ -84,7 +84,7 @@ class DocsTest extends TestCase
     {
         $configuration = (string)file_get_contents(self::ROOT . 'docs/configuration.md');
         $fields = ['method', 'name', 'outcome', 'identity', 'client', 'session', 'request', 'arguments', 'error',
-            'durationMs', 'via', 'app', 'server'];
+            'durationMs', 'via', 'app', 'server', 'route'];
         foreach ($fields as $field) {
             $this->assertStringContainsString('| `' . $field . '` |', $configuration, $field . ' is not in "What a record holds"');
         }
