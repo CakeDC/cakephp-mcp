@@ -186,24 +186,32 @@ named `default`; `Mcp.servers` adds more:
 ```
 
 Each named server needs a `route`. What it does not set comes from the default
-server, in two ways:
+server, in three ways:
 
 - `auth`, `authorization`, `discovery` and `server.configure` are replaced whole
   when the named server sets them, starting again from the plugin's defaults. A
   narrower server never picks up the default server's scopes, rules, tool
   directories or code-registered tools by accident. When it does not set them,
-  it uses the default server's.
-- Every other section (`server`, `http`, `identity`, `session`, `stdio`,
-  `audit`, `schema`) is merged key by key, so `'server' => ['name' => ...]`
-  keeps the default server's version and instructions.
+  it uses the default server's, except that an inherited `auth` gets the named
+  server's own resource (see below).
+- `identity` is never taken from the default server. A named server that does
+  not set it requires an identity (the plugin's default), even next to a public
+  default server; when it sets it, it is replaced whole.
+- Every other section (`server`, `http`, `session`, `stdio`, `audit`, `schema`,
+  `catalog`, `apps`) is merged key by key, so `'server' => ['name' => ...]`
+  keeps the default server's version and instructions. Turning the catalog or
+  apps on in the default server turns them on in every named server that does
+  not set them.
 
-Because a replaced section starts again from the plugin's defaults, set every
-key that matters in it. `'authorization' => ['rbac' => $rules]` alone leaves the
-default `AllowAllToolAuthorizer`, and `'auth' => ['scopes' => ...]` alone leaves
-host mode, where scopes are not checked: set `authorizer` and `mode` too.
-`bin/cake mcp check` warns about both. A named server whose security section is
-`null` or `[]` (an unset `env()` value, for example) fails instead of falling
-back to the defaults.
+A replaced section starts again from the plugin's defaults, which are the open
+ones, so the key that decides how open it is must be written: a named server's
+`auth` needs `mode` and its `authorization` needs `authorizer`. Without them
+(`'authorization' => ['rbac' => $rules]` alone, or `'auth' => ['scopes' => ...]`
+alone) the server is not served. An unknown key at the top level of a named
+server or inside its `authorization` fails the same way, so a typo such as
+`authorisation` never leaves the inherited section in place. A named server
+whose security section is `null` or `[]` (an unset `env()` value, for example)
+fails instead of falling back to the defaults.
 
 A mistake in one entry of `Mcp.servers` (no `route`, a name that is not a slug,
 a section that is `null`) stops that server only. The plugin logs it under the
@@ -213,15 +221,19 @@ The rest of the application and the other servers keep working, and
 
 Every server gets its endpoint and, in `oauth` and `external` modes, its
 protected resource metadata at `/.well-known/oauth-protected-resource` plus its
-route. Its resource defaults to its own URL; in `oauth` mode declare that URL in
-`OAuthServer.resources` as well. Keep tokens apart:
+route. Its resource is its own URL: derived from `App.fullBaseUrl` and its
+route, or, when it inherits an `auth` that sets `resource`, that URL with the
+default server's route replaced by its own (`https://example.com/mcp` becomes
+`https://example.com/mcp/admin`). In `oauth` mode declare that URL in
+`OAuthServer.resources` as well. Tokens stay apart:
 
 - In `oauth` mode the authorization server issues each token for one resource,
-  so a token for one server is not accepted by another, unless two servers set
-  the same `auth.resource`.
-- In `external` mode tokens are accepted by audience. A named server that does
-  not set `auth` inherits the default server's, `external.audience` included,
-  and then accepts its tokens. Give each server its own audience.
+  so a token for one server is not accepted by another, unless two servers
+  write the same `auth.resource` in their own `auth`.
+- In `external` mode tokens are accepted by audience, which is the resource
+  when `external.audience` is not set. An inherited `auth` that sets
+  `external.audience` is refused, because an audience cannot be derived for
+  another server: give that server its own `auth` with its own audience.
 
 `bin/cake mcp check` fails on a shared route, resource or external audience.
 Sessions are kept apart, and audit records of a named server carry a `server`
@@ -231,7 +243,8 @@ outer path; `bin/cake mcp check` reports such authenticators.
 
 `bin/cake mcp check` checks every server and fails when two share a route or a
 resource. `mcp check`, `mcp server` and `mcp inspector` take
-`--server <name>`, and tests pick a server with `mcpUseServer('admin')`.
+`--server <name>` (`mcp check --server <name>` still runs the `Servers` line
+across all servers), and tests pick a server with `mcpUseServer('admin')`.
 
 ## MCP clients
 

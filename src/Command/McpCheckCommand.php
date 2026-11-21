@@ -135,7 +135,8 @@ class McpCheckCommand extends Command
             }
             $failed = $this->runChecks($this->checks(), $io) || $failed;
         }
-        if (count($all) > 1 && !is_string($only)) {
+        // Across all servers, also with --server: a shared route or resource concerns the server checked.
+        if (count($all) > 1) {
             $failed = $this->runChecks(['Servers' => fn(): array => $this->serversCheck($all)], $io) || $failed;
         }
         if (!is_string($only)) {

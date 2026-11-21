@@ -453,7 +453,16 @@ class McpCheckCommandTest extends TestCase
 
     public function testRbacRulesWithoutTheRbacAuthorizerWarn(): void
     {
-        // Replaced whole: setting only the rules leaves the default AllowAllToolAuthorizer.
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [['role' => 'admin']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Authorizer: authorization.rbac has rules, but the authorizer is');
+    }
+
+    public function testANamedServersAuthorizationWithoutAnAuthorizerFails(): void
+    {
+        // Replaced whole: setting only the rules would leave the default AllowAllToolAuthorizer.
         Configure::write('Mcp.servers.admin', [
             'route' => '/mcp/admin',
             'authorization' => ['rbac' => ['permissions' => [['role' => 'admin']]]],
@@ -461,19 +470,58 @@ class McpCheckCommandTest extends TestCase
 
         $this->exec('mcp check --server admin');
 
-        $this->assertOutputContains('[WARN] Authorizer: authorization.rbac has rules, but the authorizer is');
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Server admin: "Mcp.servers.admin.authorization.authorizer" must be set');
     }
 
     public function testScopesInHostModeWarn(): void
+    {
+        Configure::write('Mcp.auth.scopes', ['default' => ['admin']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Tool scopes: auth.scopes is set, but host mode does not check scopes');
+    }
+
+    public function testANamedServersAuthWithoutAModeFails(): void
     {
         Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['scopes' => ['default' => ['admin']]]]);
 
         $this->exec('mcp check --server admin');
 
-        $this->assertOutputContains('[WARN] Tool scopes: auth.scopes is set, but host mode does not check scopes');
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Server admin: "Mcp.servers.admin.auth.mode" must be set');
     }
 
     public function testSharedExternalAudienceFails(): void
+    {
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        $auth = ['mode' => 'external', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'audience' => 'api://mcp',
+            'cache' => 'mcp_check_cache',
+        ]];
+        Configure::write('Mcp.auth', $auth);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => $auth]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('default and admin accept the audience api://mcp');
+    }
+
+    public function testServersLineRunsWithTheServerOption(): void
+    {
+        // Two servers on one route: whichever was connected last would win in silence.
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp']);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Servers: default and admin share the route /mcp');
+    }
+
+    public function testAnInheritedExternalAudienceFails(): void
     {
         Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
         Configure::write('Mcp.auth', ['mode' => 'external', 'external' => [
@@ -486,7 +534,7 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
 
         $this->assertExitError();
-        $this->assertOutputContains('default and admin accept the audience api://mcp');
+        $this->assertOutputContains('[FAIL] Server admin: "Mcp.servers.admin.auth" must be set');
     }
 
     public function testExternalModeReportsTheAudiences(): void
@@ -606,7 +654,8 @@ class McpCheckCommandTest extends TestCase
         $this->assertExitSuccess();
         $this->assertOutputContains('Server admin');
         $this->assertOutputNotContains('Server default');
-        $this->assertOutputNotContains('Servers:');
+        // The line across servers still runs: what another server shares concerns this one.
+        $this->assertOutputContains('[PASS] Servers:');
     }
 
     public function testUnknownServerFails(): void

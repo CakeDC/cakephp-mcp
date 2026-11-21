@@ -84,11 +84,12 @@ final class McpConfig
 
     /**
      * Sections a named server replaces whole when it sets them, so a narrower server never picks up the default
-     * server's scopes, rules or tools. `server.configure` follows the same rule.
+     * server's scopes, rules or tools. `server.configure` follows the same rule. `identity` is never inherited: a
+     * named server that does not set it gets the plugin's defaults (an identity is required).
      *
      * @var list<string>
      */
-    private const REPLACED_SECTIONS = ['auth', 'authorization', 'discovery'];
+    private const REPLACED_SECTIONS = ['auth', 'authorization', 'discovery', 'identity'];
 
     /**
      * @param string|null $path Dot path inside the server's config, or null for all of it.
@@ -204,6 +205,24 @@ final class McpConfig
         }
         $config = $default;
         unset($named['servers']);
+        // A typo in a section name would be ignored, and the server would run with what it meant to replace.
+        foreach (array_keys($named) as $key) {
+            if (!array_key_exists($key, self::DEFAULTS)) {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.servers.%s.%s" is not a server setting; the settings are %s.',
+                    $server,
+                    $key,
+                    implode(', ', array_keys(self::DEFAULTS)),
+                ));
+            }
+        }
+        if (!array_key_exists('auth', $named)) {
+            $config['auth'] = self::inheritedAuth($config['auth'], $default['route'], $named['route'], $server);
+        }
+        if (!array_key_exists('identity', $named)) {
+            // Never the default server's: a public default server must not make a named one public.
+            $config['identity'] = self::DEFAULTS['identity'];
+        }
         foreach (self::REPLACED_SECTIONS as $section) {
             if (!array_key_exists($section, $named)) {
                 continue;
@@ -217,6 +236,7 @@ final class McpConfig
                     $section,
                 ));
             }
+            self::assertSectionKeys($server, $section, $named[$section]);
             $config[$section] = self::merge(self::DEFAULTS[$section], $named[$section]);
             unset($named[$section]);
         }
@@ -227,6 +247,113 @@ final class McpConfig
         }
 
         return self::merge($config, $named);
+    }
+
+    /**
+     * A replaced section starts again from the plugin's defaults, which are the permissive ones: the key that
+     * decides how open the server is must be written, and an unknown key (a typo) fails.
+     *
+     * @param string $server The named server.
+     * @param string $section A key of REPLACED_SECTIONS.
+     * @param array<mixed> $values What the named server wrote for it.
+     * @return void
+     * @throws \InvalidArgumentException
+     */
+    private static function assertSectionKeys(string $server, string $section, array $values): void
+    {
+        $required = ['auth' => 'mode', 'authorization' => 'authorizer'][$section] ?? null;
+        if ($required !== null && !array_key_exists($required, $values)) {
+            throw new InvalidArgumentException(sprintf(
+                '"Mcp.servers.%s.%s.%s" must be set: a named server\'s "%s" starts again from the plugin\'s '
+                . 'defaults, so without it the server would use the default %s.',
+                $server,
+                $section,
+                $required,
+                $section,
+                $section === 'auth' ? 'host mode, where tokens and scopes are not checked' : 'AllowAllToolAuthorizer',
+            ));
+        }
+        if ($section !== 'authorization') {
+            // `auth` is checked key by key when the endpoint reads it; `discovery` and `identity` open nothing.
+            return;
+        }
+        foreach (array_keys($values) as $key) {
+            if (!array_key_exists($key, self::DEFAULTS[$section])) {
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.servers.%s.%s.%s" is not a setting of "%s"; the settings are %s.',
+                    $server,
+                    $section,
+                    $key,
+                    $section,
+                    implode(', ', array_keys(self::DEFAULTS[$section])),
+                ));
+            }
+        }
+    }
+
+    /**
+     * The default server's `auth` as a named server that does not write its own inherits it: with its own
+     * resource, so neither server accepts the other's tokens.
+     *
+     * @param mixed $auth The default server's resolved `auth`.
+     * @param mixed $defaultRoute The default server's route.
+     * @param string $route The named server's route.
+     * @param string $server The named server.
+     * @return mixed
+     * @throws \InvalidArgumentException When the inherited auth names an external audience, which cannot be
+     *   derived for another server.
+     */
+    private static function inheritedAuth(mixed $auth, mixed $defaultRoute, string $route, string $server): mixed
+    {
+        if (!is_array($auth)) {
+            return $auth;
+        }
+        $audience = is_array($auth['external'] ?? null) ? $auth['external']['audience'] ?? null : null;
+        if (($auth['mode'] ?? null) === 'external' && $audience !== null) {
+            throw new InvalidArgumentException(sprintf(
+                '"Mcp.servers.%s.auth" must be set: the default server\'s "Mcp.auth.external.audience" cannot be '
+                . 'shared, or this server would accept the default server\'s tokens. Give it its own "auth" with '
+                . 'its own audience.',
+                $server,
+            ));
+        }
+        if (is_string($auth['resource'] ?? null) && $auth['resource'] !== '') {
+            $auth['resource'] = self::resourceAt($auth['resource'], $defaultRoute, $route);
+        }
+
+        return $auth;
+    }
+
+    /**
+     * $resource with its path moved from the default server's route to $route. A path prefix before the default
+     * route (a proxy's, say) stays; a path that does not end with the default route is replaced whole.
+     *
+     * @param string $resource The default server's `auth.resource`.
+     * @param mixed $defaultRoute The default server's route.
+     * @param string $route The named server's route.
+     * @return string
+     */
+    private static function resourceAt(string $resource, mixed $defaultRoute, string $route): string
+    {
+        $parts = parse_url($resource);
+        if (
+            $parts === false || !isset($parts['scheme'], $parts['host'])
+            || isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])
+        ) {
+            // Left as written: the endpoint refuses it with the same message as the default server's.
+            return $resource;
+        }
+        $path = rtrim($parts['path'] ?? '', '/');
+        $prefix = '';
+        if (is_string($defaultRoute) && trim($defaultRoute, '/') !== '') {
+            $defaultPath = '/' . trim($defaultRoute, '/');
+            if (str_ends_with($path, $defaultPath)) {
+                $prefix = substr($path, 0, -strlen($defaultPath));
+            }
+        }
+
+        return $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '')
+            . $prefix . '/' . trim($route, '/');
     }
 
     /**

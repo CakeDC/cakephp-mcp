@@ -183,8 +183,8 @@ class McpConfigTest extends TestCase
         Configure::write('Mcp.discovery.excludeDirs', ['src/Mcp/Internal']);
         Configure::write('Mcp.servers.admin', [
             'route' => '/mcp/admin',
-            'authorization' => ['rbac' => [['role' => 'admin']]],
-            'auth' => ['scopes' => ['default' => ['mcp:admin']]],
+            'authorization' => ['authorizer' => AllowAllToolAuthorizer::class, 'rbac' => [['role' => 'admin']]],
+            'auth' => ['mode' => 'host', 'scopes' => ['default' => ['mcp:admin']]],
             'discovery' => ['scanDirs' => ['src/Mcp/Admin']],
         ]);
 
@@ -313,5 +313,93 @@ class McpConfigTest extends TestCase
                 $this->assertStringContainsString('Mcp.http.maxBodyBytes', $e->getMessage());
             }
         }
+    }
+
+    public function testAnInheritedResourceFollowsTheNamedServersRoute(): void
+    {
+        $cases = [
+            'https://example.com/mcp' => 'https://example.com/mcp/admin',
+            // Behind a proxy that adds a path prefix: the prefix stays.
+            'https://example.com/api/mcp' => 'https://example.com/api/mcp/admin',
+            'https://example.com:8443/elsewhere' => 'https://example.com:8443/mcp/admin',
+        ];
+        foreach ($cases as $resource => $expected) {
+            Configure::write('Mcp.auth', ['mode' => 'oauth', 'resource' => $resource]);
+            Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin']]);
+
+            $this->assertSame($resource, McpConfig::get('auth.resource'));
+            $this->assertSame($expected, McpConfig::get('auth.resource', 'admin'), $resource);
+        }
+
+        Configure::write('Mcp.servers.admin.auth', ['mode' => 'oauth', 'resource' => 'https://example.com/own']);
+        $this->assertSame('https://example.com/own', McpConfig::get('auth.resource', 'admin'));
+    }
+
+    public function testAnInheritedExternalAudienceFails(): void
+    {
+        Configure::write('Mcp.auth', [
+            'mode' => 'external',
+            'external' => ['issuer' => 'https://login.example.com', 'audience' => 'api://mcp'],
+        ]);
+        Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin']]);
+
+        $this->assertArrayHasKey('admin', McpConfig::serverErrors());
+        $this->assertStringContainsString('"Mcp.servers.admin.auth"', McpConfig::serverErrors()['admin']);
+        $this->assertStringContainsString('audience', McpConfig::serverErrors()['admin']);
+
+        Configure::write('Mcp.servers.admin.auth', [
+            'mode' => 'external',
+            'external' => ['issuer' => 'https://login.example.com', 'audience' => 'api://mcp-admin'],
+        ]);
+        $this->assertSame([], McpConfig::serverErrors());
+    }
+
+    public function testANamedServersAuthNeedsAMode(): void
+    {
+        Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin', 'auth' => ['scopes' => ['default' => ['admin']]]]]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.servers.admin.auth.mode"');
+
+        McpConfig::get('auth', 'admin');
+    }
+
+    public function testANamedServersAuthorizationNeedsAnAuthorizer(): void
+    {
+        Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin', 'authorization' => ['rbac' => [['role' => 'admin']]]]]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.servers.admin.authorization.authorizer"');
+
+        McpConfig::get('authorization', 'admin');
+    }
+
+    public function testUnknownKeysOfANamedServerFail(): void
+    {
+        $cases = [
+            'authorisation' => ['authorisation' => ['authorizer' => 'X']],
+            'authorization.authoriser' => ['authorization' => ['authorizer' => 'X', 'authoriser' => 'Y']],
+        ];
+        foreach ($cases as $key => $config) {
+            Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin'] + $config]);
+            try {
+                McpConfig::get('route', 'admin');
+                $this->fail('Accepted ' . $key);
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('"Mcp.servers.admin.' . $key . '"', $e->getMessage());
+            }
+        }
+    }
+
+    public function testIdentityIsReplacedWhole(): void
+    {
+        Configure::write('Mcp.identity', ['required' => false, 'attribute' => 'user']);
+        Configure::write('Mcp.servers', ['admin' => ['route' => '/mcp/admin']]);
+
+        $this->assertTrue(McpConfig::get('identity.required', 'admin'));
+        $this->assertSame('identity', McpConfig::get('identity.attribute', 'admin'));
+
+        Configure::write('Mcp.servers.admin.identity', ['required' => false]);
+        $this->assertFalse(McpConfig::get('identity.required', 'admin'));
     }
 }
