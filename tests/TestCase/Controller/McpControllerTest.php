@@ -7,6 +7,11 @@ use Cake\Core\Configure;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\McpConfig;
+use Mcp\Schema\Enum\CacheScope;
+use Mcp\Server\Builder;
+use Mcp\Server\Wire\CachePolicy;
 use stdClass;
 use TestApp\AuthorizationSpy;
 use TestApp\TestTokens;
@@ -88,6 +93,40 @@ class McpControllerTest extends TestCase
         $this->assertResponseOk();
         $this->assertSame(300000, $this->json()['result']['ttlMs'] ?? null);
         $this->assertSame('public', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testAToolListFilteredByAnAuthorizerIsNeverPublic(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return $tool !== 'admin_only';
+            }
+        });
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+        $this->assertSame(60000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+
+        // A policy the hook sets is no exception.
+        Configure::write('Mcp.server.cache', null);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setCachePolicy(CachePolicy::default(30000, CacheScope::Public));
+        });
+        $this->mcp($this->modern(2, 'tools/list'), $this->modernHeaders('tools/list'));
+        $this->assertSame(30000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testANamedServerTurnsInheritedHintsOffWithAnEmptyArrayOrNull(): void
+    {
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+        foreach ([[], null] as $off) {
+            Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'server' => ['cache' => $off]]);
+
+            $this->assertNull(McpConfig::get('server.cache', 'admin'));
+        }
     }
 
     public function testHandshakeEraHasNoCacheHints(): void

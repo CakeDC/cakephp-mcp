@@ -240,10 +240,12 @@ final class McpConfig
             $config[$section] = self::merge(self::DEFAULTS[$section], $named[$section]);
             unset($named[$section]);
         }
-        $hasConfigure = is_array($named['server'] ?? null) && array_key_exists('configure', $named['server']);
-        if ($hasConfigure) {
-            $config['server']['configure'] = $named['server']['configure'];
-            unset($named['server']['configure']);
+        // Replaced, not merged: `[]` or `null` must drop the default server's hook and cache hints.
+        foreach (['configure', 'cache'] as $key) {
+            if (is_array($named['server'] ?? null) && array_key_exists($key, $named['server'])) {
+                $config['server'][$key] = $named['server'][$key] === [] ? null : $named['server'][$key];
+                unset($named['server'][$key]);
+            }
         }
 
         return self::merge($config, $named);

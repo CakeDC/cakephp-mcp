@@ -49,7 +49,7 @@ want to change; everything else keeps its default. These are the defaults
 - `server.name`, `server.version`: reported to clients in the `initialize` result.
 - `server.title`, `server.description`, `server.websiteUrl`: optional, also reported to clients. `null` sends none.
 - `server.instructions`: optional text telling the client's model how to use your server. `null` sends none.
-- `server.cache`: the cache hints of the 2026-07-28 protocol revision, which tell a client how long it may keep a result of `server/discover`, `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and `resources/read`. `null` (the default) marks them private and not to be cached. Otherwise an array: `ttl` in milliseconds (default `0`), `scope` `'private'` (one user, the default) or `'public'` (any user, only for results that are the same for everyone), and `methods` to set them per method, for example `['ttl' => 60000, 'methods' => ['tools/list' => ['ttl' => 300000]]]`. Clients of the older revisions get no hints. A top-level `scope` applies to all six methods, so use `'public'` only per method, for results that are the same for every user: keep `tools/list` private when the authorizer gives users different tools, and `resources/read` private when a resource depends on who reads it. `bin/cake mcp check` warns, on its `Cache hints` line, when either is public.
+- `server.cache`: the cache hints of the 2026-07-28 protocol revision, which tell a client how long it may keep a result of `server/discover`, `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and `resources/read`. `null` (the default) marks them private and not to be cached. Otherwise an array: `ttl` in milliseconds (default `0`), `scope` `'private'` (one user, the default) or `'public'` (any user, only for results that are the same for everyone), and `methods` to set them per method, for example `['ttl' => 60000, 'methods' => ['tools/list' => ['ttl' => 300000]]]`. Clients of the older revisions get no hints. A top-level `scope` applies to all six methods, so use `'public'` only per method, for results that are the same for every user: `tools/list` is always sent private when the authorizer is not `AllowAllToolAuthorizer` (it can give users different tools), whatever `server.cache` or a policy set in `server.configure` says, and keep `resources/read` private when a resource depends on who reads it. `bin/cake mcp check` says so on its `Cache hints` line, and warns when `resources/read` is public. A named server inherits `server.cache`; it writes `'cache' => null` or `'cache' => []` in its `server` section for no hints.
 - `catalog.enabled`: `true` turns on the tool catalog for this server (see [Tool catalog](tools.md#tool-catalog)). Default `false`.
 - `catalog.tools`: the tools behind the catalog, as names or `fnmatch()` patterns (`report_*`). They leave `tools/list` and are reached with `find_tools` and `call_tools`.
 - `catalog.maxCalls`: how many tools one `call_tools` may run, a positive integer. Default `5`.
@@ -160,9 +160,10 @@ handler or a schema validator added here would not apply to the tools
 authorizer. A tool added here cannot be called `find_tools` or `call_tools`
 while the catalog is on.
 
-If you set a cache policy, keep `tools/list` private unless every caller sees
-the same tools. With an authorizer, the list depends on who asks, and a
-`CacheScope::Public` hint lets shared caches serve one user's list to others.
+A cache policy set here follows the same rule as `server.cache`: with an
+authorizer other than `AllowAllToolAuthorizer` the list depends on who asks, so
+the plugin sends `tools/list` private even when the policy says
+`CacheScope::Public`.
 
 ## Several servers
 

@@ -7,6 +7,7 @@ use Cake\Cache\Cache;
 use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
+use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
@@ -40,6 +41,7 @@ use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
+use Mcp\Server\Wire\CachePolicy;
 use Psr\Container\ContainerInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
@@ -222,6 +224,11 @@ final class ServerFactory
         $cachePolicy = CacheHints::fromConfig(McpConfig::get('server.cache', $this->server));
         if ($cachePolicy !== null) {
             $builder->setCachePolicy($cachePolicy);
+        }
+        // Whoever set the policy (the config or the hook), a list filtered per caller is never public.
+        $policy = (new ReflectionProperty(Builder::class, 'cachePolicy'))->getValue($builder);
+        if ($policy instanceof CachePolicy && !$this->authorizer() instanceof AllowAllToolAuthorizer) {
+            $builder->setCachePolicy(CacheHints::privateToolList($policy));
         }
 
         $instructions = McpConfig::get('server.instructions', $this->server);

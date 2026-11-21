@@ -894,8 +894,20 @@ class McpCheckCommandTest extends TestCase
 
         $this->exec('mcp check');
 
-        $this->assertOutputContains('[WARN] Cache hints: tools/list is public');
+        $this->assertOutputContains('[WARN] Cache hints: tools/list is sent private');
         $this->assertOutputContains('resources/read is public');
+    }
+
+    public function testCacheHintsSayAFilteredToolListIsSentPrivate(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public', 'methods' => [
+            'resources/read' => ['scope' => 'private'],
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Cache hints: ttl 60000 ms; tools/list is sent private');
     }
 
     public function testPublicHintsOnlyForMethodsThatAreTheSameForEveryonePass(): void

@@ -14,13 +14,14 @@ use Mcp\Server\Wire\CachePolicy;
 final class CacheHints
 {
     /**
-     * @param mixed $config `null`, or `['ttl' => ms, 'scope' => 'public'|'private', 'methods' => [method => [...]]]`.
+     * @param mixed $config `null` or `[]` (no hints), or `['ttl' => ms, 'scope' => 'public'|'private', 'methods' => [method => [...]]]`.
      * @return \Mcp\Server\Wire\CachePolicy|null Null keeps the SDK default (private, not cached).
      * @throws \InvalidArgumentException When the config is not of that shape.
      */
     public static function fromConfig(mixed $config): ?CachePolicy
     {
-        if ($config === null) {
+        // Both mean "no hints": a named server writes one of them to drop the default server's.
+        if ($config === null || $config === []) {
             return null;
         }
         if (!is_array($config)) {
@@ -43,6 +44,22 @@ final class CacheHints
         }
 
         return $policy;
+    }
+
+    /**
+     * $policy with `tools/list` private: an authorizer can give each user different tools, so a shared cache must
+     * never serve one user's list to another.
+     *
+     * @param \Mcp\Server\Wire\CachePolicy $policy The policy.
+     * @return \Mcp\Server\Wire\CachePolicy
+     */
+    public static function privateToolList(CachePolicy $policy): CachePolicy
+    {
+        if ($policy->scopeFor('tools/list') !== CacheScope::Public) {
+            return $policy;
+        }
+
+        return $policy->withMethod('tools/list', $policy->ttlFor('tools/list'), CacheScope::Private);
     }
 
     /**

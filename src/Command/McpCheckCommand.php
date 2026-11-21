@@ -1145,22 +1145,19 @@ class McpCheckCommand extends Command
         if ($policy === null) {
             return ['pass', 'off (private, not cached)'];
         }
-        $warnings = [];
         $perUser = !$this->factory()->authorizer() instanceof AllowAllToolAuthorizer;
-        if ($perUser && $policy->scopeFor('tools/list') === CacheScope::Public) {
-            $warnings[] = 'tools/list is public, but the authorizer can give each user different tools, so a shared '
-                . 'cache could show one user the tool list of another';
-        }
+        $note = $perUser && $policy->scopeFor('tools/list') === CacheScope::Public
+            ? 'tools/list is sent private, because the authorizer can give each user different tools'
+            : null;
         if ($policy->scopeFor('resources/read') === CacheScope::Public) {
-            $warnings[] = 'resources/read is public: only right when every resource reads the same for every user';
-        }
-        if ($warnings !== []) {
-            return ['warn', implode('; ', $warnings)
-                . '. Set those methods to private in Mcp.server.cache.methods, see '
-                . self::DOCS . 'configuration.md#keys'];
+            return ['warn', implode('; ', array_filter([
+                $note,
+                'resources/read is public: only right when every resource reads the same for every user. Set it '
+                . 'to private in Mcp.server.cache.methods, see ' . self::DOCS . 'configuration.md#keys',
+            ]))];
         }
 
-        return ['pass', sprintf('ttl %d ms', $policy->ttlFor('tools/list'))];
+        return ['pass', sprintf('ttl %d ms', $policy->ttlFor('tools/list')) . ($note === null ? '' : '; ' . $note)];
     }
 
     /**
