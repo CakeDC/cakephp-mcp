@@ -319,6 +319,26 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Authorizer: RbacToolAuthorizer, 1 of 1 rules for the tools');
     }
 
+    public function testARbacRuleForAControllerThePluginDoesNotHaveWarns(): void
+    {
+        $this->rbac([
+            ['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            // Misspelled: `Resources`, `Prompts`.
+            ['role' => 'hr', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resource', 'action' => '*'],
+            ['role' => 'hr', 'plugin' => 'CakeDC/Mcp', 'controller' => ['prompts'], 'action' => '*'],
+            // The plugin's own routes, from McpConfig::rbacPermissions(), and a wildcard: fine.
+            ['plugin' => 'CakeDC/Mcp', 'controller' => ['Mcp', 'ProtectedResource', 'McpClient'], 'bypassAuth' => true],
+            ['role' => 'admin', 'plugin' => 'CakeDC/Mcp', 'controller' => '*', 'action' => '*'],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains(
+            "[WARN] Authorizer: rules for plugin 'CakeDC/Mcp' name controllers it does not have, so they decide "
+            . 'nothing: Resource, prompts',
+        );
+    }
+
     public function testTheAuthorizerLineSaysWhetherResourcesAndPromptsAreCovered(): void
     {
         $this->exec('mcp check');

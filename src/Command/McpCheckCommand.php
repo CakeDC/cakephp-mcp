@@ -725,6 +725,19 @@ class McpCheckCommand extends Command
                 $docs,
             ) . '; ' . $coverage];
         }
+        $misnamed = self::misnamedControllers($rules);
+        if ($misnamed !== []) {
+            return ['warn', sprintf(
+                "rules for plugin '%s' name controllers it does not have, so they decide nothing: %s. The "
+                . "controllers are '%s' (tools), '%s' and '%s', see %s",
+                RbacToolAuthorizer::PLUGIN,
+                implode(', ', $misnamed),
+                RbacToolAuthorizer::CONTROLLER,
+                RbacToolAuthorizer::RESOURCES,
+                RbacToolAuthorizer::PROMPTS,
+                $docs,
+            ) . '; ' . $coverage];
+        }
         $forTools = count(array_filter($rules, fn(mixed $rule): bool => is_array($rule) && self::allowsTools($rule)));
         if ($forTools === 0) {
             return ['warn', sprintf(
@@ -743,6 +756,45 @@ class McpCheckCommand extends Command
             count($rules),
             $coverage,
         )];
+    }
+
+    /**
+     * The controllers that rules for plugin `CakeDC/Mcp` name and the plugin does not have (`Resource`, `prompts`):
+     * such a rule matches nothing, and a content rule never switches its check on.
+     *
+     * @param array<mixed> $rules The Rbac rules.
+     * @return list<string>
+     */
+    private static function misnamedControllers(array $rules): array
+    {
+        $known = [
+            RbacToolAuthorizer::CONTROLLER,
+            RbacToolAuthorizer::RESOURCES,
+            RbacToolAuthorizer::PROMPTS,
+            // The plugin's routes (McpConfig::rbacPermissions()).
+            'Mcp',
+            'ProtectedResource',
+            'McpClient',
+        ];
+        $misnamed = [];
+        foreach ($rules as $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            $plugin = $rule['plugin'] ?? null;
+            $ours = $plugin === RbacToolAuthorizer::PLUGIN
+                || (is_array($plugin) && in_array(RbacToolAuthorizer::PLUGIN, $plugin, true));
+            if (!$ours) {
+                continue;
+            }
+            foreach ((array)($rule['controller'] ?? []) as $controller) {
+                if (is_string($controller) && !str_contains($controller, '*') && !in_array($controller, $known, true)) {
+                    $misnamed[$controller] = $controller;
+                }
+            }
+        }
+
+        return array_values($misnamed);
     }
 
     /**
