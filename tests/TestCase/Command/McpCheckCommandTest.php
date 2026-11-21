@@ -1150,6 +1150,18 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('resources/read is public');
     }
 
+    public function testCacheHintsKnowResourcesReadIsSentPrivateWithAResourceAuthorizer(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpContent']);
+        Configure::write('Mcp.authorization.authorizer', ContentAuthorizer::class);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('resources/read is public');
+        $this->assertOutputContains('resources/read is sent private');
+    }
+
     public function testPublicHintsOnlyForMethodsThatAreTheSameForEveryonePass(): void
     {
         Configure::write('Mcp.server.cache', ['ttl' => 60000, 'methods' => ['prompts/list' => ['scope' => 'public']]]);

@@ -27,6 +27,7 @@ use Cake\Routing\Router;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use CakeDC\Mcp\Authorization\ContentGate;
 use CakeDC\Mcp\Authorization\PromptAuthorizerInterface;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ResourceAuthorizerInterface;
@@ -1444,12 +1445,21 @@ class McpCheckCommand extends Command
         $note = $perUser && $policy->scopeFor('tools/list') === CacheScope::Public
             ? 'tools/list is sent private, because the authorizer can give each user different tools'
             : null;
-        if ($policy->scopeFor('resources/read') === CacheScope::Public) {
+        // Over HTTP, an authorizer that decides who reads which resource makes the plugin send resources/read
+        // private (the check builds the server trusted, where nothing is filtered).
+        $readsPerUser = (new ContentGate($this->factory()->authorizer(), new CurrentIdentity()))->decidesResources();
+        if ($policy->scopeFor('resources/read') === CacheScope::Public && !$readsPerUser) {
             return ['warn', implode('; ', array_filter([
                 $note,
                 'resources/read is public: only right when every resource reads the same for every user. Set it '
                 . 'to private in Mcp.server.cache.methods, see ' . self::DOCS . 'configuration.md#keys',
             ]))];
+        }
+        if ($policy->scopeFor('resources/read') === CacheScope::Public) {
+            $note = implode('; ', array_filter([
+                $note,
+                'resources/read is sent private, because the authorizer decides who reads which resource',
+            ]));
         }
 
         return ['pass', sprintf('ttl %d ms', $policy->ttlFor('tools/list')) . ($note === null ? '' : '; ' . $note)];
