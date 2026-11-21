@@ -206,7 +206,23 @@ named `default`; `Mcp.servers` adds more:
 ],
 ```
 
-Each named server needs a `route`. What it does not set comes from the default
+Each named server needs a `route`. `'route' => false` makes a server that is
+served over stdio only: no HTTP route and no metadata route are connected,
+`bin/cake mcp server --server <name>` serves it, `bin/cake mcp check --server
+<name>` says so on its `Endpoint` line, and it does not inherit the default
+server's `auth` (stdio takes no tokens). For example a server of maintenance
+tools for developers only:
+
+```php
+'servers' => [
+    'maintenance' => [
+        'route' => false,
+        'discovery' => ['scanDirs' => ['src/McpMaintenance']],
+    ],
+],
+```
+
+What a named server does not set comes from the default
 server, in three ways:
 
 - `auth`, `authorization`, `discovery`, `server.configure` and `server.cache` are replaced whole

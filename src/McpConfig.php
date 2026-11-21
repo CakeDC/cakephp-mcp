@@ -218,7 +218,10 @@ final class McpConfig
             }
         }
         if (!array_key_exists('auth', $named)) {
-            $config['auth'] = self::inheritedAuth($config['auth'], $default['route'], $named['route'], $server);
+            // A server with no HTTP route (served over stdio only) takes no tokens: nothing to inherit.
+            $config['auth'] = $named['route'] === false
+                ? self::DEFAULTS['auth']
+                : self::inheritedAuth($config['auth'], $default['route'], (string)$named['route'], $server);
         }
         if (!array_key_exists('identity', $named)) {
             // Never the default server's: a public default server must not make a named one public.
@@ -397,9 +400,13 @@ final class McpConfig
             } elseif ($name === self::DEFAULT_SERVER) {
                 $errors[$name] = '"Mcp.servers.default" is not allowed: the top-level "Mcp" config is the default '
                     . 'server.';
-            } elseif (!is_string($config['route'] ?? null) || trim($config['route'], '/') === '') {
+            } elseif (
+                ($config['route'] ?? null) !== false
+                && (!is_string($config['route'] ?? null) || trim($config['route'], '/') === '')
+            ) {
                 $errors[$name] = sprintf(
-                    '"Mcp.servers.%s.route" must be the path of the server, for example "/mcp/%s".',
+                    '"Mcp.servers.%s.route" must be the path of the server, for example "/mcp/%s", or false for a '
+                    . 'server served over stdio only.',
                     $name,
                     $name,
                 );

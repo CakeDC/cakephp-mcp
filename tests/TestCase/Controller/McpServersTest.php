@@ -6,12 +6,14 @@ namespace CakeDC\Mcp\Test\TestCase\Controller;
 use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
 use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Test\Support\TestJwt;
 use stdClass;
 use TestApp\TestTokens;
@@ -248,5 +250,19 @@ class McpServersTest extends TestCase
         $decoded = json_decode((string)$this->_response->getBody(), true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    public function testANamedServerWithoutRouteIsStdioOnly(): void
+    {
+        Configure::write('Mcp.servers.local', ['route' => false]);
+        Router::reload();
+
+        $this->assertArrayNotHasKey('local', McpConfig::serverErrors());
+        $this->assertContains('local', McpConfig::servers());
+        $this->assertNull(McpConfig::serverFor(new ServerRequest(['url' => '/mcp/local'])));
+        $this->get('/mcp/local');
+        $this->assertResponseCode(404);
+        // The other servers are still served.
+        $this->assertContains('find_order', $this->listTools('/mcp/admin'));
     }
 }

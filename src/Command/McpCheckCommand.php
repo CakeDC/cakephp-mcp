@@ -922,6 +922,12 @@ class McpCheckCommand extends Command
     private function endpoint(): array
     {
         $route = McpConfig::get('route', $this->server);
+        if ($this->server !== McpConfig::DEFAULT_SERVER && $route === false) {
+            return ['pass', sprintf(
+                'no HTTP route (route is false): served over stdio only, with bin/cake mcp server --server %s',
+                $this->server,
+            )];
+        }
         if (!is_string($route) || $route === '') {
             return ['warn', 'Mcp.route is disabled: only stdio (bin/cake mcp server) is served'];
         }

@@ -86,6 +86,17 @@ class McpServerCommandTest extends TestCase
         $this->assertNotContains('echo', $names);
     }
 
+    public function testServesANamedServerWithoutRoute(): void
+    {
+        Configure::write('Mcp.servers.local', ['route' => false, 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+        $command = $this->command();
+
+        $code = $command->run(['--server', 'local'], new ConsoleIo(new StubConsoleOutput(), new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame(McpServerCommand::CODE_SUCCESS, $code);
+        $this->assertContains('find_order', array_column($command->transport?->responseFor(2)['result']['tools'] ?? [], 'name'));
+    }
+
     public function testUnknownServerFails(): void
     {
         $err = new StubConsoleOutput();

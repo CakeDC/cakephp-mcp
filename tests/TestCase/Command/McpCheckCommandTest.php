@@ -884,6 +884,16 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[FAIL] Clients: "Mcp.client.proxy" must be null or a proxy URL');
     }
 
+    public function testANamedServerWithoutRouteIsReportedAsStdioOnly(): void
+    {
+        Configure::write('Mcp.servers.local', ['route' => false]);
+
+        $this->exec('mcp check --server local');
+
+        $this->assertOutputContains('[PASS] Endpoint: no HTTP route (route is false): served over stdio only, with bin/cake mcp server --server local');
+        $this->assertOutputNotContains('[FAIL]');
+    }
+
     public function testClientsLineWarnsForEachClientThatAllowsThePrivateNetwork(): void
     {
         Configure::write('Mcp.clients', [
