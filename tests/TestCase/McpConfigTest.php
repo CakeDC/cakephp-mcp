@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Test\TestCase;
 
 use Cake\Core\Configure;
 use Cake\Http\ServerRequest;
+use Cake\Routing\Exception\MissingRouteException;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Auth\Rbac\Rbac;
@@ -332,6 +333,36 @@ class McpConfigTest extends TestCase
             $request = new ServerRequest(['url' => $path]);
             $this->assertSame($server, McpConfig::serverFor($request), $path);
             $this->assertSame($server !== null, McpConfig::isEndpoint($request), $path);
+        }
+    }
+
+    public function testTheRequestPathIsDecodedAsTheInstalledRouterDecodesIt(): void
+    {
+        // Cake decodes each segment since 5.3.7 and the whole path before it.
+        $request = new ServerRequest(['url' => '/mcp%2F']);
+        $this->assertSame('/mcp%2f', McpConfig::requestPath($request, true));
+        $this->assertSame('/mcp', McpConfig::requestPath($request, false));
+        $this->assertSame('/mcp/admin', McpConfig::requestPath(new ServerRequest(['url' => '/mcp/%61dmin']), false));
+    }
+
+    public function testBeforeRoutingIsEndpointAgreesWithTheRouter(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+        Router::reload();
+        (new McpPlugin())->routes(Router::createRouteBuilder('/'));
+        try {
+            foreach (['/mcp', '/%6Dcp', '/mcp%2F', '/mcp%2Fadmin', '/mcp/%61dmin', '/mcp/other'] as $path) {
+                $request = new ServerRequest(['url' => $path, 'environment' => ['REQUEST_METHOD' => 'POST']]);
+                try {
+                    $params = Router::parseRequest($request);
+                    $routed = ($params['plugin'] ?? null) === 'CakeDC/Mcp';
+                } catch (MissingRouteException) {
+                    $routed = false;
+                }
+                $this->assertSame($routed, McpConfig::isEndpoint($request), $path);
+            }
+        } finally {
+            Router::reload();
         }
     }
 

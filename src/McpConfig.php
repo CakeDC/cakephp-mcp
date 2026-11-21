@@ -214,18 +214,20 @@ final class McpConfig
     }
 
     /**
-     * The path of $request as the router matches it: each segment percent-decoded, an encoded slash kept inside its
-     * segment, without trailing slashes.
+     * The path of $request as the router matches it, without trailing slashes. The router of CakePHP 5.3.7 and later
+     * percent-decodes each segment and keeps an encoded slash inside its segment; older ones decode the whole path.
      *
      * @param \Psr\Http\Message\ServerRequestInterface $request The request.
+     * @param bool|null $bySegment Whether to decode as the newer router does; null follows the installed one.
      * @return string
      * @internal
      */
-    public static function requestPath(ServerRequestInterface $request): string
+    public static function requestPath(ServerRequestInterface $request, ?bool $bySegment = null): string
     {
         $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
         if (str_contains($path, '%')) {
-            $path = implode('/', array_map(
+            $bySegment ??= function_exists('Cake\Routing\urldecodeSegments');
+            $path = !$bySegment ? urldecode($path) : implode('/', array_map(
                 fn(string $part): string => str_replace('/', '%2f', urldecode($part)),
                 explode('/', $path),
             ));
