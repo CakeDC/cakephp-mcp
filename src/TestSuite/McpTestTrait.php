@@ -826,7 +826,12 @@ trait McpTestTrait
         if (!$found) {
             Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
         }
-        Assert::assertSame(self::mcpCanonical($expected), self::mcpCanonical($value), $message);
+        Assert::assertTrue(self::mcpSame($expected, $value, true), $message ?: sprintf(
+            '"%s" in the structuredContent is %s, not %s in any order.',
+            $path === '' ? '(all)' : $path,
+            (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string)json_encode($expected, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        ));
     }
 
     /**
@@ -1348,7 +1353,7 @@ trait McpTestTrait
     private static function mcpIsSubset(mixed $expected, mixed $actual): bool
     {
         if (!is_array($expected) || array_is_list($expected)) {
-            return $expected === $actual;
+            return self::mcpSame($expected, $actual, false);
         }
         if (!is_array($actual)) {
             return false;
@@ -1510,7 +1515,7 @@ trait McpTestTrait
         if (!is_array($value)) {
             return false;
         }
-        if (!array_is_list($value) && array_key_exists($key, $value) && $value[$key] === $expected) {
+        if (!array_is_list($value) && array_key_exists($key, $value) && self::mcpSame($expected, $value[$key], false)) {
             return true;
         }
         foreach ($value as $child) {
@@ -1523,23 +1528,57 @@ trait McpTestTrait
     }
 
     /**
-     * @param mixed $value A decoded JSON value.
-     * @return mixed It with sorted keys and, at every level, list items in a fixed order.
+     * Whether two decoded JSON values are equal. The order of an object's keys never matters; with $anyOrder, the
+     * order of list items does not either, but each expected item is matched with an actual one of its own, so
+     * duplicates count. Value types matter.
+     *
+     * @param mixed $expected The expected value.
+     * @param mixed $actual The actual value.
+     * @param bool $anyOrder Whether list items may be in any order.
+     * @return bool
      */
-    private static function mcpCanonical(mixed $value): mixed
+    private static function mcpSame(mixed $expected, mixed $actual, bool $anyOrder): bool
     {
-        if (!is_array($value)) {
-            return $value;
+        if (!is_array($expected) || !is_array($actual)) {
+            return $expected === $actual;
         }
-        $value = array_map(self::mcpCanonical(...), $value);
-        if (array_is_list($value)) {
-            usort($value, fn(mixed $a, mixed $b): int => strcmp(serialize($a), serialize($b)));
-
-            return $value;
+        if (count($expected) !== count($actual) || array_is_list($expected) !== array_is_list($actual)) {
+            return false;
         }
-        ksort($value);
+        if (!array_is_list($expected)) {
+            foreach ($expected as $key => $value) {
+                if (!array_key_exists($key, $actual) || !self::mcpSame($value, $actual[$key], $anyOrder)) {
+                    return false;
+                }
+            }
 
-        return $value;
+            return true;
+        }
+        if (!$anyOrder) {
+            foreach ($expected as $index => $value) {
+                if (!self::mcpSame($value, $actual[$index], false)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        $unused = $actual;
+        foreach ($expected as $value) {
+            $match = null;
+            foreach ($unused as $index => $candidate) {
+                if (self::mcpSame($value, $candidate, true)) {
+                    $match = $index;
+                    break;
+                }
+            }
+            if ($match === null) {
+                return false;
+            }
+            unset($unused[$match]);
+        }
+
+        return true;
     }
 
     /**

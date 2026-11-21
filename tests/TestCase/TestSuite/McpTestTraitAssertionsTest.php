@@ -110,6 +110,24 @@ class McpTestTraitAssertionsTest extends TestCase
         $this->expectFailure(fn() => $this->assertMcpStructuredContentLacks(['sku' => 'Z', 'qty' => 2]));
     }
 
+    public function testKeyOrderNeverDecides(): void
+    {
+        $this->report();
+
+        // The tool wrote sku before qty: the same objects written in another key order are found.
+        $this->expectFailure(fn() => $this->assertMcpStructuredContentLacks([
+            'lines' => [['tags' => [3, 1], 'qty' => 2, 'sku' => 'X'], ['tags' => [], 'qty' => 1, 'sku' => 'Y']],
+        ]));
+        $this->expectFailure(fn() => $this->assertMcpStructuredContentNotSubset(['order' => [
+            'lines' => [['qty' => 2, 'tags' => [3, 1], 'sku' => 'X'], ['qty' => 1, 'sku' => 'Y', 'tags' => []]],
+        ]]));
+        $this->assertMcpStructuredContentSubset(['order' => [
+            'lines' => [['qty' => 2, 'tags' => [3, 1], 'sku' => 'X'], ['qty' => 1, 'sku' => 'Y', 'tags' => []]],
+        ]]);
+        // List order still counts for these.
+        $this->expectFailure(fn() => $this->assertMcpStructuredContentSubset(['order' => ['tags' => ['a', 'b']]]));
+    }
+
     public function testStructuredContentIgnoringOrder(): void
     {
         $this->report();
