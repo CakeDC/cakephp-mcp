@@ -351,9 +351,11 @@ resource (`https://app.example.com/mcp/t/acme`) and the protected resource
 metadata URL (`/.well-known/oauth-protected-resource/mcp/t/acme`) are derived
 with the value of the request, so a token issued for one tenant is refused for
 another. A configured `auth.resource` or `external.audience` must hold the
-same `{tenant}` placeholder (`'audience' => 'api://mcp/{tenant}'`): a fixed one
-would accept a token for one value on every other, and `bin/cake mcp check`
-fails on it. In `oauth` mode, declare in
+same `{tenant}` placeholder (`'audience' => 'api://mcp/{tenant}'`), every
+parameter of the route when it has several. A fixed one would accept a token
+for one value on another, so it stops that server: its routes are not
+connected, the mistake is logged, and `bin/cake mcp check` fails on it, as
+with any other mistake in a named server. In `oauth` mode, declare in
 `OAuthServer.resources` the resource of each value you serve. Sessions of one
 value are kept apart from the others, audit records carry the values (a
 `route` field, `route=tenant:acme` on the log line), and tests give them with

@@ -17,6 +17,7 @@ use CakeDC\Mcp\Controller\McpController;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Test\Support\TestJwt;
 use Closure;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
 use TestApp\TestTokens;
@@ -214,6 +215,41 @@ class McpRouteParamsTest extends TestCase
         $this->assertSame($expected, $server);
     }
 
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function fixedBindings(): array
+    {
+        return [
+            'a fixed audience' => ['auth.external.audience', 'api://mcp'],
+            'a fixed resource' => ['auth.resource', 'https://app.example.com/mcp/t'],
+            'one parameter of two' => ['auth.external.audience', 'api://mcp/{tenant}'],
+        ];
+    }
+
+    #[DataProvider('fixedBindings')]
+    public function testAFixedResourceOrAudienceStopsTheServer(string $key, string $value): void
+    {
+        $this->external();
+        if ($value === 'api://mcp/{tenant}') {
+            Configure::write('Mcp.servers.tenants.route', '/mcp/t/{tenant}/{team}');
+        }
+        Configure::write('Mcp.servers.tenants.' . $key, $value);
+
+        $errors = McpConfig::serverErrors();
+        $this->assertArrayHasKey('tenants', $errors);
+        $this->assertStringContainsString('"Mcp.servers.tenants.' . $key . '"', $errors['tenants']);
+        $this->assertStringContainsString('a token for one value of', $errors['tenants']);
+        $this->assertStringContainsString('would be accepted for another', $errors['tenants']);
+        $this->assertNotContains('tenants', McpConfig::servers());
+        try {
+            McpConfig::get('auth', 'tenants');
+            $this->fail('The config of a server that would mix values up is not resolved.');
+        } catch (InvalidArgumentException $e) {
+            $this->assertSame($errors['tenants'], $e->getMessage());
+        }
+    }
+
     public function testMcpCheckFailsWhenAFixedAudienceWouldServeEveryValue(): void
     {
         $this->external();
@@ -221,8 +257,8 @@ class McpRouteParamsTest extends TestCase
 
         $this->exec('mcp check --server tenants');
 
-        $this->assertOutputContains('[FAIL] Endpoint: ');
-        $this->assertOutputContains('a token for one value of tenant would be accepted for every other');
+        $this->assertOutputContains('[FAIL] Server tenants');
+        $this->assertOutputContains('a token for one value of tenant would be accepted for another');
     }
 
     public function testMcpCheckFailsWhenAFixedResourceWouldServeEveryValue(): void
@@ -230,9 +266,10 @@ class McpRouteParamsTest extends TestCase
         $this->external();
         Configure::write('Mcp.servers.tenants.auth.resource', 'https://app.example.com/mcp/t');
 
-        $this->exec('mcp check --server tenants');
+        $this->exec('mcp check');
 
-        $this->assertOutputContains('a token for one value of tenant would be accepted for every other');
+        $this->assertOutputContains('[FAIL] Server tenants');
+        $this->assertOutputContains('a token for one value of tenant would be accepted for another');
     }
 
     public function testMcpCheckPassesWithAnAudiencePerValue(): void

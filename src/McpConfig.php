@@ -365,7 +365,58 @@ final class McpConfig
             }
         }
 
-        return self::merge($config, $named);
+        $config = self::merge($config, $named);
+        self::assertBindsRouteValues($server, $config);
+
+        return $config;
+    }
+
+    /**
+     * On a route with parameters, a token is bound to one value only when what it is checked against, a configured
+     * `auth.resource` or external `audience`, holds every parameter. Without one the endpoint would accept a token
+     * for `/mcp/acme` on `/mcp/globex`: fail closed. Host mode checks no token, and a resource or audience left out
+     * is derived from the request, so neither is refused (`bin/cake mcp check` warns about host mode).
+     *
+     * @param string $server The named server.
+     * @param array<string, mixed> $config Its resolved config.
+     * @return void
+     * @throws \InvalidArgumentException When a configured resource or audience leaves a parameter out.
+     */
+    private static function assertBindsRouteValues(string $server, array $config): void
+    {
+        $params = self::routeParams($config['route'] ?? null);
+        $auth = is_array($config['auth'] ?? null) ? $config['auth'] : [];
+        $mode = $auth['mode'] ?? null;
+        if ($params === [] || $mode === null || $mode === 'host') {
+            return;
+        }
+        $bound = [];
+        if (is_string($auth['resource'] ?? null) && $auth['resource'] !== '') {
+            $bound['auth.resource'] = [$auth['resource']];
+        }
+        $external = is_array($auth['external'] ?? null) ? $auth['external'] : [];
+        if ($mode === 'external' && ($external['audience'] ?? null) !== null) {
+            $bound['auth.external.audience'] = array_filter((array)$external['audience'], 'is_string');
+        }
+        foreach ($bound as $key => $values) {
+            foreach ($values as $value) {
+                $missing = array_values(array_diff($params, self::routeParams($value)));
+                if ($missing === []) {
+                    continue;
+                }
+                throw new InvalidArgumentException(sprintf(
+                    '"Mcp.servers.%s.%s" is "%s", which has no {%s}: a token for one value of %s would be accepted '
+                    . 'for another. Put {%s} in it, or leave auth.resource and external.audience out to derive them '
+                    . 'from the request.',
+                    $server,
+                    $key,
+                    $value,
+                    $missing[0],
+                    $missing[0],
+                    implode('}, {', $missing),
+                ));
+            }
+        }
     }
 
     /**
