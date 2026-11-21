@@ -37,8 +37,8 @@ final class WatchedHttpClient implements ClientInterface
     private array $results = [];
 
     /**
-     * Whether the server accepted (2xx) a request of the current call other than `initialize` and notifications:
-     * then that call may have run.
+     * Whether the server accepted (2xx) a `tools/call` of the current call: then that call may have run. The other
+     * requests (`initialize`, `server/discover`, lists, reads, gets, completions) run nothing.
      */
     private bool $accepted = false;
 
@@ -69,9 +69,7 @@ final class WatchedHttpClient implements ClientInterface
             $request->getMethod() === 'POST'
             && $response->getStatusCode() >= 200
             && $response->getStatusCode() < 300
-            && $method !== ''
-            && $method !== 'initialize'
-            && !str_starts_with($method, 'notifications/')
+            && $method === 'tools/call'
         ) {
             $this->accepted = true;
         }
@@ -104,8 +102,8 @@ final class WatchedHttpClient implements ClientInterface
     }
 
     /**
-     * @return bool Whether the last answer was a 401 and the server accepted no request of the call before it, so
-     *   the call did not run and may be sent again with a new token.
+     * @return bool Whether the last answer was a 401 and the server accepted no `tools/call` of the call before it,
+     *   so the call did not run and may be sent again with a new token.
      */
     public function unauthorizedBeforeAccepted(): bool
     {
