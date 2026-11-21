@@ -13,15 +13,17 @@ use Mcp\Schema\Request\CompletionCompleteRequest;
 use Mcp\Schema\Request\GetPromptRequest;
 use Mcp\Schema\Request\ReadResourceRequest;
 use Mcp\Schema\Request\ResourceSubscribeRequest;
-use Mcp\Schema\Result\CompletionCompleteResult;
+use Mcp\Schema\Request\ResourceUnsubscribeRequest;
 use Mcp\Server\Handler\Request\RequestHandlerInterface;
 use Mcp\Server\RequestContext;
 use Mcp\Server\Session\SessionInterface;
 
 /**
- * Answers a read of, or a subscription to, a denied resource exactly like an unknown URI, a get of a denied prompt
- * exactly like an unknown prompt (as the SDK words them), and a completion for a denied prompt or template with no
- * values. A concrete URI is denied when it is, or when the template that serves it is. Registered before the SDK's handlers, which it replaces only for denied elements.
+ * Answers a read of, a subscription to or an unsubscription from a denied resource exactly like an unknown URI, a
+ * get of a denied prompt exactly like an unknown prompt, and a completion for a denied prompt or template exactly
+ * like one for an unknown reference (as the SDK words them): a caller cannot tell a denied element exists. A
+ * concrete URI is denied when it is, or when the template that serves it is. Registered before the SDK's handlers,
+ * which it replaces only for denied elements.
  *
  * @implements \Mcp\Server\Handler\Request\RequestHandlerInterface<mixed>
  */
@@ -40,8 +42,9 @@ final class ContentGuard implements RequestHandlerInterface
     public function supports(Request $request): bool
     {
         return match (true) {
-            $request instanceof ReadResourceRequest, $request instanceof ResourceSubscribeRequest
-                => !$this->gate->allowsRead($request->uri),
+            $request instanceof ReadResourceRequest,
+            $request instanceof ResourceSubscribeRequest,
+            $request instanceof ResourceUnsubscribeRequest => !$this->gate->allowsRead($request->uri),
             $request instanceof GetPromptRequest => !$this->gate->allowsPrompt($request->name),
             $request instanceof CompletionCompleteRequest => $request->ref instanceof PromptReference
                 ? !$this->gate->allowsPrompt($request->ref->name)
@@ -53,19 +56,26 @@ final class ContentGuard implements RequestHandlerInterface
     /**
      * @param \Mcp\Schema\JsonRpc\Request $request The request.
      * @param \Mcp\Server\Session\SessionInterface $session The session.
-     * @return \Mcp\Schema\JsonRpc\Response<\Mcp\Schema\Result\CompletionCompleteResult>|\Mcp\Schema\JsonRpc\Error
+     * @return \Mcp\Schema\JsonRpc\Response<mixed>|\Mcp\Schema\JsonRpc\Error
      */
     public function handle(Request $request, SessionInterface $session): Response|Error
     {
         if ($request instanceof CompletionCompleteRequest) {
-            return new Response($request->getId(), new CompletionCompleteResult([]));
+            // The SDK's answer to a reference it does not have: a bad parameter.
+            $message = $request->ref instanceof PromptReference
+                ? (new PromptNotFoundException($request->ref->name))->getMessage()
+                : (new ResourceNotFoundException($request->ref->uri))->getMessage();
+
+            return Error::forInvalidParams($message, $request->getId());
         }
         if ($request instanceof GetPromptRequest) {
             $message = (new PromptNotFoundException($request->name))->getMessage();
 
             return Error::forInvalidParams($message, $request->getId());
         }
-        $uri = $request instanceof ReadResourceRequest || $request instanceof ResourceSubscribeRequest
+        $uri = $request instanceof ReadResourceRequest
+            || $request instanceof ResourceSubscribeRequest
+            || $request instanceof ResourceUnsubscribeRequest
             ? $request->uri
             : '';
         $message = (new ResourceNotFoundException($uri))->getMessage();

@@ -107,14 +107,15 @@ What a denied resource or prompt does:
 
 - It is left out of `resources/list`, `resources/templates/list` and
   `prompts/list`.
-- Reading it (`resources/read`, also a URI a template matches) or subscribing
-  to it answers exactly like an unknown URI, and getting a denied prompt
-  answers exactly like an unknown prompt, so a caller cannot tell it exists.
+- Reading it (`resources/read`, also a URI a template matches), subscribing
+  to it or unsubscribing from it answers exactly like an unknown URI, getting
+  a denied prompt answers exactly like an unknown prompt, and a completion
+  for a denied prompt or template answers exactly like one for an unknown
+  reference, so a caller cannot tell it exists.
 - A URI that a template serves is checked twice: the concrete URI
   (`orders://1001`) and the template's URI (`orders://{number}`). Denying
   either one denies the read, the subscription and the completion, so
   denying a template denies every URI it serves.
-- A completion for a denied prompt or template returns no values.
 - A `subscriptions/listen` stream (2026-07-28 revision) never carries a
   `notifications/resources/updated` for a resource the caller cannot read,
   even when the client listed its URI in `resourceSubscriptions`.

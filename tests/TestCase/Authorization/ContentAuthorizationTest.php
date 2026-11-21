@@ -95,8 +95,13 @@ class ContentAuthorizationTest extends TestCase
 
         $this->mcpActingAs(['id' => 2, 'role' => 'guest']);
         $this->assertMcpResourceTemplateNotListed('orders://{number}');
-        $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://{number}'], 'number', '10');
-        $this->assertMcpCompletionValues([]);
+        $denied = $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://{number}'], 'number', '10');
+        $unknown = $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'nothing://{number}'], 'number', '10');
+        $this->assertArrayHasKey('error', $denied);
+        $this->assertSame(
+            str_replace('nothing://', 'orders://', (string)json_encode($unknown['error'], JSON_UNESCAPED_SLASHES)),
+            (string)json_encode($denied['error'], JSON_UNESCAPED_SLASHES),
+        );
     }
 
     public function testTheConcreteUrisOfADeniedTemplateAreDenied(): void
@@ -114,8 +119,13 @@ class ContentAuthorizationTest extends TestCase
             (string)json_encode($denied['error'], JSON_UNESCAPED_SLASHES),
         );
 
-        $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://1001'], 'number', '10');
-        $this->assertMcpCompletionValues([]);
+        $denied = $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://1001'], 'number', '10');
+        $unknown = $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'nothing://1001'], 'number', '10');
+        $this->assertArrayHasKey('error', $denied);
+        $this->assertSame(
+            str_replace('nothing://1001', 'orders://1001', (string)json_encode($unknown['error'], JSON_UNESCAPED_SLASHES)),
+            (string)json_encode($denied['error'], JSON_UNESCAPED_SLASHES),
+        );
     }
 
     public function testRbacDeniesAConcreteUriWhenItsTemplateHasNoRule(): void
@@ -178,13 +188,30 @@ class ContentAuthorizationTest extends TestCase
         $this->assertMcpPromptDenied();
     }
 
-    public function testADeniedPromptCompletesNothing(): void
+    public function testCompletingADeniedPromptAnswersLikeAnUnknownOne(): void
     {
         $this->mcpActingAs(['id' => 2, 'role' => 'guest']);
 
-        $this->mcpComplete(['type' => 'ref/prompt', 'name' => 'greet'], 'name', 'A');
+        $denied = $this->mcpComplete(['type' => 'ref/prompt', 'name' => 'greet'], 'name', 'A');
+        $unknown = $this->mcpComplete(['type' => 'ref/prompt', 'name' => 'greet2'], 'name', 'A');
 
-        $this->assertMcpCompletionValues([]);
+        $this->assertArrayHasKey('error', $denied);
+        $this->assertSame(
+            str_replace('greet2', 'greet', (string)json_encode($unknown['error'], JSON_UNESCAPED_SLASHES)),
+            (string)json_encode($denied['error'], JSON_UNESCAPED_SLASHES),
+        );
+    }
+
+    public function testUnsubscribingFromADeniedResourceAnswersLikeAnUnknownOne(): void
+    {
+        $denied = $this->mcpRequest('resources/unsubscribe', ['uri' => 'app://salaries']);
+        $unknown = $this->mcpRequest('resources/unsubscribe', ['uri' => 'app://salaries2']);
+
+        $this->assertArrayHasKey('error', $unknown);
+        $this->assertSame(
+            str_replace('app://salaries2', 'app://salaries', (string)json_encode($unknown['error'], JSON_UNESCAPED_SLASHES)),
+            (string)json_encode($denied['error'] ?? $denied, JSON_UNESCAPED_SLASHES),
+        );
     }
 
     public function testOnANamedServer(): void
