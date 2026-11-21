@@ -36,6 +36,8 @@ available too; those parts are listed at the end.
   (`#[McpWhen]`): [Registering only when](tools.md#registering-only-when).
 - Generated classes and tests: `bin/cake bake mcp_tool`, `mcp_resource`,
   `mcp_prompt`, `mcp_app`: [Generating classes with bake](tools.md#generating-classes-with-bake).
+- Resources, resource templates, prompts, completions and every content type,
+  with who may read and get them: [Resources and prompts](resources-and-prompts.md).
 
 ## MCP Apps
 
@@ -53,6 +55,9 @@ app-only tools: [MCP Apps](apps.md).
 - An authorizer per tool, including `RbacToolAuthorizer` over
   `config/permissions.php`, with denied tools answered like unknown ones:
   [Authorization](authorization.md).
+- Per-resource and per-prompt authorization (`ResourceAuthorizerInterface`,
+  `PromptAuthorizerInterface`, `RbacToolAuthorizer` rules for `Resources` and
+  `Prompts`): [Resources and prompts](authorization.md#resources-and-prompts).
 - An audit log of calls, refusals included: [Audit log](configuration.md#audit-log).
 - Rate limiting, allowed hosts and origins, a body size limit:
   [Rate limiting](configuration.md#rate-limiting), [Configuration](configuration.md).
@@ -61,14 +66,18 @@ app-only tools: [MCP Apps](apps.md).
 
 ## MCP client
 
-Named clients that call other MCP servers, with an application credential or
-with each user's own account through OAuth, behind an SSRF guard for addresses
-remote servers name: [MCP client](mcp-client.md).
+Named clients that call other MCP servers, with an application credential (a
+fixed token, or a callable for tokens that rotate) or with each user's own
+account through OAuth (a Client ID Metadata Document or dynamic registration),
+behind an SSRF guard for addresses remote servers name, through an outbound
+proxy if needed, with a cache for list results that carry cache hints:
+[MCP client](mcp-client.md).
 
 ## Testing
 
-`McpTestTrait` calls tools and lists them as a given identity, with scopes,
-on a given server, and asserts results, structured content, errors, denials,
+`McpTestTrait` calls tools, gets prompts, reads resources, asks for
+completions and lists them all as a given identity, with scopes, on a given
+server, and asserts results, structured content, errors, denials,
 missing scopes and notifications; `bin/cake mcp inspector` opens the MCP
 Inspector: [Testing your tools](testing.md).
 

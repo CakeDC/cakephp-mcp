@@ -99,6 +99,7 @@ $service->loadAuthenticator('Authentication.Token', [
 - [Installation](docs/installation.md)
 - [Configuration](docs/configuration.md)
 - [Writing tools](docs/tools.md)
+- [Resources and prompts](docs/resources-and-prompts.md)
 - [MCP Apps](docs/apps.md)
 - [Authentication](docs/authentication.md)
 - [OAuth](docs/oauth.md)
