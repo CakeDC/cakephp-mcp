@@ -174,6 +174,8 @@ final class ServerFactory
             $catalogOn ? function (string $tool) use (&$toolCatalog): bool {
                 return $toolCatalog?->has($tool) ?? false;
             } : null,
+            // The registry of the build: a page the filter empties is filled from the next ones.
+            fn(): ?RegistryInterface => $this->lastRegistry,
         ));
         if (McpConfig::get('schema.normalize', $this->server) === true) {
             // After the filter, on the tools the caller may see.

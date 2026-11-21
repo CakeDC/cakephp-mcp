@@ -349,7 +349,8 @@ class AuditListenerTest extends TestCase
             null,
         ));
 
-        $this->assertSame([], $this->records);
+        // Nothing escapes, and the call is still recorded: an authorizer that fails cannot tell denied from not.
+        $this->assertSame(['invalid'], array_column($this->records, 'outcome'));
     }
 
     public function testDurationComesFromTheClock(): void
