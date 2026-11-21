@@ -34,6 +34,7 @@ use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\OAuth\ClientMetadataDocument;
 use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\Identity\CurrentIdentity;
@@ -228,7 +229,11 @@ class McpCheckCommand extends Command
                     'prefix' => false,
                     $name,
                 ]);
-                $described[] = sprintf('%s (user, connect at %s)', $name, $connect);
+                [$registration, $problem] = self::registration($config);
+                if ($problem !== null) {
+                    $problems[] = $problem;
+                }
+                $described[] = sprintf('%s (user, connect at %s, %s)', $name, $connect, $registration);
             } catch (MissingRouteException) {
                 $problems[] = 'the connect and callback routes of user mode clients are not connected: load the '
                     . 'plugin routes';
@@ -254,6 +259,39 @@ class McpCheckCommand extends Command
         }
 
         return ['pass', $line];
+    }
+
+    /**
+     * How a user mode client gets its client id, as far as the config tells without asking the authorization server.
+     *
+     * @param \CakeDC\Mcp\Client\ClientConfig $config A user mode client.
+     * @return array{0: string, 1: string|null} The description, and a problem when `metadata` cannot work.
+     */
+    private static function registration(ClientConfig $config): array
+    {
+        if ($config->clientId !== null) {
+            return ['configured client id', null];
+        }
+        if ($config->registration === 'dynamic') {
+            return ['dynamic registration', null];
+        }
+        $servable = ClientMetadataDocument::servable($config);
+        if ($config->registration === 'metadata') {
+            return $servable
+                ? ['metadata document ' . ClientMetadataDocument::url($config), null]
+                : ['metadata document', sprintf(
+                    '"Mcp.clients.%s.registration" is "metadata", but App.fullBaseUrl is not a public https '
+                    . 'address, so no authorization server can fetch the document',
+                    $config->name,
+                )];
+        }
+
+        return [$servable
+            ? sprintf(
+                'metadata document %s when the authorization server supports it, else dynamic registration',
+                ClientMetadataDocument::url($config),
+            )
+            : 'dynamic registration, App.fullBaseUrl is not public https', null];
     }
 
     /**

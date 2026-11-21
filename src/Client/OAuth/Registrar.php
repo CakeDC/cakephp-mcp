@@ -56,6 +56,17 @@ final class Registrar
                 self::automaticMethod($config->clientSecret !== null, $server->authMethods),
             );
         }
+        if ($this->usesMetadataDocument($server)) {
+            // Portable across authorization servers: nothing to register or store.
+            return new Registration(
+                $config->name,
+                $server->issuer,
+                $redirectUri,
+                ClientMetadataDocument::url($config),
+                null,
+                'none',
+            );
+        }
         $existing = $this->store->registration($config->name, $server->issuer);
         if ($existing !== null && $existing->redirectUri === $redirectUri) {
             return $existing;
@@ -105,6 +116,44 @@ final class Registrar
         $this->store->saveRegistration($registration);
 
         return $registration;
+    }
+
+    /**
+     * Whether the client id is the URL of the Client ID Metadata Document: `registration` `metadata`, or `auto`
+     * when the authorization server supports such documents and the application's base URL is public https.
+     *
+     * @param \CakeDC\Mcp\Client\OAuth\AuthServer $server The authorization server.
+     * @return bool
+     * @throws \CakeDC\Mcp\Client\OAuth\OAuthException When `metadata` is forced but cannot work.
+     */
+    private function usesMetadataDocument(AuthServer $server): bool
+    {
+        $config = $this->config;
+        if ($config->registration === 'dynamic') {
+            return false;
+        }
+        if ($config->registration === 'auto') {
+            return $server->metadataDocuments && ClientMetadataDocument::servable($config);
+        }
+        $servable = ClientMetadataDocument::servable($config);
+        if (!$servable) {
+            throw new OAuthException(sprintf(
+                '"Mcp.clients.%s.registration" is "metadata", but App.fullBaseUrl is not a public https address, so '
+                . 'the authorization server cannot fetch %s.',
+                $config->name,
+                ClientMetadataDocument::url($config),
+            ));
+        }
+        if (!$server->metadataDocuments) {
+            throw new OAuthException(sprintf(
+                '"Mcp.clients.%s.registration" is "metadata", but the authorization server %s does not say '
+                . 'client_id_metadata_document_supported. Use "auto" or "dynamic".',
+                $config->name,
+                $server->issuer,
+            ));
+        }
+
+        return true;
     }
 
     /**

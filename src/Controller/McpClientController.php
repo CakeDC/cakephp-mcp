@@ -6,10 +6,10 @@ namespace CakeDC\Mcp\Controller;
 use Cake\Controller\Controller;
 use Cake\Http\Response;
 use Cake\Log\Log;
-use Cake\Routing\Router;
 use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\McpClients;
+use CakeDC\Mcp\Client\OAuth\ClientMetadataDocument;
 use CakeDC\Mcp\Client\OAuth\OAuthException;
 use CakeDC\Mcp\Client\OAuth\PendingAuthorization;
 use CakeDC\Mcp\Client\UserId;
@@ -57,10 +57,7 @@ class McpClientController extends Controller
             return $this->plain(401, 'Log in to connect.');
         }
         $returnTo = self::localPath($this->request->getQuery('redirect'));
-        $redirectUri = Router::url(
-            ['plugin' => 'CakeDC/Mcp', 'controller' => 'McpClient', 'action' => 'callback', $config->name],
-            true,
-        );
+        $redirectUri = ClientMetadataDocument::callbackUrl($config);
 
         try {
             [$pending, $url] = McpClients::registry()->flow($config->name)->start($userId, $redirectUri, $returnTo);
@@ -76,6 +73,26 @@ class McpClientController extends Controller
         $this->request->getSession()->write(self::SESSION_KEY . '.' . $config->name, $pending->toArray());
 
         return $this->redirect($url);
+    }
+
+    /**
+     * The client's OAuth Client ID Metadata Document: public, no login, no secret.
+     *
+     * @param string $client The client name.
+     * @return \Cake\Http\Response
+     */
+    public function metadata(string $client): Response
+    {
+        $this->skipHostAuthorization();
+        $config = $this->userModeClient($client);
+        if ($config === null) {
+            return $this->plain(404, 'Not Found');
+        }
+
+        return $this->response
+            ->withType('application/json')
+            ->withHeader('Cache-Control', 'public, max-age=3600')
+            ->withStringBody((string)json_encode(ClientMetadataDocument::document($config), JSON_UNESCAPED_SLASHES));
     }
 
     /**

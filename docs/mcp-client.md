@@ -156,9 +156,13 @@ offer `connectUrl()` again.
    resource metadata (RFC 9728), then the authorization server's metadata
    (RFC 8414). The issuer must name itself exactly as the server said, and
    PKCE with S256 must be supported.
-2. Without a `clientId`, the application registers itself there once (dynamic
-   client registration, RFC 7591) as a public client, and keeps the
-   registration for every user. The callback URL it registers is built from
+2. Without a `clientId`, the application gets a client id in one of two
+   ways, chosen by `registration` (see
+   [Client ID Metadata Document](#client-id-metadata-document) below). With a
+   Client ID Metadata Document, the client id is the URL of a document the
+   application serves, and nothing is registered or stored. Otherwise the
+   application registers itself there once (dynamic client registration, RFC
+   7591) as a public client, and keeps the registration for every user. The callback URL it registers is built from
    `App.fullBaseUrl`, which by default comes from the `Host` header of the
    request: set `App.fullBaseUrl` in production, or a request with another
    host registers the application again with that callback. When the
@@ -194,9 +198,54 @@ servers end the whole grant when the same refresh token is used twice. Other
 requests of that user wait for the new token, up to 10 seconds, and then fail
 with a `ClientException` (the user stays connected).
 
-The connect and callback routes are only connected when a client uses user
-mode. With cakedc/users, `McpConfig::rbacPermissions()` then also lets any
-logged-in user reach them, so add it to `config/permissions.php` as the
+### Client ID Metadata Document
+
+The MCP authorization specification prefers a Client ID Metadata Document
+(draft-ietf-oauth-client-id-metadata-document) to dynamic registration: the
+client id is an https URL, and the authorization server fetches the client's
+details from it. The plugin serves one for each user mode client at
+`GET /mcp-client/<name>/client.json` (under `Mcp.client.route`), with no login:
+
+```json
+{
+    "client_id": "https://app.example.com/mcp-client/linear/client.json",
+    "client_name": "CakePHP MCP Client",
+    "redirect_uris": ["https://app.example.com/mcp-client/linear/callback"],
+    "grant_types": ["authorization_code", "refresh_token"],
+    "response_types": ["code"],
+    "token_endpoint_auth_method": "none",
+    "token_endpoint_auth_methods_supported": ["none"],
+    "application_type": "web"
+}
+```
+
+It never holds a secret: the client signs in with PKCE and no client
+authentication. `client_name` is `Mcp.client.name`, and the URLs are built
+from `App.fullBaseUrl`, so set it in production. The route must be reachable
+without a session: with cakedc/users, `McpConfig::rbacPermissions()` has a rule
+for it.
+
+`Mcp.clients.<name>.registration` picks how a client without a configured
+`clientId` gets one:
+
+- `auto` (the default): the document, when the authorization server's
+  metadata says `client_id_metadata_document_supported: true` and
+  `App.fullBaseUrl` is https on a public host (not `localhost`, a local name
+  such as `.internal` or `.local`, or a private address), so the
+  authorization server can fetch it. Otherwise dynamic registration, as
+  before.
+- `metadata`: always the document. The sign-in fails with a message when the
+  base URL is not public https or the authorization server does not support
+  it.
+- `dynamic`: always dynamic registration.
+
+A configured `clientId` always wins over both. `bin/cake mcp check` says on
+its `Clients` line which one each client uses, as far as it can tell without
+asking the authorization server.
+
+The connect, callback and `client.json` routes are only connected when a
+client uses user mode. With cakedc/users, `McpConfig::rbacPermissions()` then
+also lets any logged-in user reach the first two, and anyone the document, so add it to `config/permissions.php` as the
 [OAuth guide](oauth.md) shows for the endpoint.
 
 ### Storing tokens

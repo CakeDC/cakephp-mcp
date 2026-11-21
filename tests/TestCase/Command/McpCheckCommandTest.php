@@ -865,7 +865,8 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
         $this->assertExitSuccess();
         $this->assertOutputContains(
-            '[PASS] Clients: github (app), local (stdio), linear (user, connect at /mcp-client/linear/connect)',
+            '[PASS] Clients: github (app), local (stdio), linear (user, connect at /mcp-client/linear/connect, '
+            . 'dynamic registration, App.fullBaseUrl is not public https)',
         );
     }
 
@@ -895,6 +896,41 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[WARN] Clients: ');
         $this->assertOutputContains('corp has allowPrivateNetwork');
         $this->assertOutputNotContains('github has allowPrivateNetwork');
+    }
+
+    public function testClientsLineSaysWhichRegistrationEachClientUses(): void
+    {
+        Router::fullBaseUrl('https://app.example.com');
+        Configure::write('Mcp.clients', [
+            'a' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user'],
+            'b' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'dynamic'],
+            'c' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'metadata'],
+            'd' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'clientId' => 'given'],
+        ]);
+        try {
+            $this->exec('mcp check');
+        } finally {
+            Router::fullBaseUrl('http://localhost');
+        }
+
+        $this->assertOutputContains('a (user, connect at /mcp-client/a/connect, metadata document '
+            . 'https://app.example.com/mcp-client/a/client.json when the authorization server supports it, else '
+            . 'dynamic registration)');
+        $this->assertOutputContains('b (user, connect at /mcp-client/b/connect, dynamic registration)');
+        $this->assertOutputContains('c (user, connect at /mcp-client/c/connect, metadata document '
+            . 'https://app.example.com/mcp-client/c/client.json)');
+        $this->assertOutputContains('d (user, connect at /mcp-client/d/connect, configured client id)');
+    }
+
+    public function testClientsLineFailsWhenTheMetadataDocumentCannotBeFetched(): void
+    {
+        Configure::write('Mcp.clients', [
+            'c' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'metadata'],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Clients: "Mcp.clients.c.registration" is "metadata", but App.fullBaseUrl');
     }
 
     public function testClientsLineNeverCallsATokenCallable(): void

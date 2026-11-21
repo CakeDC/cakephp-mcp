@@ -52,8 +52,15 @@ final class ClientConfig
     public const KEYS = [
         'url', 'token', 'headers', 'command', 'args', 'env', 'cwd', 'auth', 'timeout', 'tools', 'protocolVersion',
         'allowInsecure', 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl',
-        'issuer', 'allowPrivateNetwork',
+        'issuer', 'allowPrivateNetwork', 'registration',
     ];
+
+    /**
+     * Values of `registration`: how a user mode client without a configured `clientId` gets one.
+     *
+     * @var list<string>
+     */
+    public const REGISTRATIONS = ['auto', 'metadata', 'dynamic'];
 
     /**
      * @param string $name The client's name in `Mcp.clients`.
@@ -80,6 +87,7 @@ final class ClientConfig
      * @param \Closure|null $tokenProvider A `token` given as a callable, called for each request.
      * @param bool $allowPrivateNetwork Whether the OAuth endpoints learned for this client may resolve to private,
      *   loopback or link-local addresses (plain http also needs `allowInsecure`).
+     * @param string $registration `auto`, `metadata` or `dynamic`: see `REGISTRATIONS`.
      */
     public function __construct(
         public readonly string $name,
@@ -104,6 +112,7 @@ final class ClientConfig
         public readonly ?string $issuer = null,
         public readonly ?Closure $tokenProvider = null,
         public readonly bool $allowPrivateNetwork = false,
+        public readonly string $registration = 'auto',
     ) {
     }
 
@@ -298,6 +307,13 @@ final class ClientConfig
                 throw new InvalidArgumentException(sprintf('"%s" must be an array of name => value.', $key('headers')));
             }
         }
+        $registration = $config['registration'] ?? 'auto';
+        if (!in_array($registration, self::REGISTRATIONS, true)) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" must be "auto", "metadata" or "dynamic".',
+                $key('registration'),
+            ));
+        }
         $tokenProvider = null;
         if (array_key_exists('token', $config) && !is_string($config['token']) && is_callable($config['token'])) {
             // Called for each request, for tokens that rotate; `bin/cake mcp check` never calls it.
@@ -333,6 +349,7 @@ final class ClientConfig
         if ($auth === self::APP) {
             $oauthKeys = [
                 'clientId', 'clientSecret', 'scopes', 'authorizationUrl', 'tokenUrl', 'revocationUrl', 'issuer',
+                'registration',
             ];
             foreach ($oauthKeys as $oauth) {
                 if (array_key_exists($oauth, $config)) {
@@ -443,6 +460,7 @@ final class ClientConfig
             $issuer,
             $tokenProvider,
             self::bool($config, 'allowPrivateNetwork', $key),
+            $registration,
         );
     }
 

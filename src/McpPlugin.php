@@ -100,9 +100,11 @@ class McpPlugin extends BasePlugin
         // The sign-in of user mode clients (Mcp.clients with `auth` `user`), only when one is configured.
         if (ClientConfig::anyUserMode()) {
             $base = '/' . trim((string)ClientConfig::setting('route'), '/');
-            foreach (['connect', 'callback'] as $action) {
+            // The Client ID Metadata Document (client.json), which authorization servers fetch.
+            $actions = ['connect' => 'connect', 'callback' => 'callback', 'client.json' => 'metadata'];
+            foreach ($actions as $path => $action) {
                 $routes->connect(
-                    $base . '/{client}/' . $action,
+                    $base . '/{client}/' . $path,
                     ['plugin' => 'CakeDC/Mcp', 'controller' => 'McpClient', 'action' => $action],
                 )->setPass(['client'])->setPatterns(['client' => '[A-Za-z0-9_-]+'])->setMethods(['GET']);
             }

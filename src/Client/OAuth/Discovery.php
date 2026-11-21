@@ -178,6 +178,7 @@ final class Discovery
             ($document['authorization_response_iss_parameter_supported'] ?? null) === true,
             is_array($authMethods) ? array_values(array_filter($authMethods, 'is_string')) : [],
             false,
+            ($document['client_id_metadata_document_supported'] ?? null) === true,
         );
     }
 

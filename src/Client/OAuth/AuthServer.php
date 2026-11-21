@@ -19,6 +19,8 @@ final class AuthServer
      * @param bool $issParameter Whether the authorization response carries `iss` (RFC 9207).
      * @param list<string> $authMethods `token_endpoint_auth_methods_supported`.
      * @param bool $trusted Whether the endpoints come from the config (then not through the guard).
+     * @param bool $metadataDocuments Whether it accepts a Client ID Metadata Document URL as `client_id`
+     *   (`client_id_metadata_document_supported`).
      */
     public function __construct(
         public readonly string $issuer,
@@ -31,6 +33,7 @@ final class AuthServer
         public readonly bool $issParameter,
         public readonly array $authMethods,
         public readonly bool $trusted,
+        public readonly bool $metadataDocuments = false,
     ) {
     }
 }

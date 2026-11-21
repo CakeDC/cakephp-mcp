@@ -509,7 +509,7 @@ final class McpConfig
      * metadata. The plugin decides access itself (authentication, scopes, then the tool authorizer).
      *
      * With a user mode client in `Mcp.clients`, a second rule lets logged-in users reach its connect and callback
-     * routes.
+     * routes, and a third lets anyone fetch its Client ID Metadata Document (`client.json`).
      *
      * @return list<array<string, mixed>>
      */
@@ -531,6 +531,14 @@ final class McpConfig
                 'plugin' => 'CakeDC/Mcp',
                 'controller' => ['McpClient'],
                 'action' => ['connect', 'callback'],
+            ];
+            // Their Client ID Metadata Document, which authorization servers fetch without a session.
+            $rules[] = [
+                'role' => '*',
+                'plugin' => 'CakeDC/Mcp',
+                'controller' => ['McpClient'],
+                'action' => ['metadata'],
+                'bypassAuth' => true,
             ];
         }
 

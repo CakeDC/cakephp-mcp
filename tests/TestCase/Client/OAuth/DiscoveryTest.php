@@ -51,6 +51,14 @@ class DiscoveryTest extends TestCase
         $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
     }
 
+    public function testReadsWhetherTheServerSupportsClientMetadataDocuments(): void
+    {
+        $this->assertFalse($this->discover()->metadataDocuments);
+
+        $this->server->authorizationServer(['client_id_metadata_document_supported' => true]);
+        $this->assertTrue($this->discover()->metadataDocuments);
+    }
+
     public function testFallsBackToWellKnownUrls(): void
     {
         $this->server->mcp->challenge = 'Bearer';

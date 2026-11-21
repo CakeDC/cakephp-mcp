@@ -120,6 +120,24 @@ class McpConfigTest extends TestCase
         ], McpConfig::rbacPermissions());
     }
 
+    public function testRbacPermissionsLetAnyoneFetchTheClientMetadataDocument(): void
+    {
+        Configure::write('Mcp.clients.linear', ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']);
+        Router::reload();
+        (new McpPlugin())->routes(Router::createRouteBuilder('/'));
+        $rbac = new Rbac(['permissions' => McpConfig::rbacPermissions(), 'log' => false]);
+        $routed = fn(string $url): ServerRequest => (new ServerRequest(['url' => $url]))
+            ->withAttribute('params', Router::parseRequest(new ServerRequest(['url' => $url])));
+
+        try {
+            // The authorization server fetches it without a session.
+            $this->assertTrue($rbac->checkPermissions([], $routed('/mcp-client/linear/client.json')));
+            $this->assertFalse($rbac->checkPermissions([], $routed('/mcp-client/linear/connect')));
+        } finally {
+            Router::reload();
+        }
+    }
+
     public function testRbacPermissionsLetAnonymousRequestsReachThePluginOnly(): void
     {
         Router::reload();
