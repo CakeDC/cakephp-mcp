@@ -490,9 +490,14 @@ proxy, set `Mcp.client.proxy`:
 ```
 
 Every HTTP request of every client then goes through it: the MCP sessions,
-configured endpoints and the addresses a remote server names. It is an `http`,
-`https`, `socks5` or `socks5h` URL with no path; anything else fails with a
-message naming the setting. Its user name and password are sent to the proxy
+configured endpoints and the addresses a remote server names. The one
+exception is a configured `url` on this machine (`localhost`, `127.0.0.1`,
+`::1`), which is reached directly: through the proxy its token would cross the
+network in clear and land on the proxy's own `localhost`. `NO_PROXY` in the
+environment is not followed. It is an `http`, `https` or `socks5h` URL with no
+path; anything else fails with a message naming the setting. Use `socks5h`,
+not `socks5`: with `socks5` curl resolves the host name in the application,
+which is what the proxy is there to avoid. Its user name and password are sent to the proxy
 only, and `bin/cake mcp check` shows the proxy on its `Clients` line without
 them. Default `null`: no proxy, and a proxy from the environment
 (`https_proxy`) is not used for the addresses a remote server names.

@@ -237,8 +237,8 @@ final class ClientConfig
     /**
      * `Mcp.client.proxy`: the proxy every client HTTP request goes through, or null to connect directly.
      *
-     * @return string|null An `http`, `https`, `socks5` or `socks5h` URL with a host, maybe a user and password and
-     *   a port, and no path.
+     * @return string|null An `http`, `https` or `socks5h` URL with a host, maybe a user and password and a port,
+     *   and no path. Not `socks5`, with which curl resolves the name in the application instead of the proxy.
      * @throws \InvalidArgumentException When it is set to anything else.
      */
     public static function proxy(): ?string
@@ -250,7 +250,7 @@ final class ClientConfig
         $parts = is_string($proxy) ? parse_url($proxy) : false;
         if (
             !is_array($parts)
-            || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https', 'socks5', 'socks5h'], true)
+            || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https', 'socks5h'], true)
             || (string)($parts['host'] ?? '') === ''
             || !in_array($parts['path'] ?? '/', ['', '/'], true)
             || isset($parts['query'])
@@ -258,7 +258,7 @@ final class ClientConfig
         ) {
             throw new InvalidArgumentException(
                 '"Mcp.client.proxy" must be null or a proxy URL such as "http://proxy.example.com:3128" (http, '
-                . 'https, socks5 or socks5h, with no path).',
+                . 'https or socks5h, with no path; socks5h rather than socks5, so the proxy resolves host names).',
             );
         }
 

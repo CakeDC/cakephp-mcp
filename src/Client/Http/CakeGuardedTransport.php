@@ -51,15 +51,16 @@ final class CakeGuardedTransport implements GuardedTransportInterface
         $compressed = false;
         $ip = str_contains($pin->ip, ':') ? '[' . $pin->ip . ']' : $pin->ip;
         // Without `Mcp.client.proxy`: pinned to the address that was checked, and no proxy from the environment.
-        // With it: through it, unpinned, since the proxy resolves the name. Its credentials stay in its URL, so
-        // curl sends them to the proxy only.
+        // With it: through it, unpinned, since the proxy resolves the name, and never direct (an empty NOPROXY
+        // overrides NO_PROXY in the environment, which would send the request unpinned). Its credentials stay in
+        // its URL, so curl sends them to the proxy only.
         $route = $this->proxy === null
             ? [
                 CURLOPT_RESOLVE => [sprintf('%s:%d:%s', $pin->host, $pin->port, $ip)],
                 CURLOPT_PROXY => '',
                 CURLOPT_NOPROXY => '*',
             ]
-            : [CURLOPT_PROXY => $this->proxy];
+            : [CURLOPT_PROXY => $this->proxy, CURLOPT_NOPROXY => ''];
         $curl = $route + [
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_MAXFILESIZE => $maxBytes,

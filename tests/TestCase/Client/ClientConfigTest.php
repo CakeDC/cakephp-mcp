@@ -63,7 +63,12 @@ class ClientConfigTest extends TestCase
         Configure::write('Mcp.client.proxy', 'http://proxy.corp.example:3128');
         $this->assertSame('http://proxy.corp.example:3128', ClientConfig::proxy());
 
-        foreach (['proxy.corp.example:3128', 'ftp://proxy.corp.example', 'http://', 'http://proxy.corp.example/path', 42, ''] as $bad) {
+        Configure::write('Mcp.client.proxy', 'socks5h://proxy.corp.example:1080');
+        $this->assertSame('socks5h://proxy.corp.example:1080', ClientConfig::proxy());
+
+        // socks5:// resolves the name in the application, not in the proxy: socks5h:// is the one that works here.
+        $bads = ['proxy.corp.example:3128', 'ftp://proxy.corp.example', 'http://', 'http://proxy.corp.example/path', 42, ''];
+        foreach ([...$bads, 'socks5://proxy.corp.example:1080'] as $bad) {
             Configure::write('Mcp.client.proxy', $bad);
             try {
                 ClientConfig::proxy();
@@ -83,6 +88,9 @@ class ClientConfigTest extends TestCase
             $client = (new CakeHttpClientFactory())->create(ClientConfig::fromConfig('remote'));
             $this->assertInstanceOf(Client::class, $client);
             $this->assertSame(['proxy' => 'http://proxy.corp.example:3128'], $client->getConfig('proxy'));
+            // This machine is reached directly (the proxy's localhost is another one), and NO_PROXY in the
+            // environment decides nothing else.
+            $this->assertSame([CURLOPT_NOPROXY => 'localhost,127.0.0.1,::1'], $client->getConfig('curl'));
         } finally {
             Configure::delete('Mcp.client.proxy');
         }

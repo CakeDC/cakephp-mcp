@@ -422,7 +422,7 @@ Shared settings:
 - `client.refreshLeeway`: seconds before expiry when an access token is refreshed. Default `60`.
 - `client.maxResponseBytes`: the largest answer read from an address a remote server named. Default `1048576` (1 MiB). Those addresses are asked for uncompressed answers (`Accept-Encoding: identity`) and a compressed one is refused, so the cap applies to what is read.
 - `client.identityAttribute`: the request attribute that holds the logged-in user on the connect and callback routes. Default `identity`.
-- `client.proxy`: a proxy URL (`http`, `https`, `socks5` or `socks5h`, no path) that every client HTTP request goes through, the addresses remote servers name included. Default `null`: no proxy. The guard on learned addresses then keeps its name checks but no longer pins the connection to an address, because the proxy resolves the name. See [MCP client](mcp-client.md#behind-an-outbound-proxy).
+- `client.proxy`: a proxy URL (`http`, `https` or `socks5h`, no path) that every client HTTP request goes through, the addresses remote servers name included, except a configured `url` on this machine, which is reached directly. `NO_PROXY` is not followed. Default `null`: no proxy. The guard on learned addresses then keeps its name checks but no longer pins the connection to an address, because the proxy resolves the name. See [MCP client](mcp-client.md#behind-an-outbound-proxy).
 
 ## Caches
 

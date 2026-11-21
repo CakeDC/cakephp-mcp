@@ -57,7 +57,8 @@ class CakeGuardedTransportTest extends TestCase
         $curl = ($adapter->options ?? [])['curl'];
         $this->assertSame('http://user:secret@proxy.corp.example:3128', $curl[CURLOPT_PROXY]);
         $this->assertArrayNotHasKey(CURLOPT_RESOLVE, $curl);
-        $this->assertArrayNotHasKey(CURLOPT_NOPROXY, $curl);
+        // Every request goes through it: NO_PROXY in the environment would send one direct, unpinned.
+        $this->assertSame('', $curl[CURLOPT_NOPROXY]);
         $this->assertFalse($curl[CURLOPT_FOLLOWLOCATION]);
         // Proxy credentials go to the proxy only, never as a header the server would see.
         $this->assertSame('', $adapter->request?->getHeaderLine('Proxy-Authorization'));
