@@ -241,6 +241,10 @@ call_tools.`, the results of the calls before it are kept, and its audit record
 carries its name. Keep such tools out of the catalog, or let the model call
 them directly.
 
+Tools with an app (`#[McpApp]`, see [MCP Apps](apps.md)) never go behind the
+catalog, even when a pattern matches them: they stay in `tools/list`, where the
+host reads their app.
+
 Catalogued tools can still be called directly by name, so clients that already
 know them keep working. `bin/cake mcp check` lists the catalogued tools on its
 `Catalog` line, warns about patterns that match no tool, and checks their

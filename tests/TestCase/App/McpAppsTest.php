@@ -126,10 +126,25 @@ class McpAppsTest extends TestCase
         ], self::APPS_CLIENT);
 
         $found = array_column($transport->responseFor(2)['result']['structuredContent']['tools'] ?? [], 'name');
-        $this->assertContains('show_inbox', $found);
+        // A tool with an app stays in tools/list: the host reads its _meta.ui there.
+        $this->assertNotContains('show_inbox', $found);
         $this->assertNotContains('inbox_rows', $found);
         $result = $transport->responseFor(3)['result']['structuredContent']['results'][0] ?? [];
         $this->assertTrue($result['isError'] ?? false, (string)json_encode($transport->responseFor(3)));
+    }
+
+    public function testToolsWithAnAppStayListedWhenACatalogPatternMatchesThem(): void
+    {
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['*']]);
+
+        $forApps = $this->toolsFor(self::APPS_CLIENT);
+        $this->assertArrayHasKey('find_tools', $forApps);
+        $this->assertArrayHasKey('inbox_rows', $forApps);
+        $this->assertSame('ui://test/inbox', $forApps['show_inbox']['_meta']['ui']['resourceUri'] ?? null);
+
+        $forOthers = $this->toolsFor([]);
+        $this->assertArrayHasKey('show_inbox', $forOthers);
+        $this->assertArrayNotHasKey('inbox_rows', $forOthers);
     }
 
     public function testAppOnlyToolsAreStillGatedWhenCalledDirectly(): void

@@ -26,4 +26,38 @@ final class CatalogPatterns
 
         return false;
     }
+
+    /**
+     * The one rule for "this tool is behind the catalog", used by `tools/list`, `find_tools`, `call_tools`,
+     * `bin/cake mcp check` and `McpTestTrait`: it matches a pattern and has no app. An app-only tool is for the
+     * app's page, and a tool that links to an app must stay in `tools/list`, where the host reads its `_meta.ui`.
+     *
+     * @param list<string> $patterns `Mcp.catalog.tools`.
+     * @param string $tool A tool name.
+     * @param array<mixed>|null $meta The tool's `_meta`.
+     * @return bool
+     */
+    public static function catalogues(array $patterns, string $tool, ?array $meta): bool
+    {
+        return self::matches($patterns, $tool) && self::keptOut($meta) === null;
+    }
+
+    /**
+     * Why a tool that matches a pattern stays out of the catalog, or null when it does not.
+     *
+     * @param array<mixed>|null $meta The tool's `_meta`.
+     * @return string|null `app-only` or `links to an app`.
+     */
+    public static function keptOut(?array $meta): ?string
+    {
+        $ui = is_array($meta['ui'] ?? null) ? $meta['ui'] : [];
+        if (($ui['visibility'] ?? null) === ['app']) {
+            return 'app-only';
+        }
+        if (is_string($ui['resourceUri'] ?? null) && $ui['resourceUri'] !== '') {
+            return 'links to an app';
+        }
+
+        return null;
+    }
 }

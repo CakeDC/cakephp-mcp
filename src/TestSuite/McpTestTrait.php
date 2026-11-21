@@ -270,7 +270,7 @@ trait McpTestTrait
         $this->assertMcpJsonRpcError(-32602, sprintf('Tool not found: "%s".', $tool), $message);
         Assert::assertContains(
             $tool,
-            array_column($this->mcpToolDefinitions(true), 'name'),
+            $this->mcpRegisteredToolNames(),
             $message ?: sprintf('Tool "%s" is not registered, so its rejection proves nothing. Check the name.', $tool),
         );
     }
@@ -510,7 +510,7 @@ trait McpTestTrait
         );
         Assert::assertContains(
             $name,
-            array_column($this->mcpToolDefinitions(true), 'name'),
+            $this->mcpRegisteredToolNames(),
             $message ?: sprintf('Tool "%s" is not registered, so its absence proves nothing. Check the name.', $name),
         );
     }
@@ -690,6 +690,25 @@ trait McpTestTrait
         }
 
         return $tools;
+    }
+
+    /**
+     * Every tool registered on the server, including those `tools/list` leaves out (catalogued and app-only
+     * tools), as `bin/cake mcp check` sees them.
+     *
+     * @return list<string>
+     */
+    private function mcpRegisteredToolNames(): array
+    {
+        $factory = $this->mcpContainer()->get(ServerFactory::class);
+        if (!$factory instanceof ServerFactory) {
+            Assert::fail('The container has no MCP ServerFactory. Is the CakeDC/Mcp plugin loaded?');
+        }
+
+        return array_map(
+            fn(array $tool): string => (string)$tool['name'],
+            $factory->forServer($this->_mcpServer)->registeredToolDefinitions(),
+        );
     }
 
     /**

@@ -11,7 +11,6 @@ use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
 use CakeDC\Mcp\Authorization\ToolGate;
-use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Container\ContainerBridge;
 use CakeDC\Mcp\Event\AppToolFilter;
@@ -138,9 +137,14 @@ final class ServerFactory
             $catalogOn ? [ToolCatalog::FIND, ToolCatalog::CALL] : [],
         );
         $events = new EventDispatcher();
+        /** @var \CakeDC\Mcp\Catalog\ToolCatalog|null $toolCatalog Set after the host hook. */
+        $toolCatalog = null;
+        // The catalog's own rule, so tools/list hides exactly what find_tools and call_tools offer.
         $events->listen(ResponseEvent::class, new ToolListFilter(
             $gate,
-            $catalogOn ? fn(string $tool): bool => CatalogPatterns::matches($patterns, $tool) : null,
+            $catalogOn ? function (string $tool) use (&$toolCatalog): bool {
+                return $toolCatalog?->has($tool) ?? false;
+            } : null,
         ));
         if (McpConfig::get('schema.normalize', $this->server) === true) {
             // After the filter, on the tools the caller may see.
@@ -157,8 +161,6 @@ final class ServerFactory
         if (McpConfig::get('apps.enabled', $this->server) === true) {
             $builder->enableExtension(new McpApps());
         }
-        /** @var \CakeDC\Mcp\Catalog\ToolCatalog|null $toolCatalog Set after the host hook. */
-        $toolCatalog = null;
         $audit = AuditSettings::fromConfig($this->server);
         if ($audit->enabled) {
             $listener = new AuditListener(

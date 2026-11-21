@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Catalog;
 
-use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Authorization\ToolGate;
 use CakeDC\Mcp\Schema\SchemaNormalizer;
 use Fiber;
@@ -95,10 +94,8 @@ final class ToolCatalog
      */
     public function has(string $tool): bool
     {
-        // App-only tools are for the app's page, which calls them directly; the model never gets them from here.
-        return CatalogPatterns::matches($this->patterns, $tool)
-            && $this->registry->hasTool($tool)
-            && !AppTools::appOnly($this->registry->getTool($tool)->tool);
+        return $this->registry->hasTool($tool)
+            && CatalogPatterns::catalogues($this->patterns, $tool, $this->registry->getTool($tool)->tool->meta);
     }
 
     /**

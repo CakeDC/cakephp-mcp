@@ -543,6 +543,48 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Servers:');
     }
 
+    public function testTheCatalogLineKeepsToolsWithAnAppOut(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['*']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Catalog: 0 tools behind find_tools and call_tools');
+        $this->assertOutputContains('kept in tools/list because they link to an app, which the host reads from '
+            . 'tools/list: show_inbox');
+        $this->assertDoesNotMatchRegularExpression('/Catalog: [^\n]*inbox_rows/', $this->_out->output());
+    }
+
+    public function testToolScopesKnowCataloguedTools(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => ['create_note' => ['notes:write']]]]);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['create_note', 'admin_only']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('Catalog: 2 tools behind find_tools and call_tools: admin_only, create_note');
+        $this->assertOutputNotContains('names tools that do not exist');
+        $this->assertOutputRegExp('/tools that need no scope, so any valid token may call them: [^\n]*admin_only/');
+        $this->assertDoesNotMatchRegularExpression(
+            '/tools that need no scope[^\n]*(find_tools|call_tools)/',
+            $this->_out->output(),
+        );
+    }
+
+    public function testToolScopesAndToolsKnowAppOnlyTools(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => ['inbox_rows' => ['notes:read']]]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('names tools that do not exist');
+        $this->assertOutputRegExp('/Tools: 2 tools: [^\n]*inbox_rows/');
+    }
+
     public function testAnInheritedExternalAudienceFails(): void
     {
         Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);

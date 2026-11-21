@@ -95,8 +95,12 @@ a strict policy by default, so declare every outside domain the page uses.
 `resourceUri`, and `visibility`, by default `['model', 'app']`. A tool with
 `visibility: ['app']` is for the app only: hosts keep it from the model, and
 clients that do not render apps do not get it in `tools/list` at all. The tool
-catalog leaves app-only tools out too: `find_tools` does not offer them and
-`call_tools` does not run them.
+catalog leaves every tool with an app out, even when a pattern of
+`Mcp.catalog.tools` matches it: `find_tools` does not offer it, `call_tools`
+does not run it, and it stays in `tools/list`, where the host reads its
+`_meta.ui` (an app-only tool for clients that render apps, a tool that links to
+an app for every client). `bin/cake mcp check` names the tools with an app that
+a pattern matched on its `Catalog` line.
 
 Visibility is a hint for the host, not access control. An app-only tool can
 still be called by anyone who knows its name and holds a valid token, so it is

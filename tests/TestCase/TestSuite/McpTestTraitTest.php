@@ -169,6 +169,29 @@ class McpTestTraitTest extends TestCase
         $this->assertMcpToolDenied();
     }
 
+    public function testDeniedKnowsCataloguedTools(): void
+    {
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['admin_only']]);
+        Configure::write('Mcp.authorization.authorizer', $this->onlyForAdmins('admin_only'));
+        $this->mcpActingAs(['id' => 1, 'role' => 'user']);
+
+        $this->mcpCallTool('admin_only');
+        $this->assertMcpToolDenied();
+        $this->assertMcpToolNotListed('admin_only');
+    }
+
+    public function testDeniedAndNotListedKnowAppOnlyTools(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.authorization.authorizer', $this->onlyForAdmins('inbox_rows'));
+        $this->mcpActingAs(['id' => 1, 'role' => 'user']);
+
+        $this->mcpCallTool('inbox_rows');
+        $this->assertMcpToolDenied();
+        $this->assertMcpToolNotListed('inbox_rows');
+    }
+
     public function testDeniedFailsWhenTheCallSucceeded(): void
     {
         $this->mcpCallTool('echo', ['text' => 'hi']);

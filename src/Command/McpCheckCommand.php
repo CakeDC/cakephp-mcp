@@ -425,21 +425,25 @@ class McpCheckCommand extends Command
     }
 
     /**
-     * The tools the server offers, listed once per run.
+     * Every tool registered on the server, catalogued and app-only ones included, without the catalog's own
+     * `find_tools` and `call_tools`.
      *
      * @return list<array<string, mixed>>
      */
-    private function toolDefinitions(): array
+    private function registeredTools(): array
     {
-        return $this->tools ??= $this->factory()->toolDefinitions();
+        return $this->tools ??= array_values(array_filter(
+            $this->factory()->registeredToolDefinitions(),
+            fn(array $tool): bool => !in_array($tool['name'], [ToolCatalog::FIND, ToolCatalog::CALL], true),
+        ));
     }
 
     /**
-     * @return list<string>
+     * @return list<string> The names of `registeredTools()`.
      */
     private function toolNames(): array
     {
-        return array_map(fn(array $tool): string => (string)$tool['name'], $this->toolDefinitions());
+        return array_map(fn(array $tool): string => (string)$tool['name'], $this->registeredTools());
     }
 
     /**
@@ -502,15 +506,22 @@ class McpCheckCommand extends Command
             return ['pass', 'off'];
         }
         $patterns = array_values(array_filter((array)McpConfig::get('catalog.tools', $this->server), 'is_string'));
-        $tools = array_diff(
-            array_column($this->factory()->registeredToolDefinitions(), 'name'),
-            [ToolCatalog::FIND, ToolCatalog::CALL],
-        );
-        $catalogued = array_values(array_filter($tools, fn(string $tool): bool => CatalogPatterns::matches(
-            $patterns,
-            $tool,
-        )));
+        $catalogued = [];
+        $kept = [];
+        $tools = [];
+        foreach ($this->registeredTools() as $tool) {
+            $name = (string)$tool['name'];
+            $tools[] = $name;
+            $meta = is_array($tool['_meta'] ?? null) ? $tool['_meta'] : null;
+            if (CatalogPatterns::catalogues($patterns, $name, $meta)) {
+                $catalogued[] = $name;
+            } elseif (CatalogPatterns::matches($patterns, $name) && CatalogPatterns::keptOut($meta) !== 'app-only') {
+                // App-only tools are never for the model: only a tool the model sees is worth naming here.
+                $kept[] = $name;
+            }
+        }
         sort($catalogued);
+        sort($kept);
         $unused = array_values(array_filter($patterns, fn(string $pattern): bool => array_filter(
             $tools,
             fn(string $tool): bool => fnmatch($pattern, $tool),
@@ -523,11 +534,16 @@ class McpCheckCommand extends Command
             )];
         }
 
-        return ['pass', sprintf(
-            '%d tools behind find_tools and call_tools: %s',
-            count($catalogued),
-            self::names($catalogued),
-        )];
+        $line = sprintf('%d tools behind find_tools and call_tools', count($catalogued))
+            . ($catalogued === [] ? '' : ': ' . self::names($catalogued));
+        if ($kept !== []) {
+            $line .= sprintf(
+                '; kept in tools/list because they link to an app, which the host reads from tools/list: %s',
+                implode(', ', $kept),
+            );
+        }
+
+        return ['pass', $line];
     }
 
     /**
