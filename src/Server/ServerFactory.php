@@ -10,6 +10,7 @@ use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
 use CakeDC\Mcp\Authorization\ContentGate;
 use CakeDC\Mcp\Authorization\ContentGuard;
+use CakeDC\Mcp\Authorization\ContentNotificationBus;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
@@ -46,6 +47,7 @@ use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
+use Mcp\Server\Subscription\NotificationBusInterface;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Mcp\Server\Wire\CachePolicy;
 use Psr\Container\ContainerInterface;
@@ -234,6 +236,11 @@ final class ServerFactory
             $events->listen(ErrorEvent::class, $listener->onError(...));
         }
         $this->configure($builder);
+        // After the hook, which sets the bus: a listen stream carries no update of a resource the caller cannot read.
+        $bus = (new ReflectionProperty(Builder::class, 'notificationBus'))->getValue($builder);
+        if ($bus instanceof NotificationBusInterface && $contentGate->decidesResources()) {
+            $builder->setNotificationBus(new ContentNotificationBus($bus, $contentGate));
+        }
         $extensions = (new ReflectionProperty(Builder::class, 'extensions'))->getValue($builder);
         $hookEnabledApps = is_array($extensions) && isset($extensions[McpApps::EXTENSION_ID]);
         if ($appsOn && !$hookEnabledApps) {

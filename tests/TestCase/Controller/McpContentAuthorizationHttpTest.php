@@ -8,6 +8,10 @@ use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Test\Support\McpHttpTrait;
+use Mcp\Schema\JsonRpc\Notification;
+use Mcp\Schema\Notification\ResourceUpdatedNotification;
+use Mcp\Server\Builder;
+use Mcp\Server\Subscription\NotificationBusInterface;
 use TestApp\ContentAuthorizer;
 use TestApp\TestTokens;
 
@@ -81,6 +85,67 @@ class McpContentAuthorizationHttpTest extends TestCase
 
         $this->assertSame('public', $this->send('prompts/list', [])['result']['cacheScope'] ?? null);
         $this->assertSame('public', $this->send('resources/list', [])['result']['cacheScope'] ?? null);
+    }
+
+    public function testAListenStreamCarriesNoUpdateOfADeniedResource(): void
+    {
+        $uris = ['app://rules', 'app://salaries', 'orders://1001', 'orders://2001'];
+        // A bus that already holds an update of each, from the cursor a stream starts at.
+        $bus = new class (array_map(fn(string $uri) => new ResourceUpdatedNotification($uri), $uris)) implements
+            NotificationBusInterface
+        {
+            /**
+             * @param list<\Mcp\Schema\JsonRpc\Notification> $held
+             */
+            public function __construct(private array $held)
+            {
+            }
+
+            public function publish(Notification $notification): void
+            {
+                $this->held[] = $notification;
+            }
+
+            public function cursor(): int
+            {
+                return 0;
+            }
+
+            public function since(int $cursor): array
+            {
+                return [array_slice($this->held, $cursor), count($this->held)];
+            }
+        };
+        Configure::write('Mcp.server.configure', function (Builder $builder) use ($bus): void {
+            $builder->setNotificationBus($bus)->setSubscriptionLifetime(0.3);
+        });
+
+        // The stream writes and flushes its frames as they come.
+        $stream = '';
+        ob_start(function (string $chunk) use (&$stream): string {
+            $stream .= $chunk;
+
+            return '';
+        });
+        try {
+            $this->postMcp(
+                $this->mcpMessage(1, 'subscriptions/listen', ['notifications' => ['resourceSubscriptions' => $uris]]),
+                $this->mcpHeaders('subscriptions/listen', null, TestTokens::EDITOR),
+            );
+            $stream .= (string)$this->_response?->getBody();
+        } finally {
+            ob_end_clean();
+        }
+        $this->assertResponseOk();
+        $updated = [];
+        foreach (explode("\n", $stream) as $line) {
+            $frame = str_starts_with($line, 'data: ') ? json_decode(substr($line, 6), true) : null;
+            if (is_array($frame) && ($frame['method'] ?? null) === 'notifications/resources/updated') {
+                $updated[] = $frame['params']['uri'] ?? null;
+            }
+        }
+
+        $this->assertSame(['app://rules', 'orders://1001'], $updated);
     }
 
     /**

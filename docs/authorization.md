@@ -115,6 +115,9 @@ What a denied resource or prompt does:
   either one denies the read, the subscription and the completion, so
   denying a template denies every URI it serves.
 - A completion for a denied prompt or template returns no values.
+- A `subscriptions/listen` stream (2026-07-28 revision) never carries a
+  `notifications/resources/updated` for a resource the caller cannot read,
+  even when the client listed its URI in `resourceSubscriptions`.
 - [MCP App](apps.md) pages are resources and follow the same rule.
 - With [cache hints](configuration.md#keys), the lists and `resources/read`
   are always sent private, as `tools/list` is.
