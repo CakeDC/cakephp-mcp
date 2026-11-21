@@ -38,6 +38,28 @@ class AuthSettingsTest extends TestCase
         AuthSettings::fromConfig();
     }
 
+    public function testTheMistakeOfANamedServerNamesItsSetting(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['mode' => 'oath']]);
+        try {
+            AuthSettings::fromConfig('admin');
+            $this->fail('Accepted');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('"Mcp.servers.admin.auth.mode" must be', $e->getMessage());
+        }
+
+        // Inherited from the default server: the setting is the top-level one, and the message says whose it is.
+        Configure::write('Mcp.auth', ['mode' => 'external', 'external' => ['issuer' => 'https://login.example.com', 'algorithms' => 'RS256']]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+        try {
+            AuthSettings::fromConfig('admin');
+            $this->fail('Accepted');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('"Mcp.auth.external.algorithms"', $e->getMessage());
+            $this->assertStringContainsString('(server admin inherits it)', $e->getMessage());
+        }
+    }
+
     public function testUnknownKeysAreRejected(): void
     {
         foreach (

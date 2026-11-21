@@ -58,6 +58,32 @@ final class AuthSettings
      */
     public static function fromConfig(string $server = McpConfig::DEFAULT_SERVER, array $route = []): self
     {
+        try {
+            return self::read($server, $route);
+        } catch (InvalidArgumentException $e) {
+            if ($server === McpConfig::DEFAULT_SERVER) {
+                throw $e;
+            }
+            // The messages name the top-level setting: name the server's own, or say that it inherits it.
+            $own = Configure::check(sprintf('Mcp.servers.%s.auth', $server));
+            throw new InvalidArgumentException(
+                $own
+                    ? str_replace('"Mcp.auth', sprintf('"Mcp.servers.%s.auth', $server), $e->getMessage())
+                    : sprintf('%s (server %s inherits it)', $e->getMessage(), $server),
+                0,
+                $e,
+            );
+        }
+    }
+
+    /**
+     * @param string $server The MCP server whose settings to read.
+     * @param array<string, string> $route The values of the parameters of its route in this request.
+     * @return self
+     * @throws \InvalidArgumentException For an invalid setting, named as the top-level one.
+     */
+    private static function read(string $server, array $route): self
+    {
         $auth = McpConfig::get('auth', $server);
         // A non-array (null included) is a typo, never a request for the defaults: fail closed.
         if (!is_array($auth)) {
