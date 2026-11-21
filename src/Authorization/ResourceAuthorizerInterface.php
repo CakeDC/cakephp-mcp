@@ -6,7 +6,8 @@ namespace CakeDC\Mcp\Authorization;
 /**
  * Implemented by an authorizer (next to `ToolAuthorizerInterface`) that decides who may read which resource.
  * A denied resource is left out of `resources/list` and `resources/templates/list`, reading or subscribing to
- * it answers like an unknown URI, and completions for a denied template return no values. An authorizer that
+ * it answers like an unknown URI, and completions for a denied template return no values. A concrete URI that a
+ * template serves is read only when both it and the template's URI are allowed. An authorizer that
  * does not implement it lets every caller read every resource, as in 2.1.
  */
 interface ResourceAuthorizerInterface

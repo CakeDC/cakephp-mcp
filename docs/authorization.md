@@ -110,6 +110,10 @@ What a denied resource or prompt does:
 - Reading it (`resources/read`, also a URI a template matches) or subscribing
   to it answers exactly like an unknown URI, and getting a denied prompt
   answers exactly like an unknown prompt, so a caller cannot tell it exists.
+- A URI that a template serves is checked twice: the concrete URI
+  (`orders://1001`) and the template's URI (`orders://{number}`). Denying
+  either one denies the read, the subscription and the completion, so
+  denying a template denies every URI it serves.
 - A completion for a denied prompt or template returns no values.
 - [MCP App](apps.md) pages are resources and follow the same rule.
 - With [cache hints](configuration.md#keys), the lists and `resources/read`
@@ -203,7 +207,8 @@ and neither does a rule for a controller of your own that is also called
 ```
 
 Actions match exactly, so the concrete URIs of a template need a `'*'` rule
-with an `allowed` callback, as above. Once the `Resources` rules are on, the
+with an `allowed` callback, as above. Reading `orders://1001` needs both
+rules: one for the template's URI and one for the concrete URI. Once the `Resources` rules are on, the
 host-wide wildcard rules of the next section grant resources too.
 
 ### Warning: host rules without a plugin key

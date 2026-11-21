@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Authorization;
 
 use CakeDC\Mcp\Identity\CurrentIdentity;
+use Closure;
 
 /**
  * Asks the authorizer whether the current identity may read a resource or get a prompt. An authorizer that does
@@ -16,11 +17,14 @@ final class ContentGate
      * @param \CakeDC\Mcp\Authorization\ToolAuthorizerInterface $authorizer The configured authorizer.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The current identity.
      * @param bool $trusted Allow everything.
+     * @param (\Closure(string): ?string)|null $templateOf The URI template that serves a concrete URI, or null
+     *   when none does (a registered resource, or no match).
      */
     public function __construct(
         private readonly ToolAuthorizerInterface $authorizer,
         private readonly CurrentIdentity $identity,
         private readonly bool $trusted = false,
+        private readonly ?Closure $templateOf = null,
     ) {
     }
 
@@ -70,6 +74,23 @@ final class ContentGate
         return $this->trusted
             || !$this->authorizer instanceof ResourceAuthorizerInterface
             || $this->authorizer->canReadResource($this->identity->get(), $uri);
+    }
+
+    /**
+     * Whether a URI may be read, subscribed to or completed: the URI itself is allowed and, when a resource
+     * template serves it, so is the template's URI. A template that is denied denies every URI it serves.
+     *
+     * @param string $uri A resource URI or a concrete URI a template serves.
+     * @return bool
+     */
+    public function allowsRead(string $uri): bool
+    {
+        if (!$this->allowsResource($uri)) {
+            return false;
+        }
+        $template = $this->trusted || $this->templateOf === null ? null : ($this->templateOf)($uri);
+
+        return $template === null || $template === $uri || $this->allowsResource($template);
     }
 
     /**

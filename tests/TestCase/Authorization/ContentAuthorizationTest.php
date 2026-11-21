@@ -99,6 +99,51 @@ class ContentAuthorizationTest extends TestCase
         $this->assertMcpCompletionValues([]);
     }
 
+    public function testTheConcreteUrisOfADeniedTemplateAreDenied(): void
+    {
+        $this->mcpActingAs(['id' => 2, 'role' => 'guest']);
+
+        $this->mcpReadResource('orders://1001');
+        $this->assertMcpResourceDenied();
+
+        $denied = $this->mcpRequest('resources/subscribe', ['uri' => 'orders://1001']);
+        $unknown = $this->mcpRequest('resources/subscribe', ['uri' => 'nothing://1001']);
+        $this->assertArrayHasKey('error', $denied);
+        $this->assertSame(
+            str_replace('nothing://1001', 'orders://1001', (string)json_encode($unknown['error'], JSON_UNESCAPED_SLASHES)),
+            (string)json_encode($denied['error'], JSON_UNESCAPED_SLASHES),
+        );
+
+        $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://1001'], 'number', '10');
+        $this->assertMcpCompletionValues([]);
+    }
+
+    public function testRbacDeniesAConcreteUriWhenItsTemplateHasNoRule(): void
+    {
+        $orders = fn($user, $role, $request): bool => str_starts_with((string)$request->getParam('action'), 'orders://1');
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resources', 'action' => '*',
+                'allowed' => $orders],
+        ]]);
+
+        $this->mcpReadResource('orders://1001');
+        $this->assertMcpResourceDenied();
+
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resources',
+                'action' => ['orders://{number}']],
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resources', 'action' => '*',
+                'allowed' => $orders],
+        ]]);
+        $this->mcpReadResource('orders://1001');
+        $this->assertMcpResourceText('Order 1001');
+        $this->mcpReadResource('orders://2001');
+        $this->assertMcpResourceDenied();
+    }
+
     public function testSubscribingToADeniedResourceAnswersLikeAnUnknownOne(): void
     {
         $denied = $this->mcpRequest('resources/subscribe', ['uri' => 'app://salaries']);

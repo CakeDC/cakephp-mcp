@@ -21,7 +21,7 @@ use Mcp\Server\Session\SessionInterface;
 /**
  * Answers a read of, or a subscription to, a denied resource exactly like an unknown URI, a get of a denied prompt
  * exactly like an unknown prompt (as the SDK words them), and a completion for a denied prompt or template with no
- * values. Registered before the SDK's handlers, which it replaces only for denied elements.
+ * values. A concrete URI is denied when it is, or when the template that serves it is. Registered before the SDK's handlers, which it replaces only for denied elements.
  *
  * @implements \Mcp\Server\Handler\Request\RequestHandlerInterface<mixed>
  */
@@ -41,11 +41,11 @@ final class ContentGuard implements RequestHandlerInterface
     {
         return match (true) {
             $request instanceof ReadResourceRequest, $request instanceof ResourceSubscribeRequest
-                => !$this->gate->allowsResource($request->uri),
+                => !$this->gate->allowsRead($request->uri),
             $request instanceof GetPromptRequest => !$this->gate->allowsPrompt($request->name),
             $request instanceof CompletionCompleteRequest => $request->ref instanceof PromptReference
                 ? !$this->gate->allowsPrompt($request->ref->name)
-                : !$this->gate->allowsResource($request->ref->uri),
+                : !$this->gate->allowsRead($request->ref->uri),
             default => false,
         };
     }

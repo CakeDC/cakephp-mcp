@@ -31,10 +31,12 @@ use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandler;
+use Mcp\Capability\Registry\ResourceTemplateReference;
 use Mcp\Capability\RegistryInterface;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
+use Mcp\Exception\ResourceNotFoundException;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\Icon;
@@ -179,7 +181,27 @@ final class ServerFactory
             $events->listen(ResponseEvent::class, new AppToolFilter());
         }
         // Denied resources and prompts, when the authorizer decides for them.
-        $contentGate = new ContentGate($authorizer, $this->identity, $trusted);
+        // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
+        // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
+        $registry = new Registry($events, $logger);
+        // A concrete URI is also checked against the template that serves it, found in the registry the server
+        // ends up with (by reference: the host hook may still replace it).
+        $contentGate = new ContentGate(
+            $authorizer,
+            $this->identity,
+            $trusted,
+            function (string $uri) use (&$registry): ?string {
+                try {
+                    $reference = $registry->getResource($uri);
+                } catch (ResourceNotFoundException) {
+                    return null;
+                }
+
+                return $reference instanceof ResourceTemplateReference
+                    ? $reference->resourceTemplate->uriTemplate
+                    : null;
+            },
+        );
         if ($contentGate->active()) {
             $events->listen(ResponseEvent::class, new ContentListFilter($contentGate));
         }
@@ -188,9 +210,6 @@ final class ServerFactory
         if ($contentGate->active()) {
             $builder->addRequestHandler(new ContentGuard($contentGate));
         }
-        // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
-        // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
-        $registry = new Registry($events, $logger);
         $builder->setRegistry($registry);
         $audit = AuditSettings::fromConfig($this->server, $this->route()->values());
         if ($audit->enabled) {
