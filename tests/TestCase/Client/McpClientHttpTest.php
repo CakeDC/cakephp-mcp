@@ -128,6 +128,15 @@ class McpClientHttpTest extends TestCase
         $this->assertNotNull($client->capabilities()?->tools);
         $this->assertNull($client->instructions());
         $this->assertContains('server/discover', $this->server->methods());
+        // The revision the client and the server speak.
+        $this->assertSame('2026-07-28', $client->protocolVersion());
+    }
+
+    public function testTheProtocolVersionIsTheOneTheHandshakeAgreed(): void
+    {
+        Configure::write('Mcp.clients.remote.protocolVersion', '2025-06-18');
+
+        $this->assertSame('2025-06-18', McpClients::get('remote')->protocolVersion());
     }
 
     private function intercepting(Closure $intercept): void

@@ -86,6 +86,9 @@ The calls:
 - `ping()`: checks that the server answers (`ping`, or `server/discover` in the 2026-07-28 revision).
 - `serverInfo()`, `capabilities()`, `instructions()`: what the server said about itself when the connection
   started (`Mcp\Schema\Implementation`, `Mcp\Schema\ServerCapabilities`, its instructions for the model).
+- `protocolVersion()`: the protocol revision the client and the server speak (`'2026-07-28'`,
+  `'2025-11-25'`...), which may be another than the `protocolVersion` you asked for if the server offered one it
+  supports.
 - `close()`: ends the connection now. It is opened on the first call and kept for the rest of the request (or the command), and closed when the PHP process ends (a server of the handshake revisions gets its `DELETE`).
 
 The list calls take an optional `$limit` (`listTools(20)`): they stop fetching

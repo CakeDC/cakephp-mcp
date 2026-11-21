@@ -83,6 +83,15 @@ trait CallsServerTrait
     }
 
     /**
+     * @return string|null The protocol revision the client and the server speak (`2026-07-28`, `2025-11-25`...):
+     *   the one the handshake agreed, which may be another than `protocolVersion` asked for.
+     */
+    public function protocolVersion(): ?string
+    {
+        return $this->run(fn(Client $client): ?string => $client->getProtocolVersion()?->value);
+    }
+
+    /**
      * @return string|null The server's instructions for the model, if it gives any.
      */
     public function instructions(): ?string
