@@ -1114,6 +1114,11 @@ class McpCheckCommand extends Command
         if ($settings->mode === AuthSettings::HOST) {
             return ['pass', 'not used in host mode'];
         }
+        // A default server with Mcp.route false is stdio only: its auth is the base the named servers inherit.
+        $route = McpConfig::get('route', $this->server);
+        if (!is_string($route) || trim($route, '/') === '') {
+            return ['pass', 'no HTTP endpoint'];
+        }
         $declared = $this->declaredRouteValues();
         if ($declared !== null && $declared['values'] === []) {
             return ['fail', sprintf(

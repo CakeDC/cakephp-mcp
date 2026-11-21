@@ -380,6 +380,18 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('Mcp.auth.scopes.tools names tools that do not exist: creat_note');
     }
 
+    public function testADefaultServerWithoutARouteHasNoResourceToCheck(): void
+    {
+        // The top-level auth is the base the named servers inherit; the default server itself is stdio only.
+        Configure::write('Mcp.route', false);
+        Configure::write('Mcp.auth', ['mode' => 'oauth']);
+
+        $this->exec('mcp check --server default');
+
+        $this->assertOutputContains('[PASS] Resource: no HTTP endpoint');
+        $this->assertOutputNotContains('[FAIL] Resource');
+    }
+
     public function testToolScopesDoNotApplyInHostMode(): void
     {
         $this->exec('mcp check');
