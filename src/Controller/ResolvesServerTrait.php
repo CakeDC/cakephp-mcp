@@ -43,11 +43,23 @@ trait ResolvesServerTrait
      *
      * @param string $server The server.
      * @return array<string, string>
+     * @throws \InvalidArgumentException When the default server's route has parameters, which only a named server
+     *   may have: the request fails closed.
      */
     protected function mcpRouteValues(string $server): array
     {
+        $route = McpConfig::get('route', $server);
+        $params = McpConfig::routeParams($route);
+        if ($params !== [] && $server === McpConfig::DEFAULT_SERVER) {
+            throw new InvalidArgumentException(sprintf(
+                '"Mcp.route" is "%s": only a named server (Mcp.servers) may have route parameters, so the default '
+                . 'server is not served. Give "Mcp.route" a fixed path and serve "%s" from a named server.',
+                (string)$route,
+                (string)$route,
+            ));
+        }
         $values = [];
-        foreach (McpConfig::routeParams(McpConfig::get('route', $server)) as $name) {
+        foreach ($params as $name) {
             $value = $this->request->getParam($name);
             if (is_string($value) && $value !== '') {
                 $values[$name] = $value;

@@ -290,6 +290,37 @@ class McpRouteParamsTest extends TestCase
         $this->assertOutputContains('check in the tools or the authorizer that the identity belongs to it');
     }
 
+    public function testTheDefaultServerIsNotServedOnARouteWithParameters(): void
+    {
+        Configure::write('Mcp.route', '/mcp/d/{tenant}');
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpTenant']);
+        Configure::write('Mcp.auth', [
+            'mode' => 'external',
+            'external' => ['issuer' => TestJwt::ISSUER, 'cache' => 'mcp_oauth_test', 'httpClient' => TestJwt::client()],
+        ]);
+        Log::setConfig('mcp_default_route', ['className' => ArrayLog::class, 'scopes' => ['mcp']]);
+        try {
+            $this->call('/mcp/d/acme');
+            $this->assertResponseCode(500);
+            $this->assertArrayNotHasKey('result', $this->json());
+
+            $this->get('/.well-known/oauth-protected-resource/mcp/d/acme');
+            $this->assertResponseCode(500);
+
+            $engine = Log::engine('mcp_default_route');
+            $logged = implode("\n", $engine instanceof ArrayLog ? $engine->read() : []);
+        } finally {
+            Log::drop('mcp_default_route');
+        }
+        $this->assertStringContainsString(
+            '"Mcp.route" is "/mcp/d/{tenant}": only a named server (Mcp.servers) may have route parameters',
+            $logged,
+        );
+
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Endpoint: Mcp.route /mcp/d/{tenant} has parameters');
+    }
+
     public function testMcpCheckShowsThePattern(): void
     {
         $this->external();

@@ -56,13 +56,13 @@ class McpController extends Controller
             return $this->response->withStatus(404);
         }
         $factory = $factory->forServer($server);
-        // The values of a route such as /mcp/{tenant}, for tools (McpRoute), the OAuth resource and the audit.
-        $route = $this->mcpRouteValues($server);
-        $factory->route()->set($route);
         $responseFactory = new ResponseFactory();
         $streamFactory = new StreamFactory();
 
         try {
+            // The values of a route such as /mcp/{tenant}, for tools (McpRoute), the OAuth resource and the audit.
+            $route = $this->mcpRouteValues($server);
+            $factory->route()->set($route);
             $maxBodyBytes = McpConfig::maxBodyBytes($server);
             $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins', $server), 'is_string'));
             $middleware = [

@@ -956,7 +956,8 @@ class McpCheckCommand extends Command
         $params = McpConfig::routeParams($route);
         if ($params !== [] && $this->server === McpConfig::DEFAULT_SERVER) {
             return ['fail', sprintf(
-                'Mcp.route %s has parameters, which only a named server may have (Mcp.servers), see %s',
+                'Mcp.route %s has parameters, which only a named server may have (Mcp.servers): the default '
+                . 'server answers every request with an error, see %s',
                 $route,
                 self::DOCS . 'configuration.md#routes-with-parameters',
             )];

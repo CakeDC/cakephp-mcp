@@ -360,7 +360,9 @@ with any other mistake in a named server. In `oauth` mode, declare in
 value are kept apart from the others, audit records carry the values (a
 `route` field, `route=tenant:acme` on the log line), and tests give them with
 `mcpUseServer('tenants', ['tenant' => 'acme'])`. Parameters are for named
-servers only: `bin/cake mcp check` fails on a `Mcp.route` with one.
+servers only: with a `Mcp.route` that has one, the default server answers
+every request with an error (`500`, the reason logged), and `bin/cake mcp
+check` fails on it.
 
 ## MCP clients
 
