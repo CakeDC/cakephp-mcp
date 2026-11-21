@@ -1,0 +1,446 @@
+<?php
+declare(strict_types=1);
+
+namespace CakeDC\Mcp\Test\TestCase\Client\OAuth;
+
+use Cake\Core\Configure;
+use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\Http\BlockedUrlException;
+use CakeDC\Mcp\Client\OAuth\AuthServer;
+use CakeDC\Mcp\Client\OAuth\Discovery;
+use CakeDC\Mcp\Client\OAuth\OAuthException;
+use CakeDC\Mcp\Test\Support\FakeOAuthServer;
+
+class DiscoveryTest extends TestCase
+{
+    private FakeOAuthServer $server;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->server = new FakeOAuthServer();
+        Configure::write('Mcp.clients.linear', ['url' => FakeOAuthServer::MCP, 'auth' => 'user']);
+    }
+
+    private function discover(string $client = 'linear'): AuthServer
+    {
+        $config = ClientConfig::fromConfig($client);
+
+        return (new Discovery($this->server->registry()->outbound($config), $config))->discover();
+    }
+
+    public function testDiscoversThroughTheChallenge(): void
+    {
+        $server = $this->discover();
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $server->issuer);
+        $this->assertSame(FakeOAuthServer::ISSUER . '/authorize', $server->authorizationUrl);
+        $this->assertSame(FakeOAuthServer::ISSUER . '/token', $server->tokenUrl);
+        $this->assertSame(FakeOAuthServer::ISSUER . '/register', $server->registrationUrl);
+        $this->assertSame(FakeOAuthServer::ISSUER . '/revoke', $server->revocationUrl);
+        $this->assertSame(FakeOAuthServer::MCP, $server->resource);
+        // The resource lists offline_access, so it is asked for with the challenge's scopes.
+        $this->assertSame(['read', 'write', 'offline_access'], $server->scopes);
+        $this->assertTrue($server->issParameter);
+        $this->assertFalse($server->trusted);
+        $this->assertSame(['none', 'client_secret_basic'], $server->authMethods);
+        // The probe and the resource metadata (on the configured origin) went to the configured server; the
+        // authorization server's metadata through the guard.
+        $this->assertSame('POST', $this->server->mcp->requests[0]['method']);
+        $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
+    }
+
+    private function withoutResourceMetadata(): void
+    {
+        $this->server->mcp->challenge = 'Bearer';
+        unset($this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA]);
+        $this->server->mcp->documents['https://mcp.example.com/.well-known/oauth-authorization-server'] = [
+            'issuer' => 'https://mcp.example.com',
+            'authorization_endpoint' => 'https://mcp.example.com/authorize',
+            'token_endpoint' => 'https://mcp.example.com/token',
+            'registration_endpoint' => 'https://mcp.example.com/register',
+            'code_challenge_methods_supported' => ['S256'],
+        ];
+    }
+
+    public function testWithoutResourceMetadataTheServersOriginIsTheAuthorizationServer(): void
+    {
+        $this->withoutResourceMetadata();
+
+        $server = $this->discover();
+
+        $this->assertSame('https://mcp.example.com', $server->issuer);
+        $this->assertSame('https://mcp.example.com/token', $server->tokenUrl);
+        $this->assertSame('https://mcp.example.com/register', $server->registrationUrl);
+        $this->assertSame(FakeOAuthServer::MCP, $server->resource);
+    }
+
+    public function testTheOriginFallbackMustNameItselfAndTheConfiguredIssuer(): void
+    {
+        $this->withoutResourceMetadata();
+        $this->server->mcp->documents['https://mcp.example.com/.well-known/oauth-authorization-server']['issuer']
+            = FakeOAuthServer::ISSUER;
+        try {
+            $this->discover();
+            $this->fail('Accepted another issuer');
+        } catch (OAuthException) {
+            $this->addToAssertionCount(1);
+        }
+
+        $this->withoutResourceMetadata();
+        Configure::write('Mcp.clients.linear.issuer', FakeOAuthServer::ISSUER);
+        $this->expectException(OAuthException::class);
+        $this->discover();
+    }
+
+    public function testWithNeitherMetadataTheSignInFailsClearly(): void
+    {
+        $this->server->mcp->challenge = 'Bearer';
+        unset($this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA]);
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('does not publish how to sign in');
+        $this->discover();
+    }
+
+    public function testReadsWhetherTheServerSupportsClientMetadataDocuments(): void
+    {
+        $this->assertFalse($this->discover()->metadataDocuments);
+
+        $this->server->authorizationServer(['client_id_metadata_document_supported' => true]);
+        $this->assertTrue($this->discover()->metadataDocuments);
+    }
+
+    public function testFallsBackToWellKnownUrls(): void
+    {
+        $this->server->mcp->challenge = 'Bearer';
+        $this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA] = [
+            'resource' => 'https://mcp.example.com',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+            'scopes_supported' => ['read'],
+        ];
+
+        $server = $this->discover();
+
+        $this->assertSame('https://mcp.example.com', $server->resource);
+        $this->assertSame(['read'], $server->scopes);
+        // The well-known URL of the configured server is trusted: it never went through the guard.
+        $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
+    }
+
+    public function testOfflineAccessIsAskedForWhenTheAuthorizationServerListsIt(): void
+    {
+        // An OpenID Connect style server: a refresh token only with the offline_access scope.
+        $this->server->resourceMetadata([
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ]);
+        $this->server->authorizationServer(['scopes_supported' => ['openid', 'read', 'write', 'offline_access']]);
+
+        $this->assertSame(['read', 'write', 'offline_access'], $this->discover()->scopes);
+    }
+
+    public function testOfflineAccessIsAskedForWhenTheResourceListsIt(): void
+    {
+        $this->server->mcp->challenge = 'Bearer resource_metadata="' . FakeOAuthServer::RESOURCE_METADATA . '"';
+
+        $this->assertSame(['read', 'write', 'offline_access'], $this->discover()->scopes);
+    }
+
+    public function testConfiguredScopesAreSentAsWritten(): void
+    {
+        Configure::write('Mcp.clients.linear.scopes', ['issues:read']);
+        $this->server->authorizationServer(['scopes_supported' => ['issues:read', 'offline_access']]);
+
+        $this->assertSame(['issues:read'], $this->discover()->scopes);
+    }
+
+    public function testConfiguredScopesWin(): void
+    {
+        Configure::write('Mcp.clients.linear.scopes', ['issues:read']);
+
+        $this->assertSame(['issues:read'], $this->discover()->scopes);
+    }
+
+    public function testRefusesAnIssuerMismatch(): void
+    {
+        $this->server->authorizationServer(['issuer' => 'https://evil.example.com']);
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('names a different issuer');
+
+        $this->discover();
+    }
+
+    public function testAConfiguredIssuerMustBeTheOneTheServerNames(): void
+    {
+        Configure::write('Mcp.clients.linear', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'clientId' => 'given-id',
+            'clientSecret' => 'given-secret',
+            'issuer' => 'https://login.linear.example',
+        ]);
+
+        try {
+            $this->discover();
+            $this->fail('Discovered an authorization server that is not the configured issuer.');
+        } catch (OAuthException $e) {
+            $this->assertStringContainsString('https://login.linear.example', $e->getMessage());
+            $this->assertStringContainsString(FakeOAuthServer::ISSUER, $e->getMessage());
+        }
+        // Nothing was asked of the authorization server the MCP server named.
+        $this->assertSame([], $this->server->guarded->urls());
+    }
+
+    public function testAMatchingConfiguredIssuerIsDiscovered(): void
+    {
+        Configure::write('Mcp.clients.linear', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'clientId' => 'given-id',
+            'clientSecret' => 'given-secret',
+            'issuer' => FakeOAuthServer::ISSUER,
+        ]);
+
+        $server = $this->discover();
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $server->issuer);
+        $this->assertSame(FakeOAuthServer::ISSUER . '/token', $server->tokenUrl);
+    }
+
+    public function testChallengeMetadataOnTheConfiguredOriginIsTrustedLikeTheUrl(): void
+    {
+        // The MCP server is on the application's network; its authorization server is public.
+        $this->server->dns->add('mcp.example.com', ['10.0.0.5']);
+        $this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA] = [
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        $server = $this->discover();
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $server->issuer);
+        // Read from the configured server, not through the guard.
+        $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
+    }
+
+    public function testChallengeMetadataOnLocalhostOverHttpIsDiscovered(): void
+    {
+        Configure::write('Mcp.clients.linear', ['url' => 'http://localhost:8765/mcp', 'auth' => 'user']);
+        $metadata = 'http://localhost:8765/.well-known/oauth-protected-resource/mcp';
+        $this->server->mcp->challenge = sprintf('Bearer resource_metadata="%s"', $metadata);
+        $this->server->mcp->documents[$metadata] = [
+            'resource' => 'http://localhost:8765/mcp',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        $this->assertSame('http://localhost:8765/mcp', $this->discover()->resource);
+    }
+
+    public function testChallengeMetadataOnAnotherPortIsStillRefused(): void
+    {
+        Configure::write('Mcp.clients.linear', ['url' => 'http://localhost:8765/mcp', 'auth' => 'user']);
+        $metadata = 'http://localhost:9999/.well-known/oauth-protected-resource/mcp';
+        $this->server->mcp->challenge = sprintf('Bearer resource_metadata="%s"', $metadata);
+        $this->server->mcp->documents[$metadata] = [
+            'resource' => 'http://localhost:8765/mcp',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        // Another origin is a learned address: https and a public host only.
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('name an address the MCP client cannot use');
+
+        $this->discover();
+    }
+
+    public function testRefusesAnotherServersResource(): void
+    {
+        $this->server->resourceMetadata([
+            'resource' => 'https://other.example.com/mcp',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ]);
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('belong to another server');
+
+        $this->discover();
+    }
+
+    public function testAPrefixResourceOnlyFromAWellKnownUrl(): void
+    {
+        $this->server->resourceMetadata([
+            'resource' => 'https://mcp.example.com',
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ]);
+
+        $this->expectException(OAuthException::class);
+
+        $this->discover();
+    }
+
+    public function testRequiresS256(): void
+    {
+        $this->server->authorizationServer(['code_challenge_methods_supported' => ['plain']]);
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('S256');
+
+        $this->discover();
+    }
+
+    public function testAServerThatAnswersWithoutASignInIsStillDiscoveredThroughWellKnownUrls(): void
+    {
+        // It may ask for a sign-in only for some calls (a tool, after the handshake).
+        $this->server->mcp->tokens = null;
+        $this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA] = [
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ];
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $this->discover()->issuer);
+    }
+
+    public function testAServerThatAsksForNoSignInIsReported(): void
+    {
+        $this->server->mcp->tokens = null;
+        unset($this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA]);
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('does not ask for a sign-in');
+
+        $this->discover();
+    }
+
+    public function testChallengeMetadataOnAPrivateHostIsRefused(): void
+    {
+        $this->server->mcp->challenge = 'Bearer resource_metadata="https://internal.example.com/meta"';
+
+        try {
+            $this->discover();
+            $this->fail('Not refused');
+        } catch (BlockedUrlException) {
+            $this->assertSame([], $this->server->guarded->sent);
+        }
+    }
+
+    public function testAnIssuerOnAPrivateHostIsRefused(): void
+    {
+        $this->server->resourceMetadata([
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => ['https://internal.example.com'],
+        ]);
+
+        $this->expectException(BlockedUrlException::class);
+
+        $this->discover();
+    }
+
+    public function testTokenEndpointOnAPrivateHostIsRefused(): void
+    {
+        $this->server->authorizationServer(['token_endpoint' => 'https://internal.example.com/token']);
+
+        $this->expectException(BlockedUrlException::class);
+
+        $this->discover();
+    }
+
+    public function testAllowPrivateNetworkLetsThatClientUseAPrivateAuthorizationServer(): void
+    {
+        Configure::write('Mcp.clients.corp', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'allowPrivateNetwork' => true,
+        ]);
+        $this->server->dns->add('sso.corp.internal', ['10.0.0.9']);
+        $this->server->resourceMetadata([
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => ['https://sso.corp.internal'],
+        ]);
+        $this->server->guarded->json('https://sso.corp.internal/.well-known/oauth-authorization-server', [
+            'issuer' => 'https://sso.corp.internal',
+            'authorization_endpoint' => 'https://sso.corp.internal/authorize',
+            'token_endpoint' => 'https://sso.corp.internal/token',
+            'code_challenge_methods_supported' => ['S256'],
+        ]);
+
+        $server = $this->discover('corp');
+        $this->assertSame('https://sso.corp.internal/token', $server->tokenUrl);
+        $this->assertContains('10.0.0.9', array_column($this->server->guarded->sent, 'ip'));
+
+        // Another client of the same application is not affected.
+        try {
+            $this->discover();
+            $this->fail('A client without allowPrivateNetwork used a private authorization server.');
+        } catch (BlockedUrlException) {
+            $this->addToAssertionCount(1);
+        }
+    }
+
+    public function testAllowPrivateNetworkStillRefusesPlainHttpWithoutAllowInsecure(): void
+    {
+        Configure::write('Mcp.clients.corp', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'allowPrivateNetwork' => true,
+        ]);
+        $this->server->authorizationServer(['token_endpoint' => 'http://internal.example.com/token']);
+
+        try {
+            $this->discover('corp');
+            $this->fail('Plain http accepted');
+        } catch (BlockedUrlException | OAuthException) {
+            $this->addToAssertionCount(1);
+        }
+
+        Configure::write('Mcp.clients.corp.allowInsecure', true);
+        $this->assertSame('http://internal.example.com/token', $this->discover('corp')->tokenUrl);
+    }
+
+    public function testAllowPrivateNetworkStillRefusesIpLiterals(): void
+    {
+        Configure::write('Mcp.clients.corp', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'allowPrivateNetwork' => true,
+        ]);
+        $this->server->authorizationServer(['token_endpoint' => 'https://10.0.0.1/token']);
+
+        $this->expectException(BlockedUrlException::class);
+        $this->discover('corp');
+    }
+
+    public function testAnIpLiteralEndpointIsRefused(): void
+    {
+        $this->server->authorizationServer(['registration_endpoint' => 'https://10.0.0.1/register']);
+
+        $this->expectException(BlockedUrlException::class);
+
+        $this->discover();
+    }
+
+    public function testConfiguredEndpointsSkipDiscovery(): void
+    {
+        Configure::write('Mcp.clients.internal', [
+            'url' => 'https://mcp.internal/mcp',
+            'auth' => 'user',
+            'authorizationUrl' => 'https://sso.internal/authorize',
+            'tokenUrl' => 'https://sso.internal/token',
+            'revocationUrl' => 'https://sso.internal/revoke',
+            'clientId' => 'cake',
+            'scopes' => ['mcp'],
+        ]);
+
+        $server = $this->discover('internal');
+
+        $this->assertTrue($server->trusted);
+        $this->assertSame('https://sso.internal/token', $server->tokenUrl);
+        $this->assertSame('https://sso.internal', $server->issuer);
+        $this->assertSame('https://mcp.internal/mcp', $server->resource);
+        $this->assertSame(['mcp'], $server->scopes);
+        $this->assertSame([], $this->server->mcp->requests);
+        $this->assertSame([], $this->server->guarded->sent);
+    }
+}

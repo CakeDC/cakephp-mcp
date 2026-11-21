@@ -90,6 +90,14 @@ directories with `Mcp.discovery.scanDirs` (paths relative to `ROOT`). See
 If the directory does not exist yet, the endpoint still works and returns an
 empty tool list.
 
+### Why symfony/finder is required
+
+The plugin's own code does not use `symfony/finder`, but the SDK's attribute
+discovery does, and the SDK only suggests it. Without it the SDK logs a warning,
+skips discovery, and the server offers no tools at all. That is why the plugin
+requires it. `bin/cake mcp check` fails on its `Discovery` line when
+`Mcp.discovery.scanDirs` is set and `symfony/finder` cannot be loaded.
+
 ## After deploying new tools
 
 Outside debug mode the discovery result is cached in the `_cake_mcp_` cache

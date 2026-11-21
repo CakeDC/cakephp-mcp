@@ -84,7 +84,7 @@ jobs:
           working-directory: cakephp-mcp
       - run: vendor/bin/phpcs
         working-directory: cakephp-mcp
-      - run: vendor/bin/phpstan analyse --no-progress
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
         working-directory: cakephp-mcp
 
   conformance:
@@ -117,4 +117,8 @@ jobs:
         with:
           node-version: '22'
       - run: tests/Conformance/run.sh
+        working-directory: cakephp-mcp
+      # The client side: the plugin's MCP client (tests/Conformance/client.php) against the suite's own servers.
+      - run: tests/Conformance/run-client.sh
+        if: ${{ !cancelled() }}
         working-directory: cakephp-mcp

@@ -1,0 +1,331 @@
+<?php
+declare(strict_types=1);
+
+namespace CakeDC\Mcp\Test\TestCase\Controller;
+
+use Cake\Cache\Cache;
+use Cake\Cache\Engine\ArrayEngine;
+use Cake\Console\TestSuite\ConsoleIntegrationTestTrait;
+use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
+use Cake\Routing\Router;
+use Cake\TestSuite\IntegrationTestTrait;
+use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Controller\McpController;
+use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\Test\Support\TestJwt;
+use Closure;
+use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
+use stdClass;
+use TestApp\TestTokens;
+
+/**
+ * A named server on a route with parameters (`/mcp/{tenant}`): one config and one set of tools for every value,
+ * the value reaching tools, its own OAuth resource per value, and audit records that carry it.
+ */
+class McpRouteParamsTest extends TestCase
+{
+    use ConsoleIntegrationTestTrait;
+    use IntegrationTestTrait;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Cache::setConfig('mcp_oauth_test', ['className' => ArrayEngine::class]);
+        Configure::write('Mcp.servers.tenants', [
+            'route' => '/mcp/t/{tenant}',
+            'discovery' => ['scanDirs' => ['src/McpTenant']],
+        ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Cache::drop('mcp_oauth_test');
+        Router::reload();
+        parent::tearDown();
+    }
+
+    private function external(): void
+    {
+        Configure::write('Mcp.servers.tenants.auth', [
+            'mode' => 'external',
+            'external' => ['issuer' => TestJwt::ISSUER, 'cache' => 'mcp_oauth_test', 'httpClient' => TestJwt::client()],
+        ]);
+    }
+
+    private function call(string $path, string $token = TestTokens::EDITOR): void
+    {
+        $this->configRequest(['headers' => [
+            'Host' => 'localhost',
+            'Accept' => 'application/json, text/event-stream',
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $token,
+            'MCP-Protocol-Version' => '2026-07-28',
+            'Mcp-Method' => 'tools/call',
+            'Mcp-Name' => 'tenant_info',
+        ]]);
+        $this->post($path, (string)json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call', 'params' => [
+            'name' => 'tenant_info',
+            'arguments' => new stdClass(),
+            '_meta' => [
+                'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+                'io.modelcontextprotocol/clientCapabilities' => new stdClass(),
+            ],
+        ]]));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function json(): array
+    {
+        $decoded = json_decode((string)$this->_response?->getBody(), true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    public function testEachValueIsServedWithTheSameToolsAndToolsSeeIt(): void
+    {
+        $this->call('/mcp/t/acme');
+        $this->assertResponseOk();
+        $this->assertSame(
+            ['service' => 'acme', 'all' => ['tenant' => 'acme'], 'param' => 'acme'],
+            $this->json()['result']['structuredContent'] ?? null,
+        );
+
+        $this->call('/mcp/t/globex');
+        $this->assertSame('globex', $this->json()['result']['structuredContent']['service'] ?? null);
+    }
+
+    public function testTheRouteFindsTheServer(): void
+    {
+        $this->assertSame('tenants', McpConfig::serverFor(new ServerRequest(['url' => '/mcp/t/acme'])));
+        $this->assertSame('tenants', McpConfig::serverFor(new ServerRequest(['url' => '/.well-known/oauth-protected-resource/mcp/t/acme'])));
+        $this->assertNull(McpConfig::serverFor(new ServerRequest(['url' => '/mcp/t/acme/more'])));
+        $this->assertNull(McpConfig::serverFor(new ServerRequest(['url' => '/mcp/t'])));
+    }
+
+    public function testAValueThatIsNotASlugIsNotRouted(): void
+    {
+        $this->call('/mcp/t/a.b');
+
+        // Not an MCP answer: the application's own (CSRF, then not found).
+        $this->assertResponseError();
+        $this->assertArrayNotHasKey('jsonrpc', $this->json());
+    }
+
+    public function testEachValueHasItsOwnResourceMetadata(): void
+    {
+        $this->external();
+
+        $this->get('/.well-known/oauth-protected-resource/mcp/t/acme');
+        $this->assertResponseOk();
+        $this->assertSame('http://localhost/mcp/t/acme', $this->json()['resource'] ?? null);
+
+        $this->get('/.well-known/oauth-protected-resource/mcp/t/globex');
+        $this->assertSame('http://localhost/mcp/t/globex', $this->json()['resource'] ?? null);
+    }
+
+    public function testATokenForOneValueIsRefusedForAnother(): void
+    {
+        $this->external();
+        $token = TestJwt::token(['aud' => 'http://localhost/mcp/t/acme']);
+
+        $this->call('/mcp/t/acme', $token);
+        $this->assertResponseOk();
+
+        $this->call('/mcp/t/globex', $token);
+        $this->assertResponseCode(401);
+        $this->assertStringContainsString(
+            'oauth-protected-resource/mcp/t/globex',
+            $this->_response?->getHeaderLine('WWW-Authenticate') ?? '',
+        );
+    }
+
+    public function testAuditRecordsCarryTheValue(): void
+    {
+        Log::setConfig('audit_route', ['className' => ArrayLog::class, 'scopes' => ['mcp_audit']]);
+        Configure::write('Mcp.servers.tenants.audit', ['enabled' => true]);
+        try {
+            $this->call('/mcp/t/acme');
+
+            $engine = Log::engine('audit_route');
+            $lines = $engine instanceof ArrayLog ? $engine->read() : [];
+            $this->assertCount(1, $lines);
+            $this->assertStringContainsString(' server=tenants route=tenant:acme', (string)$lines[0]);
+        } finally {
+            Log::drop('audit_route');
+        }
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function badPatterns(): array
+    {
+        return [
+            'a parameter inside a segment' => ['/mcp/t-{tenant}'],
+            'an unclosed brace' => ['/mcp/{tenant'],
+            'a name that is not a word' => ['/mcp/{ten-ant}'],
+            'the same name twice' => ['/mcp/{a}/{a}'],
+            // Cake would let it pick another server, a stdio only one included.
+            'a reserved name' => ['/mcp/s/{server}'],
+            'a routing key' => ['/mcp/{controller}'],
+            'an underscore name' => ['/mcp/{_ext}'],
+        ];
+    }
+
+    #[DataProvider('badPatterns')]
+    public function testABadPatternStopsThatServerAndMcpCheckSaysWhy(string $route): void
+    {
+        Configure::write('Mcp.servers.tenants.route', $route);
+
+        $this->assertArrayHasKey('tenants', McpConfig::serverErrors());
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Server tenants');
+        $this->assertOutputContains('route');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string|null}>
+     */
+    public static function requestsNamingAServer(): array
+    {
+        return [
+            'a stdio only server named by a param' => ['/sneaky/local', null],
+            'another server named by a param' => ['/sneaky/tenants', null],
+            'the path of the server' => ['/mcp/t/acme', 'tenants'],
+            'its metadata path' => ['/.well-known/oauth-protected-resource/mcp/t/acme', 'tenants'],
+        ];
+    }
+
+    #[DataProvider('requestsNamingAServer')]
+    public function testOnlyTheServerOfThePathIsServed(string $path, ?string $expected): void
+    {
+        // As if a route of the application passed a name as the server param.
+        Configure::write('Mcp.servers.local', ['route' => false, 'identity' => ['required' => false]]);
+        $request = (new ServerRequest(['url' => $path]))->withParam('server', $expected ?? basename($path));
+        $controller = new McpController($request);
+
+        $server = Closure::bind(fn(): ?string => $this->mcpServer(), $controller, McpController::class)();
+
+        $this->assertSame($expected, $server);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function fixedBindings(): array
+    {
+        return [
+            'a fixed audience' => ['auth.external.audience', 'api://mcp'],
+            'a fixed resource' => ['auth.resource', 'https://app.example.com/mcp/t'],
+            'one parameter of two' => ['auth.external.audience', 'api://mcp/{tenant}'],
+        ];
+    }
+
+    #[DataProvider('fixedBindings')]
+    public function testAFixedResourceOrAudienceStopsTheServer(string $key, string $value): void
+    {
+        $this->external();
+        if ($value === 'api://mcp/{tenant}') {
+            Configure::write('Mcp.servers.tenants.route', '/mcp/t/{tenant}/{team}');
+        }
+        Configure::write('Mcp.servers.tenants.' . $key, $value);
+
+        $errors = McpConfig::serverErrors();
+        $this->assertArrayHasKey('tenants', $errors);
+        $this->assertStringContainsString('"Mcp.servers.tenants.' . $key . '"', $errors['tenants']);
+        $this->assertStringContainsString('a token for one value of', $errors['tenants']);
+        $this->assertStringContainsString('would be accepted for another', $errors['tenants']);
+        $this->assertNotContains('tenants', McpConfig::servers());
+        try {
+            McpConfig::get('auth', 'tenants');
+            $this->fail('The config of a server that would mix values up is not resolved.');
+        } catch (InvalidArgumentException $e) {
+            $this->assertSame($errors['tenants'], $e->getMessage());
+        }
+    }
+
+    public function testMcpCheckFailsWhenAFixedAudienceWouldServeEveryValue(): void
+    {
+        $this->external();
+        Configure::write('Mcp.servers.tenants.auth.external.audience', 'api://mcp');
+
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[FAIL] Server tenants');
+        $this->assertOutputContains('a token for one value of tenant would be accepted for another');
+    }
+
+    public function testMcpCheckFailsWhenAFixedResourceWouldServeEveryValue(): void
+    {
+        $this->external();
+        Configure::write('Mcp.servers.tenants.auth.resource', 'https://app.example.com/mcp/t');
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Server tenants');
+        $this->assertOutputContains('a token for one value of tenant would be accepted for another');
+    }
+
+    public function testMcpCheckPassesWithAnAudiencePerValue(): void
+    {
+        $this->external();
+        Configure::write('Mcp.servers.tenants.auth.external.audience', 'api://mcp/{tenant}');
+
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp/t/{tenant}');
+    }
+
+    public function testMcpCheckWarnsThatHostModeBindsNothingToTheValue(): void
+    {
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[WARN] Endpoint: http://localhost/mcp/t/{tenant}');
+        $this->assertOutputContains('check in the tools or the authorizer that the identity belongs to it');
+    }
+
+    public function testTheDefaultServerIsNotServedOnARouteWithParameters(): void
+    {
+        Configure::write('Mcp.route', '/mcp/d/{tenant}');
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpTenant']);
+        Configure::write('Mcp.auth', [
+            'mode' => 'external',
+            'external' => ['issuer' => TestJwt::ISSUER, 'cache' => 'mcp_oauth_test', 'httpClient' => TestJwt::client()],
+        ]);
+        Log::setConfig('mcp_default_route', ['className' => ArrayLog::class, 'scopes' => ['mcp']]);
+        try {
+            $this->call('/mcp/d/acme');
+            $this->assertResponseCode(500);
+            $this->assertArrayNotHasKey('result', $this->json());
+
+            $this->get('/.well-known/oauth-protected-resource/mcp/d/acme');
+            $this->assertResponseCode(500);
+
+            $engine = Log::engine('mcp_default_route');
+            $logged = implode("\n", $engine instanceof ArrayLog ? $engine->read() : []);
+        } finally {
+            Log::drop('mcp_default_route');
+        }
+        $this->assertStringContainsString(
+            '"Mcp.route" is "/mcp/d/{tenant}": only a named server (Mcp.servers) may have route parameters',
+            $logged,
+        );
+
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Endpoint: Mcp.route /mcp/d/{tenant} has parameters');
+    }
+
+    public function testMcpCheckShowsThePattern(): void
+    {
+        $this->external();
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp/t/{tenant} (one server per value of tenant)');
+    }
+}

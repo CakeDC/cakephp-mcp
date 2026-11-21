@@ -5,3 +5,4 @@
 .phpunit.result.cache
 /tests/Conformance/tmp/
 /tests/Conformance/results/
+/tests/Conformance/results-client/

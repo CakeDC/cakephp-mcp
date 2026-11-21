@@ -117,11 +117,116 @@ endpoint (`IntegrationTestTrait`, a `POST` to `/mcp` with your
 | `assertMcpInsufficientScope(?$scopes)` | was refused because the token lacks scopes, the way the endpoint answers `403 insufficient_scope`. With `$scopes` it also checks the scopes the call needs (any order). |
 | `assertMcpResultContains($text)` | returned text containing `$text`. |
 | `assertMcpStructuredContent($expected)` | returned this `structuredContent`. Key order does not matter, value types do. |
+| `assertMcpStructuredContentPath($path, $expected)` | returned `$expected` at a dot path of its `structuredContent` (`order.lines.0.sku`). Value types matter, and a missing path fails. |
+| `assertMcpStructuredContentHas($path)` | returned a `structuredContent` with that dot path, even with a `null` value. |
+| `assertMcpStructuredContentSubset($expected)` | returned a `structuredContent` that holds `$expected`: each key of an object with the same value, other keys allowed, lists compared whole. Value types matter. |
+| `assertMcpStructuredContentCount($path, $count)` | returned a list or object with `$count` items at that dot path (`''` for the whole structured content). |
+| `assertMcpStructuredContentType($path, $type)` | returned a value of that JSON type at that dot path: `string`, `number` (integers count), `integer`, `boolean`, `array`, `object` or `null`. |
+| `assertMcpProgressSent(?$count)` | reported progress (`notifications/progress`): at least once, or exactly `$count` times. |
+| `assertMcpNotificationSent($method)` | sent a notification of `$method`, for example `notifications/message` for a log line. |
+
+`mcpCallTool()` asks for progress (it sends a `progressToken`) and the test
+session sets the log level to `debug`, so a tool that calls
+`$client->progress()` or `$client->log()` on its `Mcp\Server\ClientGateway`
+runs to the end and its notifications are kept: `mcpNotifications()` returns
+them, all or those of one method. A tool that asks the client something
+(`$client->sample()`, `$client->elicit()`) cannot be answered in a test, and
+the call fails with a message saying so.
 
 `assertMcpToolListed($name)` and `assertMcpToolNotListed($name)` check what the
 current identity sees in `tools/list`. They make their own call.
 `assertMcpToolNotListed()` also checks that the tool exists, for the same
-reason as `assertMcpToolDenied()`.
+reason as `assertMcpToolDenied()`. With `Mcp.apps.enabled` on, the trait tells
+the server it renders apps, as an MCP Apps host does, so app-only tools are
+listed to it unless the authorizer hides them.
+
+`assertMcpToolListedFor($identity, $name)` and
+`assertMcpToolNotListedFor($identity, $name)` do the same for another identity,
+with default scopes, and leave the test's own identity, scopes and claims as
+they were:
+
+```php
+$this->assertMcpToolListedFor(['id' => 1, 'role' => 'admin'], 'refund_order');
+$this->assertMcpToolNotListedFor(['id' => 2, 'role' => 'user'], 'refund_order');
+```
+
+## Prompts, resources and completions
+
+The same trait gets prompts, reads resources and asks for completions, through
+the server as the current identity, scopes and server, like `mcpCallTool()`:
+
+```php
+public function testTheGreetingPrompt(): void
+{
+    $this->mcpActingAs(['id' => 1]);
+
+    $this->mcpGetPrompt('greet', ['name' => 'Ada']);
+
+    $this->assertMcpPromptMessages([
+        ['role' => 'user', 'text' => 'Say hello to Ada.'],
+        ['role' => 'assistant', 'text' => 'Hello, Ada!'],
+    ]);
+}
+
+public function testAnOrderReadsThroughItsTemplate(): void
+{
+    $this->mcpReadResource('orders://1002');
+
+    $this->assertMcpResourceText('Order 1002', 'text/plain');
+}
+
+public function testOrderNumbersComplete(): void
+{
+    $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://{number}'], 'number', '10');
+
+    $this->assertMcpCompletionValues(['1001', '1002']);
+}
+```
+
+| Method | Does |
+| --- | --- |
+| `mcpGetPrompt($name, $arguments)` | Gets a prompt and keeps the response. |
+| `mcpReadResource($uri)` | Reads a resource, also a URI a resource template matches, and keeps the response. |
+| `mcpComplete($ref, $argument, $value)` | Asks for the completions of a prompt argument (`['type' => 'ref/prompt', 'name' => 'greet']`) or of a template variable (`['type' => 'ref/resource', 'uri' => 'orders://{number}']`) and keeps the response. |
+| `mcpListPrompts()`, `mcpListResources()`, `mcpListResourceTemplates()` | Return what the current identity sees in `prompts/list`, `resources/list` and `resources/templates/list`, every page. |
+
+| Assertion | Passes when |
+| --- | --- |
+| `assertMcpPromptMessages($expected)` | the last prompt returned these messages, in order, each as `['role' => ..., 'text' => ...]` (`text` is null for a message that is not text). |
+| `assertMcpPromptContains($text)` | a text message of the last prompt contains `$text`. |
+| `assertMcpPromptError(?$contains)` | the last prompt was answered with a JSON-RPC error: an unknown prompt, a missing argument, a prompt that failed. |
+| `assertMcpResourceText($text, ?$mimeType)` | a content of the last resource read has exactly this text, and this MIME type when given. |
+| `assertMcpResourceContains($text)` | a text content of the last resource read contains `$text`. |
+| `assertMcpResourceError(?$contains)` | the last resource read was answered with a JSON-RPC error: an unknown URI or a resource that failed. The SDK sends `Error while reading resource` for an exception, not its message. |
+| `assertMcpCompletionValues($values)` | the last completion returned these values, in order. |
+| `assertMcpCompletionContains($value)` | the values of the last completion include `$value`. |
+| `assertMcpPromptListed($name)`, `assertMcpPromptNotListed($name)` | the current identity sees, or does not see, the prompt in `prompts/list`. |
+| `assertMcpResourceListed($uri)`, `assertMcpResourceNotListed($uri)` | the same for a resource in `resources/list`. |
+| `assertMcpResourceTemplateListed($uriTemplate)`, `assertMcpResourceTemplateNotListed($uriTemplate)` | the same for a template in `resources/templates/list`. |
+
+`assertMcpPromptListedFor($identity, $name)`, `assertMcpPromptNotListedFor()`,
+`assertMcpResourceListedFor($identity, $uri)` and
+`assertMcpResourceNotListedFor()` check what another identity sees, like
+`assertMcpToolListedFor()`, and leave the test's own identity as it was.
+`assertMcpPromptDenied()` and `assertMcpResourceDenied()` check that the last
+get or read was refused by your authorizer (see
+[Authorization](authorization.md#resources-and-prompts)).
+
+The `NotListed` assertions also check that the prompt, resource or template
+exists, so a typo cannot pass as hidden. `mcpResponse()` and
+`assertMcpJsonRpcError()` work on the last of all these calls. The tests that
+`bin/cake bake mcp_resource` and `bin/cake bake mcp_prompt` write use these
+helpers.
+
+## Several servers
+
+With `Mcp.servers`, the trait talks to the `default` server. Switch with
+`mcpUseServer()`:
+
+```php
+$this->mcpUseServer('admin');
+$this->assertMcpToolListed('refund_order');
+```
 
 ## Replacing services
 

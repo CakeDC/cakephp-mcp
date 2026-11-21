@@ -142,6 +142,32 @@ class ServerFactoryTest extends TestCase
         $this->assertSame('Use echo to test.', $result['instructions'] ?? null);
     }
 
+    public function testForServerUsesThatServersToolsAndInfo(): void
+    {
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/admin',
+            'discovery' => ['scanDirs' => ['src/McpDocs']],
+            'server' => ['name' => 'Admin MCP'],
+        ]);
+        $this->factory = $this->factory->forServer('admin');
+
+        $transport = $this->runServer();
+        $names = $this->toolNames($transport);
+
+        $this->assertSame('admin', $this->factory->server());
+        $this->assertContains('find_order', $names);
+        $this->assertNotContains('echo', $names);
+        $this->assertSame('Admin MCP', $transport->responseFor(1)['result']['serverInfo']['name'] ?? null);
+    }
+
+    public function testForServerRejectsAnUnknownName(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"Mcp.servers.nope" is not configured.');
+
+        $this->factory->forServer('nope');
+    }
+
     public function testServerInfoFromConfig(): void
     {
         Configure::write('Mcp.server', [
@@ -156,6 +182,30 @@ class ServerFactoryTest extends TestCase
         $this->assertSame('My App', $info['title'] ?? null);
         $this->assertSame('Articles and orders.', $info['description'] ?? null);
         $this->assertSame('https://app.example.com', $info['websiteUrl'] ?? null);
+    }
+
+    public function testServerIconsFromConfig(): void
+    {
+        Configure::write('Mcp.server.icons', [
+            ['src' => 'https://app.example.com/icon.png', 'mimeType' => 'image/png', 'sizes' => ['48x48']],
+            ['src' => 'https://app.example.com/icon-dark.svg', 'mimeType' => 'image/svg+xml', 'theme' => 'dark'],
+        ]);
+
+        $info = $this->runServer()->responseFor(1)['result']['serverInfo'] ?? [];
+
+        $this->assertSame([
+            ['src' => 'https://app.example.com/icon.png', 'mimeType' => 'image/png', 'sizes' => ['48x48']],
+            ['src' => 'https://app.example.com/icon-dark.svg', 'mimeType' => 'image/svg+xml', 'theme' => 'dark'],
+        ], $info['icons'] ?? null);
+    }
+
+    public function testInvalidServerIconsFailNamingTheSetting(): void
+    {
+        Configure::write('Mcp.server.icons', [['mimeType' => 'image/png']]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Mcp.server.icons');
+        $this->runServer();
     }
 
     public function testConfigureHookReceivesTheBuilder(): void

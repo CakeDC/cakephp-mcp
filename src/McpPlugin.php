@@ -10,11 +10,14 @@ use Cake\Core\BasePlugin;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
 use Cake\Routing\RouteBuilder;
+use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Command\McpInspectorCommand;
 use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
+use CakeDC\Mcp\Log\ConfigMistakes;
 use CakeDC\Mcp\OAuth\AuthSettings;
+use CakeDC\Mcp\Server\McpRoute;
 use CakeDC\Mcp\Server\ServerFactory;
 
 /**
@@ -33,10 +36,26 @@ class McpPlugin extends BasePlugin
     {
         parent::bootstrap($app);
 
-        $caches = [McpConfig::get('discovery.cache'), McpConfig::get('session.cache')];
-        if (McpConfig::get('auth.mode') === AuthSettings::EXTERNAL) {
-            // Discovery metadata and signing keys of the external authorization server.
-            $caches[] = McpConfig::get('auth.external.cache');
+        // A mistake in one entry stops that entry only: it is logged, its routes are not connected and
+        // `bin/cake mcp check` fails on it, while the rest of the application keeps working.
+        foreach (McpConfig::serverErrors() as $name => $error) {
+            // An entry named `default` is ignored: the top-level config still serves the default server.
+            ConfigMistakes::log($name === McpConfig::DEFAULT_SERVER
+                ? sprintf('"Mcp.servers.default" is ignored: %s', $error)
+                : sprintf('MCP server "%s" is not served: %s', $name, $error));
+        }
+        foreach (ClientConfig::errors() as $name => $error) {
+            ConfigMistakes::log(sprintf('MCP client "%s" is not usable: %s', $name, $error));
+        }
+
+        $caches = [];
+        foreach (McpConfig::servers() as $server) {
+            $caches[] = McpConfig::get('discovery.cache', $server);
+            $caches[] = McpConfig::get('session.cache', $server);
+            if (McpConfig::get('auth.mode', $server) === AuthSettings::EXTERNAL) {
+                // Discovery metadata and signing keys of the external authorization server.
+                $caches[] = McpConfig::get('auth.external.cache', $server);
+            }
         }
         foreach ($caches as $name) {
             if (!is_string($name) || $name === '' || Cache::getConfig($name) !== null) {
@@ -60,20 +79,43 @@ class McpPlugin extends BasePlugin
      */
     public function routes(RouteBuilder $routes): void
     {
-        $path = McpConfig::get('route');
-        if (!is_string($path) || $path === '') {
-            return;
+        // Named servers first: the default server's routes carry no `server` param, so connected first they would
+        // also match reverse routing to a named server.
+        foreach (array_reverse(McpConfig::servers()) as $server) {
+            $path = McpConfig::get('route', $server);
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            // The default server keeps the 2.1 routes, without a `server` param, so reverse routing to them still
+            // matches; the controllers read a missing param as `default`.
+            $param = $server === McpConfig::DEFAULT_SERVER ? [] : ['server' => $server];
+            // A route such as /mcp/{tenant}: each parameter is one path segment, a slug.
+            $patterns = array_fill_keys(McpConfig::routeParams($path), McpConfig::ROUTE_VALUE);
+            $routes->connect(
+                $path,
+                ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'] + $param,
+            )->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS'])->setPatterns($patterns);
+            // Always connected: routes are cached, and a mode switch must not need a cache clear.
+            // In host mode the controller answers 404.
+            $routes->connect(
+                McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
+                ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'] + $param,
+            )->setMethods(['GET', 'OPTIONS'])->setPatterns($patterns);
         }
 
-        $routes->connect($path, ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle'])
-            ->setMethods(['GET', 'POST', 'DELETE', 'OPTIONS']);
-
-        // Always connected: routes are cached, and a mode switch must not need a cache clear.
-        // In host mode the controller answers 404.
-        $routes->connect(
-            McpConfig::METADATA_PREFIX . '/' . ltrim($path, '/'),
-            ['plugin' => 'CakeDC/Mcp', 'controller' => 'ProtectedResource', 'action' => 'metadata'],
-        )->setMethods(['GET', 'OPTIONS']);
+        // The sign-in of user mode clients (Mcp.clients with `auth` `user`), only when one is configured.
+        // Never at the site's root: a route that is not a path is a logged mistake, and `mcp check` fails on it.
+        if (ClientConfig::anyUserMode() && ClientConfig::routeError() === null) {
+            $base = '/' . trim((string)ClientConfig::setting('route'), '/');
+            // The Client ID Metadata Document (client.json), which authorization servers fetch.
+            $actions = ['connect' => 'connect', 'callback' => 'callback', 'client.json' => 'metadata'];
+            foreach ($actions as $path => $action) {
+                $routes->connect(
+                    $base . '/{client}/' . $path,
+                    ['plugin' => 'CakeDC/Mcp', 'controller' => 'McpClient', 'action' => $action],
+                )->setPass(['client'])->setPatterns(['client' => '[A-Za-z0-9_-]+'])->setMethods(['GET']);
+            }
+        }
     }
 
     /**
@@ -97,6 +139,7 @@ class McpPlugin extends BasePlugin
     public function services(ContainerInterface $container): void
     {
         $container->addShared(CurrentIdentity::class);
+        $container->addShared(McpRoute::class);
         $container->addShared(ServerFactory::class)
             ->addArgument($container)
             ->addArgument(CurrentIdentity::class);

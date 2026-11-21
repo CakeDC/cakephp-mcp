@@ -13,6 +13,7 @@ Built on the official [`mcp/sdk`](https://github.com/modelcontextprotocol/php-sd
 - Per-tool authorization, including `config/permissions.php` rules through `cakedc/auth`.
 - `McpTestTrait` to test your tools, and who may call them, from a regular Cake test case.
 - An audit log of MCP calls (`Mcp.audit`, off by default): who called which tool, with which arguments, and how it ended, to a log scope or your own table.
+- Since 2.2: several MCP servers in one application (`Mcp.servers`), a tool catalog that keeps large tool sets out of `tools/list` (`find_tools` and `call_tools`), MCP Apps rendered from Cake templates, tools registered only when a flag is on (`#[McpWhen]`), cache hints, and an MCP client to call other MCP servers, on behalf of each user after an OAuth sign-in if needed. See the [features overview](docs/features.md).
 
 ## Requirements
 
@@ -94,15 +95,19 @@ $service->loadAuthenticator('Authentication.Token', [
 
 ## Documentation
 
+- [Features](docs/features.md)
 - [Installation](docs/installation.md)
 - [Configuration](docs/configuration.md)
 - [Writing tools](docs/tools.md)
+- [Resources and prompts](docs/resources-and-prompts.md)
+- [MCP Apps](docs/apps.md)
 - [Authentication](docs/authentication.md)
 - [OAuth](docs/oauth.md)
 - [Authorization](docs/authorization.md)
 - [Testing your tools](docs/testing.md)
 - [stdio](docs/stdio.md)
 - [Connecting clients](docs/clients.md)
+- [Calling other MCP servers](docs/mcp-client.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Protocol conformance](docs/conformance.md)
 

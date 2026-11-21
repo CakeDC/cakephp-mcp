@@ -1,0 +1,24 @@
+<?php
+/**
+ * The page of the {{ mcpName }} MCP App. The layout defines `McpApps`, the official MCP Apps client.
+ *
+ * @var \Cake\View\View $this
+ */
+?>
+<main>
+    <h1>{{ className }}</h1>
+    <ul id="items"></ul>
+</main>
+<script type="module">
+    const app = new McpApps.App({name: '{{ className }}', version: '1.0.0'});
+    // The result of show_{{ mcpName }}, when the model called it.
+    app.ontoolresult = (result) => {
+        const items = result.structuredContent?.items ?? [];
+        document.getElementById('items').replaceChildren(...items.map((item) => {
+            const li = document.createElement('li');
+            li.textContent = JSON.stringify(item);
+            return li;
+        }));
+    };
+    await app.connect();
+</script>

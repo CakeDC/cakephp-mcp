@@ -1,0 +1,22 @@
+{{ element('Bake.file_header', {
+    namespace: testNamespace,
+    classImports: [
+        'Cake\\TestSuite\\TestCase',
+        'CakeDC\\Mcp\\TestSuite\\McpTestTrait',
+    ],
+}) }}
+
+class {{ className }}Test extends TestCase
+{
+    use McpTestTrait;
+
+    public function testItBuildsMessages(): void
+    {
+        $this->mcpActingAs(['id' => 1]);
+
+        $this->mcpGetPrompt('{{ mcpName }}', ['topic' => 'example']);
+
+        $this->assertMcpPromptContains('example');
+        $this->assertMcpPromptListed('{{ mcpName }}');
+    }
+}

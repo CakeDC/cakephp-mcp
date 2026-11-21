@@ -7,6 +7,7 @@ use Cake\Event\Event;
 use Cake\Event\EventManager;
 use Cake\Log\Log;
 use CakeDC\Mcp\Log\McpLogger;
+use CakeDC\Mcp\McpConfig;
 use Throwable;
 
 /**
@@ -95,7 +96,14 @@ final class AuditWriter
             }
         }
         try {
-            EventManager::instance()->dispatch(new Event(self::EVENT, null, $record->toArray()));
+            $data = $record->toArray();
+            if ($this->settings->server !== McpConfig::DEFAULT_SERVER) {
+                $data['server'] = $this->settings->server;
+            }
+            if ($this->settings->route !== []) {
+                $data['route'] = $this->settings->route;
+            }
+            EventManager::instance()->dispatch(new Event(self::EVENT, null, $data));
         } catch (Throwable $exception) {
             $this->report('a listener of the Mcp.audit event failed', $exception);
         }
@@ -118,6 +126,22 @@ final class AuditWriter
             $this->field($record->session),
             $this->field($record->request),
         );
+        if ($this->settings->server !== McpConfig::DEFAULT_SERVER) {
+            $line .= ' server=' . $this->field($this->settings->server);
+        }
+        if ($this->settings->route !== []) {
+            $pairs = [];
+            foreach ($this->settings->route as $name => $value) {
+                $pairs[] = $name . ':' . $value;
+            }
+            $line .= ' route=' . $this->field(implode(',', $pairs));
+        }
+        if ($record->via !== null) {
+            $line .= ' via=' . $this->field($record->via);
+        }
+        if ($record->app) {
+            $line .= ' app=1';
+        }
         if ($this->settings->arguments) {
             $line .= ' args=' . json_encode((object)$record->arguments, self::JSON_FLAGS);
         }

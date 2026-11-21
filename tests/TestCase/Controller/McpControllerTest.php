@@ -4,9 +4,16 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Controller;
 
 use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\McpConfig;
+use Mcp\Schema\Enum\CacheScope;
+use Mcp\Server\Builder;
+use Mcp\Server\Wire\CachePolicy;
+use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
 use TestApp\AuthorizationSpy;
 use TestApp\TestTokens;
@@ -64,6 +71,142 @@ class McpControllerTest extends TestCase
         );
         $this->assertResponseOk();
         $this->assertSame('stateless', $this->json()['result']['content'][0]['text'] ?? null);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function invalidUtf8Headers(): array
+    {
+        return [
+            'Mcp-Name' => ['Mcp-Name', "ech\xffo"],
+            'Mcp-Method' => ['Mcp-Method', "tools/\xc3call"],
+            'Mcp-Param' => ['Mcp-Param-Text', "\xe2\x82"],
+        ];
+    }
+
+    #[DataProvider('invalidUtf8Headers')]
+    public function testAnMcpHeaderThatIsNotUtf8IsABadRequest(string $header, string $value): void
+    {
+        $headers = $this->modernHeaders('tools/call', 'echo');
+        $headers[$header] = $value;
+
+        $this->mcp($this->modern(1, 'tools/call', ['name' => 'echo', 'arguments' => ['text' => 'hi']]), $headers);
+
+        $this->assertResponseCode(400);
+        $this->assertSame(-32600, $this->json()['error']['code'] ?? null, (string)$this->_response?->getBody());
+    }
+
+    public function testAPathEndingInALineFeedIsNotTheEndpoint(): void
+    {
+        // Cake's route pattern ends in $, which also matches before a final line feed: /mcp%0A would reach the
+        // controller while McpConfig::isEndpoint() says it is not the endpoint (a rate limit before routing).
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'), '/mcp%0A');
+
+        $this->assertResponseCode(404);
+        $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => '/mcp%0A'])));
+    }
+
+    public function testModernListCarriesPrivateNoCacheHintsByDefault(): void
+    {
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+
+        $this->assertResponseOk();
+        $this->assertSame(0, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testServerCacheSetsTheHints(): void
+    {
+        Configure::write('Mcp.server.cache', [
+            'ttl' => 60000,
+            'scope' => 'public',
+            'methods' => ['tools/list' => ['ttl' => 300000]],
+        ]);
+
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+
+        $this->assertResponseOk();
+        $this->assertSame(300000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('public', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testAToolListFilteredByAnAuthorizerIsNeverPublic(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return $tool !== 'admin_only';
+            }
+        });
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+        $this->assertSame(60000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+
+        // A policy the hook sets is no exception.
+        Configure::write('Mcp.server.cache', null);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setCachePolicy(CachePolicy::default(30000, CacheScope::Public));
+        });
+        $this->mcp($this->modern(2, 'tools/list'), $this->modernHeaders('tools/list'));
+        $this->assertSame(30000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testAToolListThatDependsOnTheClientsAppsSupportIsNeverPublic(): void
+    {
+        // With MCP Apps on, a client that renders apps gets app-only tools listed and one that does not, not:
+        // a shared cache keyed by method and cursor would serve one client's list to the other.
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'));
+
+        $this->assertResponseOk();
+        $this->assertSame(60000, $this->json()['result']['ttlMs'] ?? null);
+        $this->assertSame('private', $this->json()['result']['cacheScope'] ?? null);
+    }
+
+    public function testANamedServerTurnsInheritedHintsOffWithAnEmptyArrayOrNull(): void
+    {
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+        foreach ([[], null] as $off) {
+            Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'server' => ['cache' => $off]]);
+
+            $this->assertNull(McpConfig::get('server.cache', 'admin'));
+        }
+    }
+
+    public function testHandshakeEraHasNoCacheHints(): void
+    {
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+        $this->mcp($this->initialize(1));
+        $headers = [
+            'Mcp-Session-Id' => $this->_response->getHeaderLine('Mcp-Session-Id'),
+            'MCP-Protocol-Version' => self::HANDSHAKE,
+        ];
+        $this->mcp(['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $headers);
+
+        $this->mcp(['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'], $headers);
+
+        $this->assertResponseOk();
+        $this->assertArrayNotHasKey('ttlMs', $this->json()['result'] ?? []);
+    }
+
+    public function testModernEraSendsAListAsStructuredContentToo(): void
+    {
+        // docs/tools.md, Results: under 2026-07-28 a list also travels as structuredContent.
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpDocs']);
+
+        $this->mcp(
+            $this->modern(1, 'tools/call', ['name' => 'order_numbers', 'arguments' => new stdClass()]),
+            $this->modernHeaders('tools/call', 'order_numbers'),
+        );
+
+        $this->assertResponseOk();
+        $this->assertSame(['A-1', 'A-2'], $this->json()['result']['structuredContent'] ?? null);
     }
 
     public function testJsonBodyIsReadAfterBodyParserMiddleware(): void
@@ -221,7 +364,7 @@ class McpControllerTest extends TestCase
      * @param array<string, mixed> $message
      * @param array<string, string> $headers Overrides; an empty Authorization removes it.
      */
-    private function mcp(array $message, array $headers = []): void
+    private function mcp(array $message, array $headers = [], string $path = '/mcp'): void
     {
         $headers += [
             'Host' => 'localhost',
@@ -230,7 +373,7 @@ class McpControllerTest extends TestCase
             'Authorization' => 'Bearer ' . TestTokens::EDITOR,
         ];
         $this->configRequest(['headers' => array_filter($headers, fn(string $value): bool => $value !== '')]);
-        $this->post('/mcp', (string)json_encode($message));
+        $this->post($path, (string)json_encode($message));
     }
 
     /**

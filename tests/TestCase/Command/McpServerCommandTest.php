@@ -73,6 +73,40 @@ class McpServerCommandTest extends TestCase
         $this->assertContains('echo', array_column($command->transport?->responseFor(2)['result']['tools'] ?? [], 'name'));
     }
 
+    public function testServesTheNamedServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+        $command = $this->command();
+
+        $code = $command->run(['--server', 'admin'], new ConsoleIo(new StubConsoleOutput(), new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame(McpServerCommand::CODE_SUCCESS, $code);
+        $names = array_column($command->transport?->responseFor(2)['result']['tools'] ?? [], 'name');
+        $this->assertContains('find_order', $names);
+        $this->assertNotContains('echo', $names);
+    }
+
+    public function testServesANamedServerWithoutRoute(): void
+    {
+        Configure::write('Mcp.servers.local', ['route' => false, 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+        $command = $this->command();
+
+        $code = $command->run(['--server', 'local'], new ConsoleIo(new StubConsoleOutput(), new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame(McpServerCommand::CODE_SUCCESS, $code);
+        $this->assertContains('find_order', array_column($command->transport?->responseFor(2)['result']['tools'] ?? [], 'name'));
+    }
+
+    public function testUnknownServerFails(): void
+    {
+        $err = new StubConsoleOutput();
+
+        $code = $this->command()->run(['--server', 'nope'], new ConsoleIo(new StubConsoleOutput(), $err, new StubConsoleInput([])));
+
+        $this->assertSame(McpServerCommand::CODE_ERROR, $code);
+        $this->assertStringContainsString('"Mcp.servers.nope" is not configured.', $err->output());
+    }
+
     public function testIdentityComesFromTheStdioResolver(): void
     {
         Configure::write('Mcp.stdio.identity', fn(): array => ['id' => 42]);

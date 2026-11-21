@@ -43,6 +43,11 @@ class McpInspectorCommand extends Command
     }
 
     /**
+     * The MCP server being inspected.
+     */
+    private string $server = McpConfig::DEFAULT_SERVER;
+
+    /**
      * @inheritDoc
      */
     protected function buildOptionParser(ConsoleOptionParser $parser): ConsoleOptionParser
@@ -65,6 +70,10 @@ class McpInspectorCommand extends Command
                 'help' => 'Environment variable passed to the stdio server, by name. The Inspector passes only '
                     . 'a few (PATH, HOME...), so name the ones your app reads. Repeat it for more.',
             ])
+            ->addOption('server', [
+                'help' => 'The MCP server to inspect: default, or a key of Mcp.servers.',
+                'default' => McpConfig::DEFAULT_SERVER,
+            ])
             ->addOption('dry-run', [
                 'boolean' => true,
                 'help' => 'Print the Inspector configuration and command without starting it.',
@@ -80,6 +89,12 @@ class McpInspectorCommand extends Command
         $headers = $this->listOption($args, 'header');
         $env = $this->listOption($args, 'env');
         $http = $args->getOption('http') === true || is_string($url);
+        $this->server = is_string($args->getOption('server')) ? $args->getOption('server') : McpConfig::DEFAULT_SERVER;
+        if (!in_array($this->server, McpConfig::servers(), true)) {
+            $io->error(sprintf('"Mcp.servers.%s" is not configured.', $this->server));
+
+            return static::CODE_ERROR;
+        }
         if ($headers !== [] && !$http) {
             $io->error('Headers are only sent over HTTP. Add --http or --url.');
 
@@ -272,7 +287,9 @@ class McpInspectorCommand extends Command
         $server = [
             'type' => 'stdio',
             'command' => PHP_BINARY,
-            'args' => [$cake, 'mcp', 'server'],
+            'args' => $this->server === McpConfig::DEFAULT_SERVER
+                ? [$cake, 'mcp', 'server']
+                : [$cake, 'mcp', 'server', '--server', $this->server],
             'cwd' => rtrim(ROOT, DS),
         ];
         foreach ($env as $name) {
@@ -298,7 +315,7 @@ class McpInspectorCommand extends Command
     private function httpServer(?string $url, array $headers, ConsoleIo $io): ?array
     {
         if ($url === null) {
-            $route = McpConfig::get('route');
+            $route = McpConfig::get('route', $this->server);
             if (!is_string($route) || $route === '') {
                 $io->error('The HTTP endpoint is disabled (`Mcp.route`). Pass --url to inspect another server.');
 
@@ -307,6 +324,17 @@ class McpInspectorCommand extends Command
             $base = Configure::read('App.fullBaseUrl');
             if (!is_string($base) || $base === '') {
                 $io->error('`App.fullBaseUrl` is not set, so the endpoint URL is unknown. Pass it with --url.');
+
+                return null;
+            }
+            $params = McpConfig::routeParams($route);
+            if ($params !== []) {
+                $io->error(sprintf(
+                    'The route %s has parameters ({%s}): pass the URL of one value with --url, such as %s.',
+                    $route,
+                    implode('}, {', $params),
+                    rtrim($base, '/') . McpConfig::withRouteValues($route, array_fill_keys($params, 'acme')),
+                ));
 
                 return null;
             }
@@ -333,7 +361,7 @@ class McpInspectorCommand extends Command
      */
     private function serverName(): string
     {
-        return strtolower(Text::slug((string)McpConfig::get('server.name'))) ?: 'cakephp';
+        return strtolower(Text::slug((string)McpConfig::get('server.name', $this->server))) ?: 'cakephp';
     }
 
     /**

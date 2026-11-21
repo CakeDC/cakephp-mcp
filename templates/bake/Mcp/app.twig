@@ -1,0 +1,41 @@
+{{ element('Bake.file_header', {
+    namespace: "#{namespace}\\Mcp",
+    classImports: [
+        'CakeDC\\Mcp\\App\\AppView',
+        'CakeDC\\Mcp\\Attribute\\McpApp',
+        'Mcp\\Capability\\Attribute\\McpResource',
+        'Mcp\\Capability\\Attribute\\McpTool',
+        'Mcp\\Schema\\Content\\TextResourceContents',
+        'Mcp\\Schema\\Extension\\Apps\\McpApps',
+        'Mcp\\Schema\\ToolAnnotations',
+    ],
+}) }}
+
+/**
+ * An MCP App: a page the host shows in a frame, and the tool that opens it.
+ */
+class {{ className }}
+{
+    /**
+     * The page, rendered from templates/Mcp/{{ mcpName }}.php.
+     *
+     * @return \Mcp\Schema\Content\TextResourceContents
+     */
+    #[McpResource(uri: 'ui://app/{{ uriName }}', name: '{{ mcpName }}', mimeType: McpApps::MIME_TYPE)]
+    public function page(): TextResourceContents
+    {
+        return AppView::render('ui://app/{{ uriName }}', '{{ pageTemplate }}');
+    }
+
+    /**
+     * Describe what the app shows: the model calls this tool, and the host opens the app with its result.
+     *
+     * @return array<string, mixed>
+     */
+    #[McpApp(resource: 'ui://app/{{ uriName }}')]
+    #[McpTool(name: 'show_{{ mcpName }}', annotations: new ToolAnnotations(readOnlyHint: true, openWorldHint: false))]
+    public function show(): array
+    {
+        return ['items' => []];
+    }
+}

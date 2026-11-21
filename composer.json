@@ -21,6 +21,7 @@
         "cakedc/cakephp-oauth-server": "^1.0",
         "cakedc/oauth-server": "^1.0",
         "cakephp/authentication": "^3.3",
+        "cakephp/bake": "^3.0",
         "cakephp/cakephp-codesniffer": "^5.1",
         "cakephp/migrations": "^4.0 || ^5.0",
         "firebase/php-jwt": "^6.10 || ^7.0",
@@ -29,6 +30,8 @@
         "psr/cache": "^2.0 || ^3.0"
     },
     "suggest": {
+        "cakephp/bake": "Generates MCP tools, resources, prompts and apps with their tests (bin/cake bake mcp_tool, mcp_resource, mcp_prompt, mcp_app)",
+        "cakephp/migrations": "Creates the tables of the MCP client's user mode (bin/cake migrations migrate -p CakeDC/Mcp)",
         "cakephp/authentication": "Identifies the caller of the MCP endpoint (for example with a Bearer token authenticator)",
         "cakedc/auth": "Enables RbacToolAuthorizer, per-tool permissions in the config/permissions.php format",
         "cakedc/cakephp-oauth-server": "OAuth 2.1 sign-in for remote MCP clients with the application's own login (Mcp.auth.mode oauth)",
@@ -62,7 +65,7 @@
         "test": "phpunit",
         "cs-check": "phpcs --colors -p",
         "cs-fix": "phpcbf --colors -p",
-        "stan": "phpstan analyse --no-progress"
+        "stan": "phpstan analyse --no-progress --memory-limit=1G"
     },
     "config": {
         "sort-packages": true,

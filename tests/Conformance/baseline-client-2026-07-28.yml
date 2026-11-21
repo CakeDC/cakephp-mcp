@@ -1,0 +1,14 @@
+# Client scenarios of the official conformance suite expected to fail at 2026-07-28, with the reason.
+client:
+  # The SDK (mcp/sdk) does not retry server/discover with a version the server lists in its
+  # UnsupportedProtocolVersion error: not the plugin's code.
+  - request-metadata
+  # The plugin's client id is the URL of its own client.json route, not the one the suite names.
+  - auth/basic-cimd
+  # The first scope comes from the 401 of the probe; this server challenges server/discover with 403, and the SDK's
+  # handshake fallback after it fails (see the 2025-11-25 baseline).
+  - auth/scope-step-up
+  # The plugin's MCP client does not answer input requests (elicitation, sampling) of an InputRequiredResult.
+  - sep-2322-client-request-state
+  # The SDK (mcp/sdk) leaves out the Mcp-Param header of an empty string value: not the plugin's code.
+  - http-custom-headers:sep-2243-client-mirrors-designated-params
