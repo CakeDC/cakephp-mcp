@@ -118,6 +118,32 @@ class McpClientHttpTest extends TestCase
         $this->assertSame('strlen', McpClients::get('remote')->callTool('whoami')->content[0]->text ?? null);
     }
 
+    public function testARedirectOfTheEndpointSaysSoAndIsNotFollowed(): void
+    {
+        $seen = [];
+        $this->intercepting(function ($request, array $rpc) use (&$seen): ?ClientResponse {
+            $seen[] = (string)$request->getUri();
+
+            return new ClientResponse(['HTTP/1.1 308 Permanent Redirect', 'Location: /mcp/?session=abc#x'], '');
+        });
+
+        foreach (['listTools', 'listTools'] as $call) {
+            try {
+                McpClients::get('remote')->{$call}();
+                $this->fail('No exception');
+            } catch (ClientException $e) {
+                $this->assertSame(
+                    'The server of "remote" answered with a redirect (308) to https://mcp.example.com/mcp/. The MCP '
+                    . 'client does not follow redirects, since the token would go wherever they point: set '
+                    . '"Mcp.clients.remote.url" to the final address.',
+                    $e->getMessage(),
+                );
+            }
+        }
+        // Only the configured URL was asked.
+        $this->assertSame(['https://mcp.example.com/mcp'], array_values(array_unique($seen)));
+    }
+
     public function testIntrospection(): void
     {
         $client = McpClients::get('remote');

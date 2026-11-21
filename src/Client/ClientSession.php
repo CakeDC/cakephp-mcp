@@ -5,12 +5,14 @@ namespace CakeDC\Mcp\Client;
 
 use Cake\Http\RequestFactory;
 use Cake\Http\StreamFactory;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Log\McpLogger;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Mcp\Client\Transport\StdioTransport;
 use Mcp\Client\Transport\TransportInterface;
 use Mcp\Exception\ConnectionException;
+use Mcp\Exception\ExceptionInterface;
 use Mcp\Exception\RequestException;
 use Mcp\Schema\JsonRpc\Error;
 
@@ -96,6 +98,35 @@ final class ClientSession
      * @return T
      */
     public function call(callable $call): mixed
+    {
+        try {
+            return $this->attempt($call);
+        } catch (ExceptionInterface $e) {
+            // The SDK reports a redirect as an empty answer: say what it was.
+            $redirect = $this->http?->lastRedirect();
+            if ($redirect === null) {
+                throw $e;
+            }
+            $parts = (array)parse_url($redirect[1]);
+            $target = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '')
+                . (isset($parts['port']) ? ':' . $parts['port'] : '') . ($parts['path'] ?? '/');
+            throw new ClientException(sprintf(
+                'The server of "%s" answered with a redirect (%d) to %s. The MCP client does not follow redirects, '
+                . 'since the token would go wherever they point: set "Mcp.clients.%s.url" to the final address.',
+                $this->config->name,
+                $redirect[0],
+                $target,
+                $this->config->name,
+            ), 0, $e);
+        }
+    }
+
+    /**
+     * @template T
+     * @param callable(\Mcp\Client): T $call The call.
+     * @return T
+     */
+    private function attempt(callable $call): mixed
     {
         $this->http?->startCall();
         $client = $this->client();

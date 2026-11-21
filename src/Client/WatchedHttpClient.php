@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Client;
 
 use Cake\Http\Client\Response;
 use Cake\Http\StreamFactory;
+use CakeDC\Mcp\Client\Http\GuardedHttp;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -51,6 +52,13 @@ final class WatchedHttpClient implements ClientInterface
     private bool $probed = false;
 
     /**
+     * The status and absolute `Location` of the last answer when it was a redirect, which is never followed.
+     *
+     * @var array{0: int, 1: string}|null
+     */
+    private ?array $redirect = null;
+
+    /**
      * @param \Psr\Http\Client\ClientInterface $client The client it wraps.
      * @param \CakeDC\Mcp\Client\ClientConfig|null $config The client, whose `token` callable is called for each request.
      * @param \CakeDC\Mcp\Client\ListCache|null $cache The client's cache, for the `server/discover` probe.
@@ -69,6 +77,7 @@ final class WatchedHttpClient implements ClientInterface
     {
         $this->lastStatus = null;
         $this->lastChallenge = null;
+        $this->redirect = null;
         $token = $this->config?->callableToken();
         if ($token !== null) {
             $request = $request->withHeader('Authorization', 'Bearer ' . $token);
@@ -94,6 +103,10 @@ final class WatchedHttpClient implements ClientInterface
         }
         $response = $this->client->sendRequest($request);
         $this->lastStatus = $response->getStatusCode();
+        $location = $response->getHeaderLine('Location');
+        if (in_array($this->lastStatus, [301, 302, 303, 307, 308], true) && $location !== '') {
+            $this->redirect = [$this->lastStatus, GuardedHttp::resolve((string)$request->getUri(), $location)];
+        }
         if (
             $request->getMethod() === 'POST'
             && $response->getStatusCode() >= 200
@@ -230,6 +243,14 @@ final class WatchedHttpClient implements ClientInterface
     public function lastChallenge(): ?string
     {
         return $this->lastChallenge;
+    }
+
+    /**
+     * @return array{0: int, 1: string}|null The status and target of the last answer, when it was a redirect.
+     */
+    public function lastRedirect(): ?array
+    {
+        return $this->redirect;
     }
 
     /**

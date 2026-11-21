@@ -474,6 +474,10 @@ There are two levels of trust:
   (a compressed answer is refused, so the cap applies to what is read). A redirect is
   followed only for metadata, and checked again; requests that carry a code,
   a secret or a token never follow one.
+- **The MCP endpoint itself** is never followed when it redirects (http to
+  https, a trailing slash, a login page): the call throws a `ClientException`
+  that names the status and the target (without its query) and asks you to
+  set the client's `url` to the final address.
 
 An authorization server on a private address is therefore refused when it is
 discovered. Configure its endpoints, as above, to use it, or set
