@@ -18,8 +18,9 @@ use CakeDC\Mcp\Client\Store\StoredConnection;
 final class ClientCredentials
 {
     /**
-     * The user id the application's own token is stored under. Plain text, for every database; it cannot meet a
-     * real user, since a client_credentials client has no users (for() refuses it) and rows are keyed by client.
+     * The start of the user id the application's own token is stored under, followed by `:` and a fingerprint of
+     * what the token was asked for with (see storeUser()). Plain text, for every database; it cannot meet a real
+     * user, since a client_credentials client has no users (for() refuses it) and rows are keyed by client.
      */
     public const STORE_USER = 'client_credentials';
 
@@ -45,7 +46,8 @@ final class ClientCredentials
     public function token(bool $renew = false): string
     {
         $now = DateTime::now()->getTimestamp();
-        $stored = $this->store->get($this->config->name, self::STORE_USER);
+        $user = $this->storeUser();
+        $stored = $this->store->get($this->config->name, $user);
         if (
             !$renew
             && $stored !== null
@@ -66,7 +68,7 @@ final class ClientCredentials
         );
         $this->store->save(new StoredConnection(
             $this->config->name,
-            self::STORE_USER,
+            $user,
             $set->accessToken,
             null,
             $set->expiresIn === null ? null : $now + $set->expiresIn,
@@ -81,6 +83,26 @@ final class ClientCredentials
         ));
 
         return $set->accessToken;
+    }
+
+    /**
+     * The user id of the token for the client as configured now: a token asked for at another issuer or token
+     * URL, by another client id or for other scopes is never found, so it is not sent, and a new one is asked for.
+     *
+     * @return string
+     */
+    private function storeUser(): string
+    {
+        $scopes = $this->config->scopes;
+        sort($scopes);
+        $fingerprint = hash('sha256', (string)json_encode([
+            $this->config->issuer,
+            $this->config->tokenUrl,
+            $this->config->clientId,
+            $scopes,
+        ]));
+
+        return self::STORE_USER . ':' . substr($fingerprint, 0, 32);
     }
 
     /**

@@ -129,7 +129,9 @@ metadata of the configured `issuer`, which must name itself exactly as
 never to one the MCP server names. The token is kept in the connection store,
 encrypted like the user grants (run the plugin's migrations), and used until it
 expires within `Mcp.client.refreshLeeway` seconds; when the server refuses it
-(`401`), a new one is asked for once. `bin/cake mcp check` shows such clients
+(`401`), a new one is asked for once. The token is kept for the `issuer`,
+`tokenUrl`, `clientId` and `scopes` it was asked with: once you change one of
+them, the stored token is no longer used and a new one is asked for. `bin/cake mcp check` shows such clients
 on its `Clients` line, without their secret.
 
 ## A local server over stdio

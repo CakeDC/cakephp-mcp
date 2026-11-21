@@ -13,6 +13,7 @@ use CakeDC\Mcp\Client\ClientRegistry;
 use CakeDC\Mcp\Client\Http\EndpointGuard;
 use CakeDC\Mcp\Client\Http\GuardedHttp;
 use CakeDC\Mcp\Client\McpClients;
+use CakeDC\Mcp\Client\OAuth\Discovery;
 use CakeDC\Mcp\Client\OAuth\OAuthException;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\Test\Support\FakeOAuthServer;
@@ -96,6 +97,81 @@ class ClientCredentialsTest extends TestCase
         McpClients::setRegistry($this->oauth->registry());
         McpClients::get('robot')->listTools();
         $this->assertCount(2, $this->oauth->tokenRequests);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: mixed}>
+     */
+    public static function changedSettings(): array
+    {
+        return [
+            'the scopes' => ['scopes', ['read', 'write']],
+            'the client id' => ['clientId', 'robot-2'],
+            'the issuer' => ['issuer', FakeOAuthServer::ISSUER . '/other'],
+        ];
+    }
+
+    #[DataProvider('changedSettings')]
+    public function testAStoredTokenIsNotReusedOnceTheClientChanges(string $key, mixed $value): void
+    {
+        McpClients::get('robot')->listTools();
+        $other = FakeOAuthServer::ISSUER . '/other';
+        $this->oauth->mcp->documents[Discovery::metadataUrls($other)[0]] = [
+            'issuer' => $other,
+            'token_endpoint' => FakeOAuthServer::ISSUER . '/token',
+            'token_endpoint_auth_methods_supported' => ['client_secret_basic'],
+        ];
+        Configure::write('Mcp.clients.robot.' . $key, $value);
+        McpClients::setRegistry($this->oauth->registry());
+
+        McpClients::get('robot')->listTools();
+
+        $this->assertCount(2, $this->oauth->tokenRequests);
+        $this->assertSame('Bearer at-2', end($this->oauth->mcp->requests)['headers']['authorization'] ?? null);
+    }
+
+    public function testAStoredTokenIsNotReusedOnceTheTokenUrlChanges(): void
+    {
+        Configure::write('Mcp.clients.robot', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'client_credentials',
+            'clientId' => 'robot-id',
+            'clientSecret' => 'robot-secret',
+            'tokenUrl' => 'https://sso.example.com/token',
+        ]);
+        $sent = [];
+        $mcp = $this->oauth->mcp;
+        $client = new InterceptingHttpClient($mcp, function ($request, array $rpc) use (&$sent, $mcp): ?ClientResponse {
+            $url = (string)$request->getUri();
+            if (!str_starts_with($url, 'https://sso.example.com/')) {
+                return null;
+            }
+            $sent[] = $url;
+            $mcp->tokens[] = 'machine-token-' . count($sent);
+
+            return new ClientResponse(
+                ['HTTP/1.1 200 OK', 'Content-Type: application/json'],
+                (string)json_encode([
+                    'access_token' => 'machine-token-' . count($sent),
+                    'token_type' => 'Bearer',
+                    'expires_in' => 600,
+                ]),
+            );
+        });
+        $registry = fn(): ClientRegistry => new ClientRegistry(
+            new FixedHttpClientFactory($client),
+            new TableConnectionStore(),
+            new GuardedHttp(new EndpointGuard($this->oauth->dns), $this->oauth->guarded, 1024 * 1024),
+        );
+        McpClients::setRegistry($registry());
+        McpClients::get('robot')->listTools();
+
+        Configure::write('Mcp.clients.robot.tokenUrl', 'https://sso.example.com/v2/token');
+        McpClients::setRegistry($registry());
+        McpClients::get('robot')->listTools();
+
+        $this->assertSame(['https://sso.example.com/token', 'https://sso.example.com/v2/token'], $sent);
+        $this->assertSame('Bearer machine-token-2', end($mcp->requests)['headers']['authorization'] ?? null);
     }
 
     public function testATokenTheServerRefusesIsReplacedOnce(): void
