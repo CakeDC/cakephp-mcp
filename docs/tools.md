@@ -204,6 +204,7 @@ reach them instead:
         'enabled' => true,
         'tools' => ['report_*', 'export_orders'],   // names or fnmatch() patterns
         'maxCalls' => 5,                             // tools one call_tools may run
+        'maxResultBytes' => 65536,                   // the most JSON one find_tools or call_tools answer holds
     ],
 ],
 ```
@@ -211,14 +212,22 @@ reach them instead:
 - `find_tools` takes a `query` (words to look for, at most 200 characters) and
   a `limit` (1 to 50, default 10), and returns the matching tools with their
   descriptions and input schemas, best matches first. It looks in the tool
-  names, titles and descriptions, and in the names and descriptions of their
-  arguments. Words are matched in any language (`año` is one word, not `a` and
+  names, titles and descriptions, in the names and descriptions of their
+  arguments, and, with less weight, in the rest of the input schema: allowed
+  values (`enum`, `const`, `examples`) and nested arguments, so `celsius` finds
+  a tool whose `unit` is `celsius` or `fahrenheit`. Words are matched in any language (`año` is one word, not `a` and
   `o`), without regard to case. It only returns tools the caller may call. The
-  tools it returns take at most 64 KiB of JSON; `hasMore` is `true` when more
+  tools it returns take at most `maxResultBytes` of JSON (64 KiB by default; the
+  first match is returned even when it alone is larger); `hasMore` is `true` when more
   tools matched than it returned, so the model can search with other words or
   a smaller `limit`.
 - `call_tools` takes `calls`, a list of `{"name": ..., "arguments": {...}}`, runs
-  them in order and returns each result. It stops at the first error.
+  them in order and returns each result. It stops at the first error. Its
+  results take at most `maxResultBytes` of JSON too: a tool whose output does
+  not fit has still run, so its result says so (`outputLeftOut`, with the size)
+  and tells the model to call it on its own for the output rather than run it
+  again for its effects; the calls after it are not run, and each says so
+  (`notRun`).
 
 Each tool `call_tools` runs is checked like a direct `tools/call`: the
 authorizer (a denied tool answers like an unknown one), the scopes of

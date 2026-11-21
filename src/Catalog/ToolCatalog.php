@@ -48,7 +48,8 @@ final class ToolCatalog
     public const MAX_QUERY_LENGTH = 200;
 
     /**
-     * The most JSON bytes of tools one find_tools result holds; past it, `hasMore` says there are more.
+     * The default of `Mcp.catalog.maxResultBytes`: the most JSON bytes of tools one find_tools result holds (past
+     * it, `hasMore` says there are more), and of results one call_tools answer holds.
      */
     public const MAX_RESULT_BYTES = 65536;
 
@@ -64,6 +65,7 @@ final class ToolCatalog
      * @param \Psr\EventDispatcher\EventDispatcherInterface|null $events The server's events: each inner call is
      *   announced like a direct one, so the audit records it.
      * @param bool $normalize `Mcp.schema.normalize`: the schemas find_tools returns follow it, as tools/list does.
+     * @param int $maxResultBytes `Mcp.catalog.maxResultBytes`.
      */
     public function __construct(
         private readonly RegistryInterface $registry,
@@ -75,6 +77,7 @@ final class ToolCatalog
         private readonly ?ScopePolicy $policy = null,
         private readonly ?EventDispatcherInterface $events = null,
         private readonly bool $normalize = false,
+        private readonly int $maxResultBytes = self::MAX_RESULT_BYTES,
     ) {
         $this->made = new WeakMap();
     }
@@ -111,7 +114,7 @@ final class ToolCatalog
     }
 
     /**
-     * Finds catalogued tools the caller may call, best matches first, as many as $limit and MAX_RESULT_BYTES allow.
+     * Finds catalogued tools the caller may call, best matches first, as many as $limit and maxResultBytes allow.
      *
      * @param \Mcp\Server\RequestContext $context The call (injected by the SDK).
      * @param string $query Words to look for in the tool names, titles, descriptions and the names and descriptions
@@ -160,7 +163,7 @@ final class ToolCatalog
                     : $tool->inputSchema,
             ];
             $size = strlen((string)json_encode($entry)) + 1;
-            if ($bytes + $size > self::MAX_RESULT_BYTES && $tools !== []) {
+            if ($bytes + $size > $this->maxResultBytes && $tools !== []) {
                 break;
             }
             $bytes += $size;
@@ -187,12 +190,27 @@ final class ToolCatalog
         $parent = $context->getRequest();
         $results = [];
         $failed = false;
+        $full = null;
+        $bytes = 2;
         foreach (array_values($calls) as $index => $call) {
             $name = is_array($call) && is_string($call['name'] ?? null) ? $call['name'] : '';
+            if ($full !== null) {
+                // The answer is full: what comes after is not run, and says so.
+                $results[] = $this->notRun($name, $full);
+                continue;
+            }
             $arguments = is_array($call) ? $call['arguments'] ?? [] : null;
             $result = is_array($arguments)
                 ? $this->runOne($handler, $context, $parent->getId() . '.' . $index, $name, $arguments)
                 : $this->error($name, sprintf('The arguments of %s must be an object.', $name));
+            $size = strlen((string)json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) + 1;
+            if ($bytes + $size > $this->maxResultBytes) {
+                // The tool ran, so its result is never dropped silently: the model must not repeat its effects.
+                $result = $this->leftOut($name, $size, (bool)$result['isError']);
+                $full = $name;
+                $size = strlen((string)json_encode($result)) + 1;
+            }
+            $bytes += $size;
             $results[] = $result;
             if ($result['isError']) {
                 $failed = true;
@@ -203,7 +221,9 @@ final class ToolCatalog
 
         // The summary comes first: it is what the audit records for this call, never the output of the tools.
         return new CallToolResult([
-            new TextContent($this->summary($results, $failed)),
+            new TextContent(
+                $full !== null && !$failed ? $this->fullSummary($results) : $this->summary($results, $failed),
+            ),
             new TextContent((string)json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
         ], $failed, $data);
     }
@@ -397,7 +417,7 @@ final class ToolCatalog
     }
 
     /**
-     * @param list<array{name: string, isError: bool, content: array<mixed>}> $results The results so far.
+     * @param list<array<string, mixed>> $results The results so far.
      * @param bool $failed Whether the last one failed.
      * @return string `3 calls ok: a, b, c`, or `b failed: <its message>` after the ones that ran.
      */
@@ -410,9 +430,67 @@ final class ToolCatalog
         if ($last === false) {
             return 'no calls';
         }
-        $text = $last['content'][0]['text'] ?? '';
+        $content = is_array($last['content'] ?? null) ? $last['content'] : [];
+        $text = is_array($content[0] ?? null) ? ($content[0]['text'] ?? '') : '';
 
-        return sprintf('%s failed: %s', $last['name'], is_string($text) ? $text : '');
+        return sprintf('%s failed: %s', (string)$last['name'], is_string($text) ? $text : '');
+    }
+
+    /**
+     * @param string $name A tool that ran.
+     * @param int $size The bytes of its result.
+     * @param bool $isError Whether that result was an error.
+     * @return array{name: string, isError: bool, outputLeftOut: true, content: list<array{type: string, text: string}>}
+     */
+    private function leftOut(string $name, int $size, bool $isError): array
+    {
+        return ['name' => $name, 'isError' => $isError, 'outputLeftOut' => true, 'content' => [[
+            'type' => 'text',
+            'text' => sprintf(
+                '%s ran, but its output (%d bytes) was left out: one call_tools answer holds at most %d bytes. '
+                . 'Do not run it again for its effects; call %s on its own to get its output.',
+                $name,
+                $size,
+                $this->maxResultBytes,
+                $name,
+            ),
+        ]]];
+    }
+
+    /**
+     * @param string $name A tool after the one that filled the answer.
+     * @param string $full The tool whose output filled it.
+     * @return array{name: string, isError: false, notRun: true, content: list<array{type: string, text: string}>}
+     */
+    private function notRun(string $name, string $full): array
+    {
+        return ['name' => $name, 'isError' => false, 'notRun' => true, 'content' => [[
+            'type' => 'text',
+            'text' => sprintf('%s was not run: the answer was full after %s. Call it again.', $name, $full),
+        ]]];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $results The results of an answer that filled up.
+     * @return string `3 calls: a, b ran (output left out for its size); c not run`.
+     */
+    private function fullSummary(array $results): string
+    {
+        $parts = [];
+        $skipped = [];
+        foreach ($results as $result) {
+            $name = (string)$result['name'];
+            if (isset($result['notRun'])) {
+                $skipped[] = $name;
+            } elseif (isset($result['outputLeftOut'])) {
+                $parts[] = $name . ' ran (output left out for its size)';
+            } else {
+                $parts[] = $name;
+            }
+        }
+
+        return sprintf('%d calls: %s', count($results), implode(', ', $parts))
+            . ($skipped === [] ? '' : '; ' . implode(', ', $skipped) . ' not run');
     }
 
     /**
@@ -428,7 +506,8 @@ final class ToolCatalog
     /**
      * @param \Mcp\Schema\Tool $tool A tool.
      * @param list<string> $terms Lowercase query words.
-     * @return int Name matches count 3, title 2, description 1, and the name or description of an argument 1.
+     * @return int Name matches count 6, title 4, description 2, the name or description of an argument 2, and
+     *   the rest of the input schema (allowed values, nested arguments) 1.
      */
     private function score(Tool $tool, array $terms): int
     {
@@ -440,20 +519,75 @@ final class ToolCatalog
                 $arguments[] = $schema['description'];
             }
         }
+        $rest = [];
+        foreach (is_array($properties) ? $properties : [] as $schema) {
+            if (is_array($schema)) {
+                self::schemaWords($schema, $rest);
+            }
+        }
         // Each searched field with the points a query word found in it is worth.
         $fields = [
-            [$tool->name, 3],
-            [(string)$tool->title, 2],
-            [(string)$tool->description, 1],
-            [implode(' ', $arguments), 1],
+            [$tool->name, 6],
+            [(string)$tool->title, 4],
+            [(string)$tool->description, 2],
+            [implode(' ', $arguments), 2],
+            [implode(' ', $rest), 1],
         ];
 
         return array_sum(array_map(
-            fn(array $field): int => $field[1] * count(array_filter(
+            fn(array $field): int => (int)$field[1] * count(array_filter(
                 $terms,
                 fn(string $term): bool => str_contains(mb_strtolower($field[0]), $term),
             )),
             $fields,
         ));
+    }
+
+    /**
+     * Collects the words of an argument's schema below its own name and description: its allowed values (`enum`,
+     * `const`), and the names and descriptions of nested properties and list items, at every depth.
+     *
+     * @param array<mixed> $schema An argument's schema.
+     * @param list<string> $words Where the words go.
+     * @param int $depth How deep this is; deep or cyclic schemas stop at 10.
+     * @return void
+     */
+    private static function schemaWords(array $schema, array &$words, int $depth = 0): void
+    {
+        if ($depth > 10) {
+            return;
+        }
+        foreach (['enum', 'examples'] as $key) {
+            foreach (is_array($schema[$key] ?? null) ? $schema[$key] : [] as $value) {
+                if (is_scalar($value)) {
+                    $words[] = (string)$value;
+                }
+            }
+        }
+        if (is_scalar($schema['const'] ?? null)) {
+            $words[] = (string)$schema['const'];
+        }
+        $nested = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+        foreach ($nested as $property => $child) {
+            $words[] = (string)$property;
+            if (is_array($child)) {
+                if (is_string($child['description'] ?? null)) {
+                    $words[] = $child['description'];
+                }
+                self::schemaWords($child, $words, $depth + 1);
+            }
+        }
+        foreach (['items', 'additionalProperties'] as $key) {
+            if (is_array($schema[$key] ?? null)) {
+                self::schemaWords($schema[$key], $words, $depth + 1);
+            }
+        }
+        foreach (['anyOf', 'oneOf', 'allOf'] as $key) {
+            foreach (is_array($schema[$key] ?? null) ? $schema[$key] : [] as $child) {
+                if (is_array($child)) {
+                    self::schemaWords($child, $words, $depth + 1);
+                }
+            }
+        }
     }
 }

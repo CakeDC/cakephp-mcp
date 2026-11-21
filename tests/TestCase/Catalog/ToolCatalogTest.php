@@ -174,6 +174,58 @@ class ToolCatalogTest extends TestCase
         $this->assertLessThanOrEqual(ToolCatalog::MAX_RESULT_BYTES, strlen((string)json_encode($result['tools'])));
     }
 
+    public function testTheResultCapIsASetting(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+        Configure::write('Mcp.catalog.tools', ['big_*']);
+        Configure::write('Mcp.catalog.maxResultBytes', 9000);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            for ($i = 0; $i < 10; $i++) {
+                $builder->addTool(fn(): string => 'ok', name: sprintf('big_%02d', $i), description: str_repeat('Long. ', 500));
+            }
+        });
+
+        $this->mcpCallTool('find_tools', ['limit' => 50]);
+
+        $result = $this->mcpResult()['structuredContent'];
+        $this->assertTrue($result['hasMore']);
+        $this->assertLessThanOrEqual(9000, strlen((string)json_encode($result['tools'])));
+
+        foreach ([0, -1, '4096', 1.5] as $bad) {
+            Configure::write('Mcp.catalog.maxResultBytes', $bad);
+            try {
+                $this->mcpCallTool('find_tools', []);
+                $this->fail('Accepted ' . var_export($bad, true));
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('"Mcp.catalog.maxResultBytes" must be a positive integer', $e->getMessage());
+            }
+        }
+    }
+
+    public function testFindToolsSearchesEnumValuesAndNestedArguments(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+        Configure::write('Mcp.catalog.tools', ['*']);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(fn(): string => 'ok', name: 'weather', description: 'The weather now.', inputSchema: [
+                'type' => 'object',
+                'properties' => [
+                    'unit' => ['type' => 'string', 'enum' => ['celsius', 'fahrenheit']],
+                    'place' => ['type' => 'object', 'properties' => [
+                        'region' => ['type' => 'string', 'description' => 'Country code'],
+                    ]],
+                ],
+            ]);
+            $builder->addTool(fn(): string => 'ok', name: 'celsius_to_kelvin', description: 'Converts degrees.');
+        });
+
+        $this->assertSame(['weather'], $this->found('fahrenheit'));
+        $this->assertSame(['weather'], $this->found('region'));
+        $this->assertSame(['weather'], $this->found('country'));
+        // A word in the name still ranks first.
+        $this->assertSame(['celsius_to_kelvin', 'weather'], $this->found('celsius'));
+    }
+
     public function testFindToolsWithAnEmptyQuery(): void
     {
         $this->mcpCallTool('find_tools', ['limit' => 3]);
@@ -208,6 +260,45 @@ class ToolCatalogTest extends TestCase
         $this->assertSame('open', $results[0]['content'][0]['text']);
         $this->assertTrue($results[1]['isError']);
         $this->assertStringContainsString("Invalid parameters for tool 'find_order'", $results[1]['content'][0]['text']);
+    }
+
+    public function testCallToolsLeavesOutAnOutputOverTheCapAndRunsNothingAfterIt(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+        Configure::write('Mcp.catalog.tools', ['*']);
+        Configure::write('Mcp.catalog.maxResultBytes', 4000);
+        $ran = new class {
+            /**
+             * @var list<string>
+             */
+            public array $names = [];
+        };
+        Configure::write('Mcp.server.configure', function (Builder $builder) use ($ran): void {
+            foreach (['small' => 'ok', 'big' => str_repeat('x', 5000), 'after' => 'ok'] as $name => $output) {
+                $builder->addTool(function () use ($ran, $name, $output): string {
+                    $ran->names[] = $name;
+
+                    return $output;
+                }, name: $name, description: 'A tool.');
+            }
+        });
+
+        $this->mcpCallTool('call_tools', ['calls' => [['name' => 'small'], ['name' => 'big'], ['name' => 'after']]]);
+
+        $this->assertMcpToolSucceeded();
+        // big ran: the model must not call it again for its effects, only to get its output.
+        $this->assertSame(['small', 'big'], $ran->names);
+        $results = $this->mcpResult()['structuredContent']['results'];
+        $this->assertSame(['small', 'big', 'after'], array_column($results, 'name'));
+        $this->assertSame('ok', $results[0]['content'][0]['text']);
+        $this->assertFalse($results[1]['isError']);
+        $this->assertTrue($results[1]['outputLeftOut']);
+        $this->assertStringContainsString('big ran, but its output (', $results[1]['content'][0]['text']);
+        $this->assertStringContainsString('call big on its own', $results[1]['content'][0]['text']);
+        $this->assertTrue($results[2]['notRun']);
+        $this->assertStringContainsString('after was not run', $results[2]['content'][0]['text']);
+        $this->assertLessThanOrEqual(4000, strlen((string)json_encode($results)));
+        $this->assertSame('3 calls: small, big ran (output left out for its size); after not run', $this->mcpResult()['content'][0]['text']);
     }
 
     public function testCallToolsDeniesLikeAnUnknownTool(): void

@@ -20,7 +20,7 @@ want to change; everything else keeps its default. These are the defaults
     ],
     'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
     'schema' => ['normalize' => false],
-    'catalog' => ['enabled' => false, 'tools' => [], 'maxCalls' => 5],
+    'catalog' => ['enabled' => false, 'tools' => [], 'maxCalls' => 5, 'maxResultBytes' => 65536],
     'apps' => ['enabled' => false],
     'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
     'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4194304],
@@ -70,6 +70,7 @@ client) have no defaults of their own; they are described below.
 - `catalog.enabled`: `true` turns on the tool catalog for this server (see [Tool catalog](tools.md#tool-catalog)). Default `false`.
 - `catalog.tools`: the tools behind the catalog, as names or `fnmatch()` patterns (`report_*`). They leave `tools/list` and are reached with `find_tools` and `call_tools`.
 - `catalog.maxCalls`: how many tools one `call_tools` may run, a positive integer. Default `5`.
+- `catalog.maxResultBytes`: the most JSON bytes the tools one `find_tools` answer lists, and the results one `call_tools` answer holds, may take, a positive integer. Default `65536`. A `call_tools` result that does not fit is replaced by a note that the tool ran, and the calls after it are not run. See [Tools](tools.md#tool-catalog).
 - `apps.enabled`: `true` tells clients this server serves MCP Apps (the `io.modelcontextprotocol/ui` extension). Default `false`. See [MCP Apps](apps.md).
 - `server.configure`: optional callable that receives the SDK `Mcp\Server\Builder` before the server is built. See [Using the SDK builder](#using-the-sdk-builder).
 - `discovery.scanDirs`: directories (relative to `ROOT`) scanned for attributes. Missing directories are skipped.

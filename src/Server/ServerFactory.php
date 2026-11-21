@@ -283,12 +283,13 @@ final class ServerFactory
                 $registry,
                 $gate,
                 $patterns,
-                $this->maxCalls($catalog['maxCalls'] ?? 5),
+                self::positiveInt($catalog['maxCalls'] ?? 5, 'maxCalls'),
                 new ReferenceHandler($bridge),
                 $logger,
                 $this->scopePolicy(),
                 $events,
                 McpConfig::get('schema.normalize', $this->server) === true,
+                self::positiveInt($catalog['maxResultBytes'] ?? ToolCatalog::MAX_RESULT_BYTES, 'maxResultBytes'),
             );
             $this->addCatalog($builder, $toolCatalog);
         }
@@ -644,14 +645,15 @@ final class ServerFactory
     }
 
     /**
-     * @param mixed $value `Mcp.catalog.maxCalls`.
+     * @param mixed $value `Mcp.catalog.<key>`.
+     * @param string $key `maxCalls` or `maxResultBytes`.
      * @return int
      * @throws \InvalidArgumentException When it is not a positive integer.
      */
-    private function maxCalls(mixed $value): int
+    private static function positiveInt(mixed $value, string $key): int
     {
         if (!is_int($value) || $value < 1) {
-            throw new InvalidArgumentException('"Mcp.catalog.maxCalls" must be a positive integer.');
+            throw new InvalidArgumentException(sprintf('"Mcp.catalog.%s" must be a positive integer.', $key));
         }
 
         return $value;
