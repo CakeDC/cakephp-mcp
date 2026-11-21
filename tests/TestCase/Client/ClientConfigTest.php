@@ -158,6 +158,14 @@ class ClientConfigTest extends TestCase
         }
     }
 
+    public function testACacheOnAStdioClientFails(): void
+    {
+        $this->expectError(
+            ['command' => 'php', 'args' => ['server.php'], 'cache' => 'default'],
+            '"Mcp.clients.broken.cache" is only for a client over HTTP',
+        );
+    }
+
     public function testUserModeNeedsAUrlAndNoToken(): void
     {
         $this->expectError(['command' => 'php', 'auth' => 'user'], 'user mode needs a "url"');

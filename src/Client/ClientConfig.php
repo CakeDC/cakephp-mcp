@@ -345,6 +345,12 @@ final class ClientConfig
             }
         }
         $cache = self::optionalString($config, 'cache', $key);
+        if ($cache !== null && $command !== null) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" is only for a client over HTTP: list results are not cached for a stdio server.',
+                $key('cache'),
+            ));
+        }
         if ($cache !== null && Cache::getConfig($cache) === null) {
             throw new InvalidArgumentException(sprintf(
                 '"%s" names the cache config "%s", which does not exist.',
