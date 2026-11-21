@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Controller;
 
 use Cake\Core\Configure;
+use Cake\Http\ServerRequest;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
@@ -94,6 +95,16 @@ class McpControllerTest extends TestCase
 
         $this->assertResponseCode(400);
         $this->assertSame(-32600, $this->json()['error']['code'] ?? null, (string)$this->_response?->getBody());
+    }
+
+    public function testAPathEndingInALineFeedIsNotTheEndpoint(): void
+    {
+        // Cake's route pattern ends in $, which also matches before a final line feed: /mcp%0A would reach the
+        // controller while McpConfig::isEndpoint() says it is not the endpoint (a rate limit before routing).
+        $this->mcp($this->modern(1, 'tools/list'), $this->modernHeaders('tools/list'), '/mcp%0A');
+
+        $this->assertResponseCode(404);
+        $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => '/mcp%0A'])));
     }
 
     public function testModernListCarriesPrivateNoCacheHintsByDefault(): void
@@ -353,7 +364,7 @@ class McpControllerTest extends TestCase
      * @param array<string, mixed> $message
      * @param array<string, string> $headers Overrides; an empty Authorization removes it.
      */
-    private function mcp(array $message, array $headers = []): void
+    private function mcp(array $message, array $headers = [], string $path = '/mcp'): void
     {
         $headers += [
             'Host' => 'localhost',
@@ -362,7 +373,7 @@ class McpControllerTest extends TestCase
             'Authorization' => 'Bearer ' . TestTokens::EDITOR,
         ];
         $this->configRequest(['headers' => array_filter($headers, fn(string $value): bool => $value !== '')]);
-        $this->post('/mcp', (string)json_encode($message));
+        $this->post($path, (string)json_encode($message));
     }
 
     /**

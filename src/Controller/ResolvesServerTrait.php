@@ -17,6 +17,11 @@ trait ResolvesServerTrait
      */
     protected function mcpServer(): ?string
     {
+        // Cake's route pattern ends in $, which also matches before a final line feed: /mcp%0A reaches this
+        // controller, while McpConfig::isEndpoint() (a rate limit before routing) says it is not the endpoint.
+        if (str_ends_with(McpConfig::requestPath($this->request), "\n")) {
+            return null;
+        }
         $server = $this->request->getParam('server');
         $named = is_string($server) && $server !== '';
         $server = $named ? $server : McpConfig::DEFAULT_SERVER;
