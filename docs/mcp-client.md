@@ -96,8 +96,11 @@ after a header mismatch (`-32020`, the headers of the 2026-07-28 revision do
 not match the body), the tool list is fetched again first, so the SDK learns
 the headers each tool needs, as the specification advises; after an expired
 session (HTTP `404` in the handshake revisions), on a new session. Any other
-error is thrown as it is, so a call that may have run is never run twice. The
-client also answers the `ping` a server of the handshake revisions sends.
+error is thrown as it is, so a call that may have run is never run twice. In
+user mode and with `client_credentials`, a `401` the server gives before it
+accepts any request of the call is sent once more with a new token; a `401`
+after that (to the request that resumes a stream, say) is thrown. The client
+also answers the `ping` a server of the handshake revisions sends.
 
 Results are the SDK's classes. A server or network error is thrown as the SDK's
 exception (`Mcp\Exception\ExceptionInterface`, for example

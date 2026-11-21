@@ -303,9 +303,11 @@ return [
 `McpConfig::rbacPermissions()` returns one rule: role `*`, plugin
 `CakeDC/Mcp`, controllers `Mcp` and `ProtectedResource`, actions `handle` and
 `metadata`, `bypassAuth` `true`. With a user mode client in `Mcp.clients` it
-returns a second one, for any logged-in user on the client's `connect` and
-`callback` routes (see [Calling other MCP servers](mcp-client.md)). The plugin
-decides access itself. The oauth
+returns two more: one for any logged-in user on the client's `connect` and
+`callback` routes, and one with `bypassAuth` on its `metadata` action, so an
+authorization server can fetch the client's `client.json` without a session
+(see [Calling other MCP servers](mcp-client.md)). The plugin decides access
+itself. The oauth
 plugin adds the rule for its own endpoints, see its
 [cakedc/users page](https://github.com/CakeDC/cakephp-oauth-server/blob/1.next-cake5/docs/cakedc-users.md).
 
