@@ -373,7 +373,12 @@ To keep grants elsewhere, implement
 keeps two requests from refreshing the same grant. `saveRefreshed()` stores what
 a refresh produced only while the request still holds that claim (one
 conditional update on the claim id), so a user who disconnects while a refresh
-is running stays disconnected.
+is running stays disconnected. `save()` ends any claim on the grant it
+replaces, so a refresh of the old grant that finishes after the user signed in
+again stores nothing, and two requests that save a user's first grant at the
+same time must both succeed (the last one wins). `markStepUp()` updates only
+the step-up mark of a grant that is still there: never the tokens, and never a
+row the user deleted by disconnecting.
 
 After it claims the refresh, a request reads the grant again: when another
 request refreshed it in the meantime, it uses that token and never sends the

@@ -213,7 +213,12 @@ final class UserConnection
         ));
         $stored = $this->stored();
         if ($stored !== null && $scopes !== []) {
-            $this->registry->store()->save($stored->withStepUp($scopes));
+            // Only the mark: the tokens may have been refreshed by another request since they were read.
+            $this->registry->store()->markStepUp(
+                $this->config->name,
+                $this->userId,
+                (string)$stored->withStepUp($scopes)->stepUpScope,
+            );
         }
     }
 
@@ -351,7 +356,8 @@ final class UserConnection
             $tokens->scope ?? $stored->scope,
         );
         if (!$store->saveRefreshed($updated, $claimId)) {
-            if ($this->stored() === null) {
+            $current = $this->stored();
+            if ($current === null) {
                 // The user disconnected while the token request ran: the new tokens are not kept, and not left live.
                 $this->registry->tokens($this->config)->revoke(
                     $updated,
@@ -359,6 +365,10 @@ final class UserConnection
                 );
 
                 throw $this->notConnected();
+            }
+            if ($current->accessToken !== $stored->accessToken) {
+                // The user signed in again meanwhile, which ended this refresh: that grant is the one to use.
+                return $current->accessToken;
             }
         }
 

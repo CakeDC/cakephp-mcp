@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\Client\Store;
 
+use Cake\Database\Exception\QueryException;
 use Cake\Datasource\EntityInterface;
 use Cake\I18n\DateTime;
 use Cake\ORM\Locator\LocatorAwareTrait;
@@ -10,6 +11,7 @@ use Cake\ORM\Table;
 use Cake\Utility\Security;
 use CakeDC\Mcp\Client\ClientConfig;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * The default store: the plugin's tables `mcp_client_connections` and `mcp_client_registrations` (run the plugin's
@@ -84,10 +86,6 @@ class TableConnectionStore implements ConnectionStoreInterface
      */
     public function save(StoredConnection $connection): void
     {
-        $table = $this->connections();
-        $row = $table->find()
-            ->where(['connection_key' => self::connectionKey($connection->client, $connection->userId)])
-            ->first();
         $data = [
             'connection_key' => self::connectionKey($connection->client, $connection->userId),
             'client' => $connection->client,
@@ -104,11 +102,22 @@ class TableConnectionStore implements ConnectionStoreInterface
             'auth_method' => $connection->authMethod,
             'resource' => $connection->resource,
             'step_up_scope' => $connection->stepUpScope,
+            // A refresh of the grant replaced here must not write the old grant's tokens over this one.
+            'refresh_claim_id' => null,
+            'refresh_claimed_at' => null,
         ];
-        $entity = $row instanceof EntityInterface
-            ? $table->patchEntity($row, $data, ['validate' => false])
-            : $table->newEntity($data, ['validate' => false]);
-        $table->saveOrFail($entity);
+        $this->upsert($this->connections(), 'connection_key', $data);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function markStepUp(string $client, string $userId, string $scope): void
+    {
+        $this->connections()->updateAll(
+            ['step_up_scope' => $scope],
+            ['connection_key' => self::connectionKey($client, $userId)],
+        );
     }
 
     /**
@@ -203,10 +212,6 @@ class TableConnectionStore implements ConnectionStoreInterface
      */
     public function saveRegistration(Registration $registration): void
     {
-        $table = $this->registrations();
-        $row = $table->find()
-            ->where(['registration_key' => self::registrationKey($registration->client, $registration->issuer)])
-            ->first();
         $data = [
             'registration_key' => self::registrationKey($registration->client, $registration->issuer),
             'client' => $registration->client,
@@ -216,10 +221,37 @@ class TableConnectionStore implements ConnectionStoreInterface
             'client_secret' => $this->encrypt($registration->clientSecret),
             'auth_method' => $registration->authMethod,
         ];
-        $entity = $row instanceof EntityInterface
-            ? $table->patchEntity($row, $data, ['validate' => false])
-            : $table->newEntity($data, ['validate' => false]);
-        $table->saveOrFail($entity);
+        $this->upsert($this->registrations(), 'registration_key', $data);
+    }
+
+    /**
+     * Updates the row with $data's key, or inserts it. When another request inserts the same key between the read
+     * and the insert (two first requests of a user at once), the unique index refuses the insert: the row is read
+     * again and updated, so both succeed and the last one wins.
+     *
+     * @param \Cake\ORM\Table $table The table.
+     * @param string $key The unique key column.
+     * @param array<string, mixed> $data The row.
+     * @return void
+     */
+    private function upsert(Table $table, string $key, array $data): void
+    {
+        for ($attempt = 0;; $attempt++) {
+            $row = $table->find()->where([$key => $data[$key]])->first();
+            $entity = $row instanceof EntityInterface
+                ? $table->patchEntity($row, $data, ['validate' => false])
+                : $table->newEntity($data, ['validate' => false]);
+            try {
+                $table->saveOrFail($entity);
+
+                return;
+            } catch (Throwable $e) {
+                // The ORM declares no exception here; the driver's QueryException is what the index raises.
+                if (!$e instanceof QueryException || $row instanceof EntityInterface || $attempt > 0) {
+                    throw $e;
+                }
+            }
+        }
     }
 
     /**

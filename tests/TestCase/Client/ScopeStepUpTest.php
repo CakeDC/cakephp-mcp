@@ -17,6 +17,7 @@ use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\Test\Support\FakeOAuthServer;
 use CakeDC\Mcp\Test\Support\FixedHttpClientFactory;
 use CakeDC\Mcp\Test\Support\InterceptingHttpClient;
+use CakeDC\Mcp\Test\Support\InterleavingStore;
 use Mcp\Exception\ExceptionInterface;
 
 /**
@@ -31,6 +32,8 @@ class ScopeStepUpTest extends TestCase
 
     private bool $discoverForbidden = false;
 
+    private InterceptingHttpClient $interceptor;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -42,7 +45,7 @@ class ScopeStepUpTest extends TestCase
         $this->oauth = new FakeOAuthServer();
         $this->store = new TableConnectionStore();
         $mcp = $this->oauth->mcp;
-        $client = new InterceptingHttpClient($mcp, function ($request, array $rpc): ?ClientResponse {
+        $client = $this->interceptor = new InterceptingHttpClient($mcp, function ($request, array $rpc): ?ClientResponse {
             if ($this->discoverForbidden && ($rpc['method'] ?? null) === 'initialize') {
                 return new ClientResponse(['HTTP/1.1 400 Bad Request', 'Content-Type: application/json'], '{}');
             }
@@ -110,6 +113,35 @@ class ScopeStepUpTest extends TestCase
         McpClients::setRegistry(McpClients::registry());
         $this->assertTrue(McpClients::get('linear')->for(7)->isConnected());
         $this->assertSame(['read', 'write', 'files:write', 'admin'], $this->store->get('linear', '7')?->stepUpScopes());
+    }
+
+    public function testTheMarkDoesNotPutBackTokensAnotherRequestRefreshed(): void
+    {
+        $store = new InterleavingStore($this->store);
+        // Between this request's read of the grant and its mark, another request refreshes it.
+        $store->beforeWrite = function (): void {
+            $this->assertTrue($this->store->claimRefresh('linear', '7', 'other', 60));
+            $stored = $this->store->get('linear', '7');
+            $this->assertNotNull($stored);
+            $this->store->saveRefreshed($stored->withTokens('at-2', 'rt-2', null, null), 'other');
+            $this->store->releaseRefresh('linear', '7', 'other');
+        };
+        $registry = McpClients::registry();
+        McpClients::setRegistry(new ClientRegistry(
+            new FixedHttpClientFactory($this->interceptor),
+            $store,
+            new GuardedHttp(new EndpointGuard($this->oauth->dns), $this->oauth->guarded, 1024 * 1024),
+        ));
+
+        try {
+            McpClients::get('linear')->for(7)->callTool('delete_all');
+        } catch (ExceptionInterface) {
+        }
+
+        $stored = $this->store->get('linear', '7');
+        $this->assertSame(['at-2', 'rt-2'], [$stored?->accessToken, $stored?->refreshToken]);
+        $this->assertSame(['read', 'write', 'files:write', 'admin'], $stored?->stepUpScopes());
+        McpClients::setRegistry($registry);
     }
 
     public function testTheMarkIsBounded(): void

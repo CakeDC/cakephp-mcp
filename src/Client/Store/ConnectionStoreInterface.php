@@ -18,7 +18,9 @@ interface ConnectionStoreInterface
     public function get(string $client, string $userId): ?StoredConnection;
 
     /**
-     * Inserts the grant, or replaces the user's grant for that client.
+     * Inserts the grant, or replaces the user's grant for that client. A refresh of the grant it replaces that is
+     * still running then stores nothing: its claim ends here. Two requests that save the first grant of a user at
+     * the same time both succeed, and the last one wins.
      *
      * @param \CakeDC\Mcp\Client\Store\StoredConnection $connection The grant.
      * @return void
@@ -35,6 +37,17 @@ interface ConnectionStoreInterface
      * @return bool Whether it was stored.
      */
     public function saveRefreshed(StoredConnection $connection, string $claimId): bool;
+
+    /**
+     * Sets the step-up mark of the user's grant, and nothing else: the tokens stay what another request may have
+     * refreshed them to, and a grant deleted meanwhile is not stored again.
+     *
+     * @param string $client The client's name.
+     * @param string $userId The user.
+     * @param string $scope The scopes the next connect asks for, space separated.
+     * @return void
+     */
+    public function markStepUp(string $client, string $userId, string $scope): void;
 
     /**
      * @param string $client The client's name.

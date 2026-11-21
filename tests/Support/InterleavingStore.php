@@ -19,6 +19,11 @@ final class InterleavingStore implements ConnectionStoreInterface
      */
     public ?Closure $beforeClaim = null;
 
+    /**
+     * Runs once, just before this request writes a grant or its step-up mark.
+     */
+    public ?Closure $beforeWrite = null;
+
     public function __construct(private readonly ConnectionStoreInterface $inner)
     {
     }
@@ -30,7 +35,23 @@ final class InterleavingStore implements ConnectionStoreInterface
 
     public function save(StoredConnection $connection): void
     {
+        $this->runBeforeWrite();
         $this->inner->save($connection);
+    }
+
+    public function markStepUp(string $client, string $userId, string $scope): void
+    {
+        $this->runBeforeWrite();
+        $this->inner->markStepUp($client, $userId, $scope);
+    }
+
+    private function runBeforeWrite(): void
+    {
+        $before = $this->beforeWrite;
+        $this->beforeWrite = null;
+        if ($before !== null) {
+            $before();
+        }
     }
 
     public function saveRefreshed(StoredConnection $connection, string $claimId): bool

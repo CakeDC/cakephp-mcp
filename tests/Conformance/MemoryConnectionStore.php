@@ -51,6 +51,17 @@ final class MemoryConnectionStore implements ConnectionStoreInterface
     /**
      * @inheritDoc
      */
+    public function markStepUp(string $client, string $userId, string $scope): void
+    {
+        $stored = $this->get($client, $userId);
+        if ($stored !== null) {
+            $this->save($stored->withStepUp(explode(' ', $scope)));
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function delete(string $client, string $userId): void
     {
         unset($this->connections[$client . "\0" . $userId]);

@@ -180,6 +180,66 @@ class TableConnectionStoreTest extends TestCase
         $this->assertNull($this->store->get('linear', '7'));
     }
 
+    public function testAStepUpMarkChangesOnlyTheMarkOfAGrantThatIsStillThere(): void
+    {
+        $this->store->save(self::connection());
+        // Another request refreshed the grant after this one read it.
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-a', 60));
+        $this->assertTrue($this->store->saveRefreshed(self::connection()->withTokens('at-2', 'rt-2', null, null), 'claim-a'));
+
+        $this->store->markStepUp('linear', '7', 'read write admin');
+
+        $stored = $this->store->get('linear', '7');
+        $this->assertSame(['at-2', 'rt-2'], [$stored?->accessToken, $stored?->refreshToken]);
+        $this->assertSame(['read', 'write', 'admin'], $stored?->stepUpScopes());
+
+        // A user who disconnected meanwhile stays disconnected.
+        $this->store->delete('linear', '7');
+        $this->store->markStepUp('linear', '7', 'read write admin');
+        $this->assertNull($this->store->get('linear', '7'));
+    }
+
+    public function testANewGrantEndsTheRefreshOfTheOldOne(): void
+    {
+        $this->store->save(self::connection());
+        $this->assertTrue($this->store->claimRefresh('linear', '7', 'claim-a', 60));
+
+        // The user signs in again while that refresh is at the authorization server.
+        $this->store->save(self::connection('7', 'at-new-account'));
+
+        $this->assertFalse($this->store->saveRefreshed(self::connection()->withTokens('at-old-2', 'rt-old-2', null, null), 'claim-a'));
+        $this->assertSame('at-new-account', $this->store->get('linear', '7')?->accessToken);
+    }
+
+    public function testTwoFirstSavesAtOnceBothSucceedAndTheLastWins(): void
+    {
+        // Another request inserts the same grant and registration between this one's read and its insert.
+        $db = ConnectionManager::get('test');
+        $other = new TableConnectionStore();
+        $connections = $this->getTableLocator()->get('CakeDC/Mcp.McpClientConnections');
+        $registrations = $this->getTableLocator()->get('CakeDC/Mcp.McpClientRegistrations');
+        $raced = new class {
+            public bool $done = false;
+        };
+        $race = function () use ($raced, $other): void {
+            if (!$raced->done) {
+                $raced->done = true;
+                $other->save(self::connection('7', 'at-other'));
+                $other->saveRegistration(new Registration('linear', 'https://auth.example.com', 'https://app/cb', 'c-other', null, 'none'));
+            }
+        };
+        $connections->getEventManager()->on('Model.beforeSave', $race);
+        $registrations->getEventManager()->on('Model.beforeSave', $race);
+
+        $this->store->save(self::connection('7', 'at-mine'));
+        $raced->done = false;
+        $this->store->saveRegistration(new Registration('linear', 'https://auth.example.com', 'https://app/cb', 'c-mine', null, 'none'));
+
+        $this->assertSame('at-mine', $this->store->get('linear', '7')?->accessToken);
+        $this->assertSame('c-mine', $this->store->registration('linear', 'https://auth.example.com')?->clientId);
+        $this->assertSame(1, $db->execute('SELECT COUNT(*) FROM mcp_client_connections')->fetchColumn(0));
+    }
+
     public function testGrantsAndRegistrationsAreKeyedByAHash(): void
     {
         $this->store->save(self::connection());
