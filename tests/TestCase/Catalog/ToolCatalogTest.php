@@ -7,23 +7,30 @@ use Cake\Cache\Cache;
 use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\Core\Container;
+use Cake\Event\EventInterface;
+use Cake\Event\EventManager;
 use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
+use LogicException;
 use Mcp\Capability\Registry\ReferenceHandlerInterface;
+use Mcp\Exception\MissingRequiredClientCapabilityException;
+use Mcp\Schema\ClientCapabilities;
 use Mcp\Schema\Tool;
 use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\Builder;
 use Mcp\Server\ClientGateway;
 use Mcp\Server\Handler\Request\RequestHandlerInterface;
 use Mcp\Server\Handler\ToolHandlerInterface;
+use RuntimeException;
 use stdClass;
 
 /**
@@ -223,6 +230,85 @@ class ToolCatalogTest extends TestCase
             $result = $this->mcpResult()['structuredContent']['results'][0];
             $this->assertSame(sprintf('Tool not found: "%s".', $name), $result['content'][0]['text'], $name);
         }
+    }
+
+    public function testWhatAToolThrowsFailsOnlyItsOwnCall(): void
+    {
+        Configure::write('Mcp.catalog.tools', ['order_*', 'summarize', 'crash']);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(function (): string {
+                // The SDK rethrows it on purpose; through call_tools it would make the client send the batch again.
+                throw new MissingRequiredClientCapabilityException(new ClientCapabilities(sampling: true));
+            }, 'summarize');
+            $builder->addTool(fn(): string => throw new LogicException('A bug.'), 'crash');
+        });
+
+        foreach (['summarize' => 'needs a capability the client did not declare', 'crash' => 'Error while executing tool'] as $tool => $text) {
+            $this->mcpCallTool('call_tools', ['calls' => [
+                ['name' => 'order_status', 'arguments' => ['number' => 'A-1']],
+                ['name' => $tool, 'arguments' => new stdClass()],
+            ]]);
+
+            $this->assertMcpToolError();
+            $results = $this->mcpResult()['structuredContent']['results'] ?? [];
+            $this->assertCount(2, $results, $tool);
+            $this->assertFalse($results[0]['isError'], $tool);
+            $this->assertTrue($results[1]['isError'], $tool);
+            $this->assertStringContainsString($text, $results[1]['content'][0]['text'], $tool);
+            $this->assertStringNotContainsString('A bug', (string)json_encode($results));
+        }
+    }
+
+    public function testAnAuthorizerThatThrowsFailsOnlyItsCall(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return $tool === 'find_order' ? throw new RuntimeException('The rules store is down.') : true;
+            }
+        });
+
+        $this->mcpCallTool('call_tools', ['calls' => [
+            ['name' => 'order_status', 'arguments' => ['number' => 'A-1']],
+            ['name' => 'find_order', 'arguments' => ['number' => 7]],
+        ]]);
+
+        $this->assertMcpToolError();
+        $results = $this->mcpResult()['structuredContent']['results'] ?? [];
+        $this->assertCount(2, $results);
+        $this->assertTrue($results[1]['isError']);
+        $this->assertStringNotContainsString('rules store', (string)json_encode($results));
+    }
+
+    public function testAnInnerCallWhoseAuthorizerThrowsIsAudited(): void
+    {
+        Configure::write('Mcp.audit', ['enabled' => true, 'log' => false]);
+        Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return $tool === 'find_order' ? throw new RuntimeException('The rules store is down.') : true;
+            }
+        });
+        $records = [];
+        $listener = function (EventInterface $event) use (&$records): void {
+            $records[] = $event->getData();
+        };
+        EventManager::instance()->on('Mcp.audit', $listener);
+        try {
+            $this->mcpCallTool('call_tools', ['calls' => [['name' => 'find_order', 'arguments' => ['number' => 7]]]]);
+        } finally {
+            EventManager::instance()->off('Mcp.audit', $listener);
+        }
+
+        $inner = array_values(array_filter($records, fn(array $record): bool => ($record['name'] ?? null) === 'find_order'));
+        $this->assertCount(1, $inner, (string)json_encode($records));
+        $this->assertSame('error', $inner[0]['outcome']);
+    }
+
+    public function testANameWithANulByteMatchesNoPattern(): void
+    {
+        // fnmatch() raises a ValueError for it.
+        $this->assertFalse(CatalogPatterns::matches(['order_*'], "order_status\0x"));
     }
 
     public function testArgumentsThatAreNotAnObjectAreAnError(): void

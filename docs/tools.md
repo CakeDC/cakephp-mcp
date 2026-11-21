@@ -253,7 +253,12 @@ different in each revision. In the 2025-11-25 revision (the one with the
 tool goes on with the answer, inside `call_tools` too. In the 2026-07-28
 revision it would turn the whole batch into an `input_required` answer, so the
 call ends with the same tool error. Keep such tools out of the catalog, or let
-the model call them directly.
+the model call them directly. The same goes for a tool that needs a client
+capability the client did not declare (`<tool> needs a capability the client
+did not declare: ...`), and for anything a tool or the authorizer throws
+(`Error while executing tool`, the exception in the `mcp` log): that call
+fails, the ones before it keep their results, and it has its own audit
+record.
 
 Tools with an app (`#[McpApp]`, see [MCP Apps](apps.md)) never go behind the
 catalog, even when a pattern matches them: they stay in `tools/list`, where the

@@ -245,7 +245,12 @@ final class AuditListener
      */
     private function isDenied(string $name): bool
     {
-        if ($this->gate->allows($name)) {
+        try {
+            if ($this->gate->allows($name)) {
+                return false;
+            }
+        } catch (Throwable) {
+            // The authorizer failed (it is why the call failed): the call is recorded as an error, not lost.
             return false;
         }
 

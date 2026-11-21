@@ -11,6 +11,7 @@ use Mcp\Capability\RegistryInterface;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
+use Mcp\Exception\MissingRequiredClientCapabilityException;
 use Mcp\Exception\ToolCallException;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\JsonRpc\Error;
@@ -27,6 +28,7 @@ use Mcp\Server\Suspension\RequestSuspension;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
+use Throwable;
 use WeakMap;
 
 /**
@@ -305,14 +307,30 @@ final class ToolCatalog
         $this->made[$request] = true;
         $session = $context->getSession();
         $this->events?->dispatch(new RequestEvent($request, $session));
-        if (!$this->callable($name, $context)) {
-            // Like a direct call: a denied tool answers as an unknown one.
-            $response = Error::forInvalidParams(sprintf('Tool not found: "%s".', $name), $id);
-        } else {
-            $response = $this->handle($handler, $request, $session, $context->getProtocolVersion()->isModern());
+        // What is thrown here ends this call only, so the results of the calls before it are kept: a whole
+        // call_tools error (-32021 for a missing capability) would make the client send the batch again.
+        $thrown = null;
+        try {
+            if (!$this->callable($name, $context)) {
+                // Like a direct call: a denied tool answers as an unknown one.
+                $response = Error::forInvalidParams(sprintf('Tool not found: "%s".', $name), $id);
+            } else {
+                $response = $this->handle($handler, $request, $session, $context->getProtocolVersion()->isModern());
+            }
+        } catch (MissingRequiredClientCapabilityException $e) {
+            $thrown = $e;
+            $response = Error::forInternalError(sprintf(
+                '%s needs a capability the client did not declare: call it on its own, not through call_tools.',
+                $name,
+            ), $id);
+        } catch (Throwable $e) {
+            $thrown = $e;
+            $this->logger->error('Unhandled error during tool execution', ['name' => $name, 'exception' => $e]);
+            // The message is left out, as for a direct call: it may hold what the caller must not see.
+            $response = Error::forInternalError('Error while executing tool', $id);
         }
         if ($response instanceof Error) {
-            $this->events?->dispatch(new ErrorEvent($response, $request, $session, null));
+            $this->events?->dispatch(new ErrorEvent($response, $request, $session, $thrown));
 
             return $this->error($name, $response->message);
         }

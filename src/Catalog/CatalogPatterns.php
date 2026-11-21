@@ -15,7 +15,8 @@ final class CatalogPatterns
      */
     public static function matches(array $patterns, string $tool): bool
     {
-        if ($tool === ToolCatalog::FIND || $tool === ToolCatalog::CALL) {
+        // fnmatch() raises a ValueError for a NUL byte, which no tool name has.
+        if ($tool === ToolCatalog::FIND || $tool === ToolCatalog::CALL || str_contains($tool, "\0")) {
             return false;
         }
         foreach ($patterns as $pattern) {
