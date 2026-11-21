@@ -100,7 +100,15 @@ final class McpClient
      */
     protected function listCache(): ?ListCache
     {
-        return $this->config->isUser() ? null : ListCache::for($this->config, null);
+        if ($this->config->isUser() || $this->config->cache === null) {
+            return null;
+        }
+        // Keyed by the credential the requests carry: a `token` callable may return another user's token.
+        $credential = $this->config->isClientCredentials()
+            ? $this->registry->clientCredentials($this->config)->token()
+            : (string)json_encode([$this->config->headers, $this->config->callableToken()]);
+
+        return ListCache::for($this->config, null, $credential);
     }
 
     /**

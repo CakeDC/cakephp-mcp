@@ -130,10 +130,11 @@ final class UserConnection
      */
     protected function listCache(): ?ListCache
     {
-        // Only for a user who is still connected: a cached list is no way around a lost grant.
-        return $this->config->cache !== null && $this->isConnected()
-            ? ListCache::for($this->config, $this->userId)
-            : null;
+        // Only for a user who is still connected: a cached list is no way around a lost grant. Keyed by the access
+        // token too, so a list is not served after a reconnection with another account.
+        $stored = $this->config->cache !== null && $this->isConnected() ? $this->stored() : null;
+
+        return $stored === null ? null : ListCache::for($this->config, $this->userId, $stored->accessToken);
     }
 
     /**

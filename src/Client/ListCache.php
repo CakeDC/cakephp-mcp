@@ -11,8 +11,11 @@ use Mcp\Schema\Enum\CacheScope;
 /**
  * `Mcp.clients.<name>.cache`: list results (`tools/list`, `resources/list`, `resources/templates/list`,
  * `prompts/list`) that carry the cache hints of the 2026-07-28 revision (`ttlMs`, `cacheScope`) are kept in that
- * Cake cache config for their ttl. A `private` result is keyed by user in user mode and by client in app mode; a
- * `public` one by client. No hints, no caching. A `notifications/*\/list_changed` drops the entries of its lists.
+ * Cake cache config for their ttl. A `private` result is keyed by user in user mode and by client in app mode, and
+ * always by the credential it was asked with (the user's access token, the configured token or headers, what a
+ * `token` callable returns): it is never served for another token, nor after a reconnection with another account.
+ * A `public` one is keyed by client. No hints, no caching. A `notifications/*\/list_changed` drops the entries of
+ * its lists.
  */
 final class ListCache
 {
@@ -24,19 +27,21 @@ final class ListCache
     /**
      * @param \CakeDC\Mcp\Client\ClientConfig $config The client, with `cache` set.
      * @param string|null $userId The user in user mode; null in app mode.
+     * @param string $credential What the requests are authorized with; only its hash is kept, in the key.
      */
-    public function __construct(private ClientConfig $config, private ?string $userId)
+    public function __construct(private ClientConfig $config, private ?string $userId, private string $credential = '')
     {
     }
 
     /**
      * @param \CakeDC\Mcp\Client\ClientConfig $config The client.
      * @param string|null $userId The user in user mode; null in app mode.
+     * @param string $credential What the requests are authorized with.
      * @return self|null Null when the client has no `cache`.
      */
-    public static function for(ClientConfig $config, ?string $userId): ?self
+    public static function for(ClientConfig $config, ?string $userId, string $credential = ''): ?self
     {
-        return $config->cache === null ? null : new self($config, $userId);
+        return $config->cache === null ? null : new self($config, $userId, $credential);
     }
 
     /**
@@ -113,6 +118,9 @@ final class ListCache
             $this->userId !== null => 'user:' . TableConnectionStore::connectionKey($this->config->name, $this->userId),
             default => 'app',
         };
+        if ($scope === CacheScope::Private) {
+            $owner .= ':' . hash('sha256', $this->credential);
+        }
         $generation = Cache::read($this->generationKey($method), (string)$this->config->cache);
 
         return 'mcp_client_list_' . hash('sha256', (string)json_encode([

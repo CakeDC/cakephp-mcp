@@ -129,15 +129,15 @@ class ClientCacheTest extends TestCase
     public function testListChangedDropsTheEntry(): void
     {
         $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
-        $cache = new ListCache(ClientConfig::fromConfig('remote'), null);
         McpClients::get('remote')->listTools();
-        $this->assertNotNull($cache->get('tools/list', null));
+        McpClients::get('remote')->listTools();
+        $this->assertSame(1, $this->sent('tools/list'));
 
-        $handler = new ListChangedHandler($cache);
+        // The handler of the session, whose cache drops every entry of the list, whatever its credential.
+        $handler = new ListChangedHandler(new ListCache(ClientConfig::fromConfig('remote'), null));
         $this->assertTrue($handler->supports(new ToolListChangedNotification()));
         $handler->handle(new ToolListChangedNotification());
 
-        $this->assertNull($cache->get('tools/list', null));
         McpClients::get('remote')->listTools();
         $this->assertSame(2, $this->sent('tools/list'));
     }
@@ -156,6 +156,68 @@ class ClientCacheTest extends TestCase
 
         // The SDK needs the listing to send the Mcp-Param headers of those tools.
         $this->assertNull($cache->get('tools/list', null));
+    }
+
+    public function testAPrivateListIsNotServedForAnotherTokenOfACallable(): void
+    {
+        $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
+        $current = 'alice-token';
+        Configure::write('Mcp.clients.remote.token', function () use (&$current): string {
+            return $current;
+        });
+
+        McpClients::get('remote')->listTools();
+        McpClients::get('remote')->listTools();
+        $current = 'bob-token';
+        McpClients::get('remote')->listTools();
+
+        $this->assertSame(2, $this->sent('tools/list'));
+    }
+
+    public function testAPrivateListIsNotServedOnceTheConfiguredTokenChanges(): void
+    {
+        $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
+        McpClients::get('remote')->listTools();
+
+        Configure::write('Mcp.clients.remote.token', 'new-app-token');
+        McpClients::reset();
+        McpClients::setRegistry(new ClientRegistry(new FixedHttpClientFactory($this->server)));
+        McpClients::get('remote')->listTools();
+
+        $this->assertSame(2, $this->sent('tools/list'));
+    }
+
+    public function testAPrivateListOfAUserIsNotServedOnceTheyConnectAnotherAccount(): void
+    {
+        $oauth = $this->userMode();
+        $oauth->mcp->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
+        McpClients::get('linear')->for(['id' => 7])->listTools();
+
+        $oauth->mcp->tokens[] = 'at-7-other-account';
+        (new TableConnectionStore())->save(new StoredConnection(
+            'linear',
+            '7',
+            'at-7-other-account',
+            'rt-7-other-account',
+            DateTime::now()->getTimestamp() + 3600,
+            'read',
+            FakeOAuthServer::ISSUER,
+            FakeOAuthServer::ISSUER . '/token',
+            FakeOAuthServer::ISSUER . '/revoke',
+            'dyn-client-1',
+            null,
+            'none',
+            FakeOAuthServer::MCP,
+        ));
+        McpClients::reset();
+        McpClients::setRegistry($oauth->registry(new TableConnectionStore()));
+        McpClients::get('linear')->for(['id' => 7])->listTools();
+
+        $lists = array_filter($oauth->mcp->requests, fn(array $r): bool => $r['rpc'] === 'tools/list');
+        $this->assertSame(
+            ['Bearer at-7', 'Bearer at-7-other-account'],
+            array_values(array_map(fn(array $r): string => $r['headers']['authorization'] ?? '', $lists)),
+        );
     }
 
     private function userMode(): FakeOAuthServer

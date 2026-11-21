@@ -510,8 +510,11 @@ Set `cache` on a client to keep such results in a Cake cache config:
 `listTools()`, `listResources()`, `listResourceTemplates()` and
 `listPrompts()` then use a cached page while it is fresh, without asking the
 server. A `private` result is kept per user in user mode and per client in app
-mode, so it is never served to another user; a `public` one is shared by
-every user of that client. A result without hints, or with a ttl of 0, is not
+mode, and always per credential it was asked with: the user's access token,
+the configured `token` or `headers`, or what a `token` callable returns (which
+is then called once more for each list). So it is never served for another
+token, to another user, or after a user reconnects with another account. A
+`public` one is shared by every user of that client. A result without hints, or with a ttl of 0, is not
 kept. A `notifications/tools/list_changed` (or the resources and prompts ones)
 from the server drops that client's entries for those lists, for every user.
 In user mode a cached list is only used for a user who is still connected. A
