@@ -83,9 +83,11 @@ final class EndpointGuard
             throw new BlockedUrlException($notPublic);
         }
         // A trailing dot is refused by isHostName(): curl would not match the pin to "host." and resolve again.
+        // `localhost` is a single label that never goes through DNS search domains: allowed with the private network.
+        $singleLabel = !str_contains($host, '.') && !($host === 'localhost' && $this->privateNetwork);
         if (
             !self::isHostName($host)
-            || !str_contains($host, '.')
+            || $singleLabel
             || (self::isLocalName($host) && !$this->privateNetwork)
         ) {
             // A single label could go through the server's DNS search domains.

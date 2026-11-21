@@ -107,6 +107,25 @@ class EndpointGuardTest extends TestCase
         $this->assertSame('http://sso.corp.internal', $this->guard->allowingPrivateNetwork(true)->check('http://sso.corp.internal/x')->origin);
     }
 
+    public function testAllowingThePrivateNetworkLetsLocalhostThrough(): void
+    {
+        $this->resolver->add('localhost', ['127.0.0.1']);
+
+        $checked = $this->guard->allowingPrivateNetwork(true)->check('http://localhost:9002/token');
+
+        $this->assertSame('http://localhost:9002', $checked->origin);
+        $this->assertSame('127.0.0.1', $checked->ip);
+        // Not without the flag, and other single labels stay refused.
+        try {
+            $this->guard->check('https://localhost/token');
+            $this->fail('localhost accepted without allowPrivateNetwork');
+        } catch (BlockedUrlException) {
+            $this->addToAssertionCount(1);
+        }
+        $this->expectException(BlockedUrlException::class);
+        $this->guard->allowingPrivateNetwork(true)->check('http://intranet/token');
+    }
+
     public function testATrailingDotIsRefused(): void
     {
         // curl would not match the pin for "auth.example.com" against "auth.example.com." and resolve again.
