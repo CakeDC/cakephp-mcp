@@ -36,7 +36,7 @@ trait ResolvesServerTrait
         if (!is_string($route) || trim($route, '/') === '') {
             return null;
         }
-        $path = '/' . trim($this->request->getPath(), '/');
+        $path = McpConfig::requestPath($this->request);
         $metadata = McpConfig::METADATA_PREFIX . '/' . trim($route, '/');
         if (McpConfig::routeValues($route, $path) === null && McpConfig::routeValues($metadata, $path) === null) {
             return null;

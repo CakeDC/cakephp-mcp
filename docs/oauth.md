@@ -146,7 +146,8 @@ $csrf->skipCheckCallback(
 ```
 
 `McpConfig::isEndpoint()` is true for the MCP route and for its metadata path,
-and follows `Mcp.route`, so you do not hard code `/mcp`.
+and follows `Mcp.route`, so you do not hard code `/mcp`. It reads the path as
+the router does, and once routing has run it follows the route that matched.
 
 ### 5. Keep the oauth Token authenticator off the MCP route
 

@@ -487,7 +487,10 @@ Who the limit counts:
   authentication, slows down floods of requests without a token.
 
 `McpConfig::isEndpoint()` matches the MCP route and its protected resource
-metadata route. Use a cache shared by every PHP worker (Redis, for example):
+metadata route, reading the path as the router does (`/%6Dcp` is `/mcp`).
+Once routing has run it asks the router: a route of your application wins
+over a server's pattern, and a route you connect yourself to the plugin's
+controller counts. Use a cache shared by every PHP worker (Redis, for example):
 with a per-process cache every worker counts on its own. A request refused
 with `429` never reaches the endpoint, so the [audit log](#audit-log) does not
 record it.

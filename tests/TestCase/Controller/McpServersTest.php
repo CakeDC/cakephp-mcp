@@ -56,6 +56,13 @@ class McpServersTest extends TestCase
         $this->assertNotContains('echo', $admin);
     }
 
+    public function testAnEncodedPathIsTheServerTheRouterGivesItTo(): void
+    {
+        // The router decodes each segment, and McpConfig::isEndpoint() reads the path the same way.
+        $this->assertContains('find_order', $this->listTools('/mcp/%61dmin'));
+        $this->assertContains('echo', $this->listTools('/%6Dcp'));
+    }
+
     public function testANamedServerWithoutAuthorizationInheritsTheDefaultAuthorizer(): void
     {
         Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface {

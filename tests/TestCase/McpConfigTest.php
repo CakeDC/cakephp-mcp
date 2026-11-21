@@ -317,6 +317,50 @@ class McpConfigTest extends TestCase
         }
     }
 
+    public function testIsEndpointReadsThePathAsTheRouterDoes(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+
+        $cases = [
+            '/%6Dcp' => 'default',
+            '/.well-known/oauth-protected-resource/%6dcp' => 'default',
+            '/mcp/%61dmin' => 'admin',
+            // An encoded slash stays inside its segment, as the router keeps it.
+            '/mcp%2Fadmin' => null,
+        ];
+        foreach ($cases as $path => $server) {
+            $request = new ServerRequest(['url' => $path]);
+            $this->assertSame($server, McpConfig::serverFor($request), $path);
+            $this->assertSame($server !== null, McpConfig::isEndpoint($request), $path);
+        }
+    }
+
+    public function testOnceRoutedIsEndpointFollowsTheRouter(): void
+    {
+        Configure::write('Mcp.servers.tenants', ['route' => '/tenants/{tenant}']);
+        Router::reload();
+        $builder = Router::createRouteBuilder('/');
+        (new McpPlugin())->routes($builder);
+        $builder->connect('/tenants/add', ['controller' => 'Tenants', 'action' => 'add']);
+        $builder->connect('/internal/mcp', ['plugin' => 'CakeDC/Mcp', 'controller' => 'Mcp', 'action' => 'handle']);
+
+        $routed = function (string $path): ServerRequest {
+            $request = new ServerRequest(['url' => $path, 'environment' => ['REQUEST_METHOD' => 'POST']]);
+
+            return $request->withAttribute('params', Router::parseRequest($request));
+        };
+        try {
+            // A fixed route of the application wins over the pattern of a server.
+            $this->assertFalse(McpConfig::isEndpoint($routed('/tenants/add')));
+            $this->assertTrue(McpConfig::isEndpoint($routed('/tenants/acme')));
+            // A route the application connects itself to the plugin's controller.
+            $this->assertTrue(McpConfig::isEndpoint($routed('/internal/mcp')));
+            $this->assertTrue(McpConfig::isEndpoint($routed('/%6Dcp')));
+        } finally {
+            Router::reload();
+        }
+    }
+
     public function testTheBodyLimitMustBeAPositiveInteger(): void
     {
         Configure::write('Mcp.http.maxBodyBytes', 1024);

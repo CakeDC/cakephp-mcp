@@ -102,6 +102,11 @@ final class McpConfig
      *
      * @var list<string>
      */
+    /**
+     * The plugin's controllers that answer at a server's route and at its metadata route.
+     */
+    private const ENDPOINT_CONTROLLERS = ['Mcp', 'ProtectedResource'];
+
     private const REPLACED_SECTIONS = ['auth', 'authorization', 'discovery', 'identity'];
 
     /**
@@ -179,8 +184,21 @@ final class McpConfig
      */
     public static function serverFor(ServerRequestInterface $request): ?string
     {
-        $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
-        $path = '/' . trim($path, '/');
+        // Once the router has run, its answer: a fixed route of the application wins over a server's pattern, and
+        // a route the application connected itself to the plugin's controller is the default server's.
+        $params = $request->getAttribute('params');
+        if (is_array($params) && isset($params['controller'])) {
+            $ours = ($params['plugin'] ?? null) === 'CakeDC/Mcp'
+                && in_array($params['controller'], self::ENDPOINT_CONTROLLERS, true);
+            if (!$ours) {
+                return null;
+            }
+            $server = $params['server'] ?? null;
+            $server = is_string($server) && $server !== '' ? $server : self::DEFAULT_SERVER;
+
+            return in_array($server, self::servers(), true) ? $server : null;
+        }
+        $path = self::requestPath($request);
         foreach (self::servers() as $server) {
             $route = self::get('route', $server);
             if (!is_string($route) || trim($route, '/') === '') {
@@ -193,6 +211,27 @@ final class McpConfig
         }
 
         return null;
+    }
+
+    /**
+     * The path of $request as the router matches it: each segment percent-decoded, an encoded slash kept inside its
+     * segment, without trailing slashes.
+     *
+     * @param \Psr\Http\Message\ServerRequestInterface $request The request.
+     * @return string
+     * @internal
+     */
+    public static function requestPath(ServerRequestInterface $request): string
+    {
+        $path = $request instanceof ServerRequest ? $request->getPath() : $request->getUri()->getPath();
+        if (str_contains($path, '%')) {
+            $path = implode('/', array_map(
+                fn(string $part): string => str_replace('/', '%2f', urldecode($part)),
+                explode('/', $path),
+            ));
+        }
+
+        return '/' . trim($path, '/');
     }
 
     /**
