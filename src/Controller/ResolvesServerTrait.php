@@ -20,8 +20,18 @@ trait ResolvesServerTrait
         $server = $this->request->getParam('server');
         $server = is_string($server) && $server !== '' ? $server : McpConfig::DEFAULT_SERVER;
         try {
-            McpConfig::get('route', $server);
+            $route = McpConfig::get('route', $server);
         } catch (InvalidArgumentException) {
+            return null;
+        }
+        // Only the server whose own route (or its metadata route) is this path: never a stdio only server, nor
+        // another server named by a route param.
+        if (!is_string($route) || trim($route, '/') === '') {
+            return null;
+        }
+        $path = '/' . trim($this->request->getPath(), '/');
+        $metadata = McpConfig::METADATA_PREFIX . '/' . trim($route, '/');
+        if (McpConfig::routeValues($route, $path) === null && McpConfig::routeValues($metadata, $path) === null) {
             return null;
         }
 

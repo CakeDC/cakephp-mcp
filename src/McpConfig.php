@@ -26,6 +26,13 @@ final class McpConfig
     public const ROUTE_VALUE = '[A-Za-z0-9_-]+';
 
     /**
+     * Route parameter names Cake routing or the plugin read, which a route of a server cannot use.
+     *
+     * @var list<string>
+     */
+    public const RESERVED_PARAMS = ['server', 'plugin', 'controller', 'action', 'prefix', 'pass'];
+
+    /**
      * Path prefix of the protected resource metadata (RFC 9728), followed by the MCP route.
      */
     public const METADATA_PREFIX = '/.well-known/oauth-protected-resource';
@@ -228,6 +235,10 @@ final class McpConfig
             }
             if (in_array($match[1], $names, true)) {
                 return sprintf('the parameter {%s} is there twice', $match[1]);
+            }
+            // Cake would put the value in that routing key, so a request could pick another server or controller.
+            if (in_array($match[1], self::RESERVED_PARAMS, true) || str_starts_with($match[1], '_')) {
+                return sprintf('{%s} is a name Cake routing uses: name the parameter otherwise', $match[1]);
             }
             $names[] = $match[1];
         }

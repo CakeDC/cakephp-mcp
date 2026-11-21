@@ -13,8 +13,10 @@ use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Controller\McpController;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Test\Support\TestJwt;
+use Closure;
 use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
 use TestApp\TestTokens;
@@ -168,6 +170,10 @@ class McpRouteParamsTest extends TestCase
             'an unclosed brace' => ['/mcp/{tenant'],
             'a name that is not a word' => ['/mcp/{ten-ant}'],
             'the same name twice' => ['/mcp/{a}/{a}'],
+            // Cake would let it pick another server, a stdio only one included.
+            'a reserved name' => ['/mcp/s/{server}'],
+            'a routing key' => ['/mcp/{controller}'],
+            'an underscore name' => ['/mcp/{_ext}'],
         ];
     }
 
@@ -180,6 +186,32 @@ class McpRouteParamsTest extends TestCase
         $this->exec('mcp check');
         $this->assertOutputContains('[FAIL] Server tenants');
         $this->assertOutputContains('route');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string|null}>
+     */
+    public static function requestsNamingAServer(): array
+    {
+        return [
+            'a stdio only server named by a param' => ['/sneaky/local', null],
+            'another server named by a param' => ['/sneaky/tenants', null],
+            'the path of the server' => ['/mcp/t/acme', 'tenants'],
+            'its metadata path' => ['/.well-known/oauth-protected-resource/mcp/t/acme', 'tenants'],
+        ];
+    }
+
+    #[DataProvider('requestsNamingAServer')]
+    public function testOnlyTheServerOfThePathIsServed(string $path, ?string $expected): void
+    {
+        // As if a route of the application passed a name as the server param.
+        Configure::write('Mcp.servers.local', ['route' => false, 'identity' => ['required' => false]]);
+        $request = (new ServerRequest(['url' => $path]))->withParam('server', $expected ?? basename($path));
+        $controller = new McpController($request);
+
+        $server = Closure::bind(fn(): ?string => $this->mcpServer(), $controller, McpController::class)();
+
+        $this->assertSame($expected, $server);
     }
 
     public function testMcpCheckShowsThePattern(): void

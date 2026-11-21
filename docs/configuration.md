@@ -311,7 +311,9 @@ A named server can serve many values of one route, such as one per tenant:
 ```
 
 Every value shares the server's config and tools. A parameter is a whole path
-segment, `{name}` with letters, digits and `_`, each name once; its values are
+segment, `{name}` with letters, digits and `_`, each name once, and not a name
+Cake routing uses (`server`, `plugin`, `controller`, `action`, `prefix`,
+`pass`, or one starting with `_`); its values are
 slugs (letters, digits, `-` and `_`), and any other path is not routed to the
 server. A pattern that breaks these rules stops that server, and
 `bin/cake mcp check` fails on it; its `Endpoint` line shows the pattern.
