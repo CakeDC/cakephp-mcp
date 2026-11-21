@@ -209,8 +209,10 @@ final class ServerFactory
         }
         // The guards go first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
+        $ownHandlers = 1;
         if ($contentGate->active()) {
             $builder->addRequestHandler(new ContentGuard($contentGate));
+            $ownHandlers++;
         }
         $builder->setRegistry($registry);
         $audit = AuditSettings::fromConfig($this->server, $this->route()->values());
@@ -251,7 +253,7 @@ final class ServerFactory
         // The registry the server will use, the plugin's or one the hook set.
         $registry = $this->registryOf($builder);
         if ($catalogOn) {
-            $this->assertCatalogCanRunEverything($builder);
+            $this->assertCatalogCanRunEverything($builder, $ownHandlers);
             $toolCatalog = new ToolCatalog(
                 $registry,
                 $gate,
@@ -461,15 +463,16 @@ final class ServerFactory
      * handlers, a reference handler or a schema validator the host hook added: refuse the combination.
      *
      * @param \Mcp\Server\Builder $builder The builder, after the host hook.
+     * @param int $ownHandlers How many request handlers the plugin added itself, before the hook.
      * @return void
      * @throws \InvalidArgumentException When the hook added one of them, or a tool named like the catalog's.
      */
-    private function assertCatalogCanRunEverything(Builder $builder): void
+    private function assertCatalogCanRunEverything(Builder $builder, int $ownHandlers): void
     {
         $read = fn(string $property): mixed => (new ReflectionProperty(Builder::class, $property))->getValue($builder);
         $handlers = $read('requestHandlers');
         $added = [];
-        if (is_array($handlers) && count($handlers) > 1) {
+        if (is_array($handlers) && count($handlers) > $ownHandlers) {
             $added[] = 'request handlers';
         }
         if ($read('referenceHandler') !== null) {

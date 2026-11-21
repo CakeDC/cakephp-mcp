@@ -236,4 +236,28 @@ class ContentAuthorizationTest extends TestCase
         $this->assertMcpPromptListed('greet');
         $this->assertMcpPromptNotListed('payroll');
     }
+
+    public function testTheToolCatalogWorksNextToAnAuthorizerForResourcesAndPrompts(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpContent']);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['echo']]);
+
+        $this->assertMcpToolListed('find_tools');
+        $this->assertMcpResourceNotListed('app://salaries');
+        $this->assertMcpResourceListed('app://rules');
+    }
+
+    public function testTheToolCatalogWorksNextToRbacRulesForResources(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpContent']);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['echo']]);
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resources', 'action' => ['app://rules']],
+        ]]);
+
+        $this->assertMcpToolListed('find_tools');
+        $this->assertMcpResourceNotListed('app://salaries');
+    }
 }
