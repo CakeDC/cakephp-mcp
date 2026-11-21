@@ -273,9 +273,12 @@ final class ClientConfig
         }
         $issuer = self::optionalString($config, 'issuer', $key);
         $configured = array_filter($endpoints, fn(?string $value): bool => $value !== null) !== [];
-        if ($issuer !== null && !$configured) {
+        $secret = self::optionalString($config, 'clientSecret', $key);
+        if ($auth === self::USER && $secret !== null && !$configured && $issuer === null) {
+            // The MCP server names its authorization server on every sign-in: a secret must be bound to one.
             throw new InvalidArgumentException(sprintf(
-                '"%s" goes with "authorizationUrl" and "tokenUrl"; discovery reads the issuer from the server.',
+                '"%s" is required with "clientSecret" and discovery: without it, the secret would go to whatever '
+                . 'authorization server the MCP server names. Set it to the issuer that gave you the client.',
                 $key('issuer'),
             ));
         }

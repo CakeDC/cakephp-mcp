@@ -221,6 +221,7 @@ class OAuthFlowTest extends TestCase
     {
         Configure::write('Mcp.clients.linear.clientId', 'given id');
         Configure::write('Mcp.clients.linear.clientSecret', 'given:secret');
+        Configure::write('Mcp.clients.linear.issuer', FakeOAuthServer::ISSUER);
         [$pending, $query] = $this->start();
 
         $this->flow()->complete($pending, ['code' => 'good-code', 'state' => $query['state'], 'iss' => FakeOAuthServer::ISSUER]);

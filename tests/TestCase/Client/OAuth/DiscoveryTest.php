@@ -86,6 +86,43 @@ class DiscoveryTest extends TestCase
         $this->discover();
     }
 
+    public function testAConfiguredIssuerMustBeTheOneTheServerNames(): void
+    {
+        Configure::write('Mcp.clients.linear', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'clientId' => 'given-id',
+            'clientSecret' => 'given-secret',
+            'issuer' => 'https://login.linear.example',
+        ]);
+
+        try {
+            $this->discover();
+            $this->fail('Discovered an authorization server that is not the configured issuer.');
+        } catch (OAuthException $e) {
+            $this->assertStringContainsString('https://login.linear.example', $e->getMessage());
+            $this->assertStringContainsString(FakeOAuthServer::ISSUER, $e->getMessage());
+        }
+        // Nothing was asked of the authorization server the MCP server named.
+        $this->assertSame(['GET ' . FakeOAuthServer::RESOURCE_METADATA], $this->server->guarded->urls());
+    }
+
+    public function testAMatchingConfiguredIssuerIsDiscovered(): void
+    {
+        Configure::write('Mcp.clients.linear', [
+            'url' => FakeOAuthServer::MCP,
+            'auth' => 'user',
+            'clientId' => 'given-id',
+            'clientSecret' => 'given-secret',
+            'issuer' => FakeOAuthServer::ISSUER,
+        ]);
+
+        $server = $this->discover();
+
+        $this->assertSame(FakeOAuthServer::ISSUER, $server->issuer);
+        $this->assertSame(FakeOAuthServer::ISSUER . '/token', $server->tokenUrl);
+    }
+
     public function testRefusesAnotherServersResource(): void
     {
         $this->server->guarded->json(FakeOAuthServer::RESOURCE_METADATA, [

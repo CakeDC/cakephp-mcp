@@ -206,9 +206,19 @@ and set what they give you:
     'auth' => 'user',
     'clientId' => env('NOTION_CLIENT_ID'),
     'clientSecret' => env('NOTION_CLIENT_SECRET'),
+    // The authorization server that gave you the client, as its metadata names itself
+    // (the "issuer" of its /.well-known/oauth-authorization-server document).
+    'issuer' => env('NOTION_ISSUER'),
     'scopes' => ['read'],
 ],
 ```
+
+With a `clientSecret` and discovery, `issuer` is required. The MCP server names
+its authorization server on every sign-in, so without it the secret would go to
+whatever authorization server the MCP server names, a compromised one included.
+With `issuer` set, the client only signs in when the MCP server names that
+issuer, compared exactly; otherwise the sign-in fails with an error naming both.
+Nothing is sent to the other server.
 
 For an authorization server on your own network, set its endpoints too. They
 are then trusted like `url` and nothing is discovered:
@@ -229,7 +239,8 @@ are then trusted like `url` and nothing is discovered:
 
 Without `issuer`, the client cannot know which server a sign-in response comes
 from and does not check its `iss`; with configured endpoints that is the
-server you wrote, so set it when you know it.
+server you wrote, so set it when you know it. With discovery, `issuer` also
+pins the authorization server, as above.
 
 ## Which addresses the client calls
 

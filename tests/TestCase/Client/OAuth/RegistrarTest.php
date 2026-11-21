@@ -58,6 +58,7 @@ class RegistrarTest extends TestCase
     {
         Configure::write('Mcp.clients.linear.clientId', 'given-id');
         Configure::write('Mcp.clients.linear.clientSecret', 'given-secret');
+        Configure::write('Mcp.clients.linear.issuer', FakeOAuthServer::ISSUER);
 
         $registration = $this->registrar()->clientFor(self::authServer(), self::CALLBACK);
 

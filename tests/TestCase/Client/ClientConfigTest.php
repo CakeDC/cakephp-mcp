@@ -147,6 +147,27 @@ class ClientConfigTest extends TestCase
         );
     }
 
+    public function testASecretWithDiscoveryNeedsTheIssuer(): void
+    {
+        $this->expectError(
+            ['url' => 'https://a.example.com', 'auth' => 'user', 'clientId' => 'id', 'clientSecret' => 's'],
+            'the secret would go to whatever authorization server the MCP server names',
+        );
+
+        Configure::write('Mcp.clients.notion', [
+            'url' => 'https://mcp.notion.example/mcp',
+            'auth' => 'user',
+            'clientId' => 'id',
+            'clientSecret' => 's',
+            'issuer' => 'https://login.notion.example',
+        ]);
+        $this->assertSame('https://login.notion.example', ClientConfig::fromConfig('notion')->issuer);
+
+        // Without a secret the issuer stays optional.
+        Configure::write('Mcp.clients.public', ['url' => 'https://a.example.com', 'auth' => 'user', 'clientId' => 'id']);
+        $this->assertNull(ClientConfig::fromConfig('public')->issuer);
+    }
+
     public function testProtocolVersionMustBeKnown(): void
     {
         $this->expectError(['url' => 'https://a.example.com', 'protocolVersion' => '2020-01-01'], 'protocolVersion');

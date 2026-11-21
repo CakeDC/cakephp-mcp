@@ -98,9 +98,24 @@ final class Discovery
             ));
         }
         $servers = $resourceMetadata['authorization_servers'] ?? null;
-        $issuer = is_array($servers) && array_is_list($servers) ? ($servers[0] ?? null) : null;
+        $servers = is_array($servers) && array_is_list($servers) ? $servers : [];
+        $issuer = $servers[0] ?? null;
         if (!is_string($issuer) || $issuer === '') {
             throw new OAuthException(sprintf('The server of "%s" names no authorization server.', $config->name));
+        }
+        if ($config->issuer !== null) {
+            // The configured issuer pins the authorization server: a client id and secret are bound to it.
+            if (!in_array($config->issuer, $servers, true)) {
+                throw new OAuthException(sprintf(
+                    'The server of "%s" names the authorization server %s, but "Mcp.clients.%s.issuer" is %s: '
+                    . 'the client is not signed in anywhere else.',
+                    $config->name,
+                    $issuer,
+                    $config->name,
+                    $config->issuer,
+                ));
+            }
+            $issuer = $config->issuer;
         }
 
         $document = $this->firstDocument(self::authorizationServerUrls($issuer), false);
