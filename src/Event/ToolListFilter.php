@@ -47,7 +47,7 @@ final class ToolListFilter
         $cursor = $result->nextCursor;
         $registry = $this->registry === null ? null : ($this->registry)();
         if ($cursor !== null && count($tools) < count($result->tools) && $registry instanceof RegistryInterface) {
-            [$tools, $cursor] = $this->fill($tools, count($result->tools), $event->getRequest(), $registry);
+            [$tools, $cursor] = $this->fill($tools, count($result->tools), $event->getRequest(), $registry, $cursor);
         }
         $event->setResponse(new Response($response->getId(), new ListToolsResult($tools, $cursor)));
     }
@@ -64,20 +64,22 @@ final class ToolListFilter
     /**
      * Fills a page the filter left short from the tools after it, so a client does not get empty pages (120
      * catalogued tools would list as two tools and then empty pages). The cursor is the registry's own (the
-     * offset after the last tool looked at), so the server's handler reads it as usual.
+     * offset after the last tool looked at), so the server's handler reads it as usual. A registry whose cursors
+     * are not those offsets (one of the application's own) keeps its page and its cursor: only it can read them.
      *
      * @param list<\Mcp\Schema\Tool> $tools The tools kept from the page.
      * @param int $size The page size.
      * @param \Mcp\Schema\JsonRpc\Request $request The `tools/list` request.
      * @param \Mcp\Capability\RegistryInterface $registry The registry.
+     * @param string $next The cursor the registry gave for the next page.
      * @return array{0: list<\Mcp\Schema\Tool>, 1: string|null}
      */
-    private function fill(array $tools, int $size, Request $request, RegistryInterface $registry): array
+    private function fill(array $tools, int $size, Request $request, RegistryInterface $registry, string $next): array
     {
         $cursor = $request instanceof ListToolsRequest ? $request->cursor : null;
-        $start = $cursor === null ? 0 : base64_decode($cursor, true);
-        if (!is_int($start) && (!is_string($start) || !ctype_digit($start))) {
-            return [$tools, base64_encode((string)$size)];
+        $start = $cursor === null ? '0' : base64_decode($cursor, true);
+        if (!is_string($start) || !ctype_digit($start) || $next !== base64_encode((string)((int)$start + $size))) {
+            return [$tools, $next];
         }
         $all = array_values($registry->getTools()->references);
         $total = count($all);

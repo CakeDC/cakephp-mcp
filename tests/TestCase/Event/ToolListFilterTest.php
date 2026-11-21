@@ -86,6 +86,32 @@ class ToolListFilterTest extends TestCase
         $this->assertSame('admin_28', array_values($next->references)[0]->name);
     }
 
+    public function testACursorThatIsNotTheRegistrysOffsetIsPassedOnAndThePageLeftShort(): void
+    {
+        // A registry of the application's own may page with cursors of its own: only that registry can read them.
+        $registry = new Registry();
+        foreach (['echo', 'admin_1', 'echo_2', 'admin_3'] as $name) {
+            $registry->registerTool($this->tool($name), fn(): string => $name);
+        }
+        $filter = new ToolListFilter(new ToolGate(new class implements ToolAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return str_starts_with($tool, 'echo');
+            }
+        }, new CurrentIdentity()), null, fn(): Registry => $registry);
+
+        foreach ([null, 'after:echo', base64_encode('7')] as $requestCursor) {
+            $page = [$this->tool('echo'), $this->tool('admin_1')];
+            $event = $this->event(new Response(3, new ListToolsResult($page, 'after:admin_1')), $requestCursor);
+            $filter($event);
+
+            $result = $event->getResponse()->result;
+            $this->assertInstanceOf(ListToolsResult::class, $result);
+            $this->assertSame(['echo'], array_map(fn(Tool $tool): string => $tool->name, $result->tools));
+            $this->assertSame('after:admin_1', $result->nextCursor, (string)$requestCursor);
+        }
+    }
+
     public function testLeavesOtherResponsesAlone(): void
     {
         $response = new Response(4, ['anything' => true]);
@@ -110,10 +136,13 @@ class ToolListFilterTest extends TestCase
 
     /**
      * @param \Mcp\Schema\JsonRpc\Response<mixed> $response
+     * @param string|null $cursor The cursor of the request.
      */
-    private function event(Response $response): ResponseEvent
+    private function event(Response $response, ?string $cursor = null): ResponseEvent
     {
-        return new ResponseEvent($response, (new ListToolsRequest())->withId(1), $this->createStub(SessionInterface::class));
+        $request = (new ListToolsRequest($cursor))->withId(1);
+
+        return new ResponseEvent($response, $request, $this->createStub(SessionInterface::class));
     }
 
     private function tool(string $name): Tool
