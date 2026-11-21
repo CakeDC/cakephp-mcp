@@ -21,8 +21,24 @@ use Mcp\Schema\Tool;
  */
 final class DelegatingRegistry implements RegistryInterface
 {
-    public function __construct(private readonly Registry $inner = new Registry())
+    /**
+     * @param \Mcp\Capability\Registry $inner The SDK registry it hands every call to.
+     * @param bool $listPages Whether its pages are plain lists (keys 0..n), as a decorator that sorts or filters
+     *   them gets from `usort()` or `array_values()`; `Mcp\Schema\Page` allows it.
+     */
+    public function __construct(
+        private readonly Registry $inner = new Registry(),
+        private readonly bool $listPages = false,
+    ) {
+    }
+
+    /**
+     * @param \Mcp\Schema\Page $page A page of the inner registry.
+     * @return \Mcp\Schema\Page
+     */
+    private function page(Page $page): Page
     {
+        return $this->listPages ? new Page(array_values($page->references), $page->nextCursor) : $page;
     }
 
     public function registerTool(Tool $tool, callable|array|string $handler): ToolReference
@@ -103,7 +119,7 @@ final class DelegatingRegistry implements RegistryInterface
 
     public function getTools(?int $limit = null, ?string $cursor = null): Page
     {
-        return $this->inner->getTools($limit, $cursor);
+        return $this->page($this->inner->getTools($limit, $cursor));
     }
 
     public function getTool(string $name): ToolReference
@@ -118,7 +134,7 @@ final class DelegatingRegistry implements RegistryInterface
 
     public function getResources(?int $limit = null, ?string $cursor = null): Page
     {
-        return $this->inner->getResources($limit, $cursor);
+        return $this->page($this->inner->getResources($limit, $cursor));
     }
 
     public function getResource(string $uri, bool $includeTemplates = true): ResourceReference|ResourceTemplateReference
@@ -133,7 +149,7 @@ final class DelegatingRegistry implements RegistryInterface
 
     public function getResourceTemplates(?int $limit = null, ?string $cursor = null): Page
     {
-        return $this->inner->getResourceTemplates($limit, $cursor);
+        return $this->page($this->inner->getResourceTemplates($limit, $cursor));
     }
 
     public function getResourceTemplate(string $uriTemplate): ResourceTemplateReference
@@ -148,7 +164,7 @@ final class DelegatingRegistry implements RegistryInterface
 
     public function getPrompts(?int $limit = null, ?string $cursor = null): Page
     {
-        return $this->inner->getPrompts($limit, $cursor);
+        return $this->page($this->inner->getPrompts($limit, $cursor));
     }
 
     public function getPrompt(string $name): PromptReference

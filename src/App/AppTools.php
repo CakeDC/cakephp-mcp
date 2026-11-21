@@ -21,8 +21,8 @@ final class AppTools
      */
     public static function link(RegistryInterface $registry): void
     {
-        foreach ($registry->getTools()->references as $name => $tool) {
-            $reference = $registry->getTool((string)$name);
+        foreach ($registry->getTools()->references as $tool) {
+            $reference = $registry->getTool($tool->name);
             $app = HandlerAttributes::first($reference, McpApp::class);
             if ($app === null) {
                 continue;

@@ -131,8 +131,8 @@ final class ToolCatalog
         // Words of any script, so a query in another language matches whole words, not their ASCII letters.
         $terms = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($query), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $ranked = [];
-        foreach ($this->registry->getTools()->references as $name => $tool) {
-            $name = (string)$name;
+        foreach ($this->registry->getTools()->references as $tool) {
+            $name = $tool->name;
             if (!$this->callable($name, $context)) {
                 continue;
             }

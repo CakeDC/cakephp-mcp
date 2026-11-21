@@ -53,6 +53,36 @@ class HookRegistryTest extends TestCase
         $this->assertMcpResultContains('hi');
     }
 
+    public function testARegistryWhosePagesAreListsServes(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpWhen', 'src/McpApps', 'src/McpContent']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setRegistry(new DelegatingRegistry(listPages: true));
+        });
+        $this->mcpActingAs(['id' => 1]);
+
+        $tools = array_column($this->mcpListTools(), null, 'name');
+        $this->assertArrayHasKey('whoami', $tools);
+        $this->assertSame('ui://test/inbox', $tools['show_inbox']['_meta']['ui']['resourceUri'] ?? null);
+        $this->mcpCallTool('echo', ['text' => 'hi']);
+        $this->assertMcpToolSucceeded();
+        $this->mcpReadResource('app://rules');
+        $this->assertMcpResourceContains('');
+    }
+
+    public function testTheCatalogFindsToolsOfARegistryWhosePagesAreLists(): void
+    {
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['echo']]);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setRegistry(new DelegatingRegistry(listPages: true));
+        });
+
+        $this->mcpCallTool('find_tools', ['query' => 'echo']);
+        $this->assertMcpToolSucceeded();
+        $this->assertContains('echo', array_column($this->mcpResult()['structuredContent']['tools'] ?? [], 'name'));
+    }
+
     public function testTheCatalogRunsOnARegistryOfItsOwn(): void
     {
         Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['echo']]);

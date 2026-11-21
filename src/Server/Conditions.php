@@ -7,6 +7,10 @@ use CakeDC\Mcp\Attribute\McpWhen;
 use InvalidArgumentException;
 use Mcp\Capability\Registry\ElementReference;
 use Mcp\Capability\RegistryInterface;
+use Mcp\Schema\Prompt;
+use Mcp\Schema\ResourceDefinition;
+use Mcp\Schema\ResourceTemplate;
+use Mcp\Schema\Tool;
 
 /**
  * Removes from a loaded registry the elements whose `#[McpWhen]` does not hold on a server.
@@ -37,7 +41,11 @@ final class Conditions
             'prompt' => [$registry->getPrompts(), $registry->getPrompt(...), $registry->unregisterPrompt(...)],
         ];
         foreach ($kinds as $kind => [$page, $get, $unregister]) {
-            $references = $page->references;
+            // Keyed by the element's own name or URI: a registry of the hook's own may return its pages as lists.
+            $references = [];
+            foreach ($page->references as $key => $element) {
+                $references[self::key($element, $key)] = $element;
+            }
             // By name: discovery follows the file system, and `mcp check` output should not.
             ksort($references, SORT_STRING);
             foreach ($references as $key => $element) {
@@ -61,6 +69,24 @@ final class Conditions
         }
 
         return $skipped;
+    }
+
+    /**
+     * The name of a tool or prompt, the URI of a resource or the URI template of a template.
+     *
+     * @internal
+     * @param mixed $element A definition from a registry page.
+     * @param int|string $key Its key in the page, used when the definition has none of these.
+     * @return string
+     */
+    public static function key(mixed $element, int|string $key): string
+    {
+        return match (true) {
+            $element instanceof Tool, $element instanceof Prompt => $element->name,
+            $element instanceof ResourceDefinition => $element->uri,
+            $element instanceof ResourceTemplate => $element->uriTemplate,
+            default => (string)$key,
+        };
     }
 
     /**
