@@ -30,7 +30,8 @@
         "psr/cache": "^2.0 || ^3.0"
     },
     "suggest": {
-        "cakephp/bake": "Generates MCP tools, resources and prompts with their tests (bin/cake bake mcp_tool, mcp_resource, mcp_prompt)",
+        "cakephp/bake": "Generates MCP tools, resources, prompts and apps with their tests (bin/cake bake mcp_tool, mcp_resource, mcp_prompt, mcp_app)",
+        "cakephp/migrations": "Creates the tables of the MCP client's user mode (bin/cake migrations migrate -p CakeDC/Mcp)",
         "cakephp/authentication": "Identifies the caller of the MCP endpoint (for example with a Bearer token authenticator)",
         "cakedc/auth": "Enables RbacToolAuthorizer, per-tool permissions in the config/permissions.php format",
         "cakedc/cakephp-oauth-server": "OAuth 2.1 sign-in for remote MCP clients with the application's own login (Mcp.auth.mode oauth)",

@@ -68,6 +68,45 @@ class DocsTest extends TestCase
         $this->assertStringContainsString('(docs/mcp-client.md)', (string)file_get_contents(self::ROOT . 'README.md'));
     }
 
+    public function testTheDefaultsBlockHasEverySection(): void
+    {
+        $configuration = (string)file_get_contents(self::ROOT . 'docs/configuration.md');
+        $this->assertSame(1, preg_match('/These are the defaults.*?```php\n(.*?)```/s', $configuration, $block));
+        foreach (array_keys(McpConfig::DEFAULTS) as $section) {
+            $this->assertStringContainsString("    '" . $section . "' => ", $block[1], $section . ' is not in the defaults block');
+        }
+        foreach (array_keys(McpConfig::DEFAULTS['server']) as $key) {
+            $this->assertStringContainsString("'" . $key . "' => ", $block[1], 'server.' . $key . ' is not in the defaults block');
+        }
+    }
+
+    public function testEveryAuditRecordFieldIsDocumented(): void
+    {
+        $configuration = (string)file_get_contents(self::ROOT . 'docs/configuration.md');
+        $fields = ['method', 'name', 'outcome', 'identity', 'client', 'session', 'request', 'arguments', 'error',
+            'durationMs', 'via', 'app', 'server'];
+        foreach ($fields as $field) {
+            $this->assertStringContainsString('| `' . $field . '` |', $configuration, $field . ' is not in "What a record holds"');
+        }
+    }
+
+    public function testEveryMcpCheckLineIsDocumented(): void
+    {
+        $oauth = (string)file_get_contents(self::ROOT . 'docs/oauth.md');
+        $command = (string)file_get_contents(self::ROOT . 'src/Command/McpCheckCommand.php');
+        preg_match_all("/^\\s+'([A-Z][A-Za-z ]+)' => fn\\(\\): array =>/m", $command, $lines);
+        $lines = [...$lines[1], 'Servers', 'Clients'];
+        $this->assertGreaterThan(15, count($lines));
+        foreach ($lines as $line) {
+            $this->assertStringContainsString('| ' . $line . ' |', $oauth, $line . ' is not in the mcp check table of docs/oauth.md');
+            $this->assertMatchesRegularExpression(
+                '/^\\[(PASS|WARN|FAIL)\\] ' . preg_quote($line, '/') . ':/m',
+                $oauth,
+                $line . ' is not in the sample output of docs/oauth.md',
+            );
+        }
+    }
+
     public function testRelativeLinksResolve(): void
     {
         foreach ($this->markdownFiles() as $file) {

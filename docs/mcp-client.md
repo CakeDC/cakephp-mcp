@@ -139,7 +139,17 @@ offer `connectUrl()` again.
    PKCE with S256 must be supported.
 2. Without a `clientId`, the application registers itself there once (dynamic
    client registration, RFC 7591) as a public client, and keeps the
-   registration for every user.
+   registration for every user. The callback URL it registers is built from
+   `App.fullBaseUrl`, which by default comes from the `Host` header of the
+   request: set `App.fullBaseUrl` in production, or a request with another
+   host registers the application again with that callback. When the
+   authorization server forgets the registration, a token request answered
+   with `invalid_client` deletes it and the next connect registers again. If
+   it fails some other way (the authorize page refuses the client, say),
+   delete it yourself, for example with
+   `(new TableConnectionStore())->deleteRegistration('linear', $issuer)` or
+   by deleting the rows of `mcp_client_registrations` whose `client` is that
+   client's name.
 3. The browser goes to the authorization server with PKCE, a `state` and the
    `resource` parameter (RFC 8707). The sign-in in progress is kept in the
    user's session. The scopes asked for are the ones the server names (its

@@ -2,6 +2,12 @@
 
 ## 2.2.0 (2026-11-20)
 
+Behaviour changes a 2.1 application can notice, without changing its config or code:
+
+- The tool registry is loaded when the server is built, before the caller is authenticated. A loader added in `Mcp.server.configure` that registers tools depending on who calls now sees no identity; decide per caller in an authorizer instead. (2.1 already did this with the audit log on.)
+- `initialize` and `server/discover` announce exactly what the server has: a server with only tools no longer announces `prompts` or `resources`. With an event bus set in `Mcp.server.configure`, `tools.listChanged` is no longer announced.
+- `McpTestTrait::mcpCallTool()` sends a progress token (`_meta.progressToken`) and a `logging/setLevel` of `debug` before the call, so a tool's notifications can be checked (see `docs/testing.md`).
+
 - `ToolValidation::checkPrompt()`: the Validator check for the arguments of a prompt, reported as the error of `prompts/get`.
 - `docs/features.md`: an overview of what the plugin offers, with a link to the page for each part.
 - MCP client (`Mcp.clients`): call the tools, resources and prompts of other MCP servers with `McpClients::get('name')`, over HTTP with a token or headers, or a local server over stdio, with `tools.only` and `tools.except`, `timeout` and `protocolVersion` per client. User mode (`'auth' => 'user'`) calls a server on behalf of each user after an OAuth sign-in: discovery (RFC 9728, RFC 8414), dynamic client registration, PKCE, connect and callback routes, tokens stored encrypted in the plugin's tables (migration shipped), refreshed before expiry (one request at a time per user) and revoked on `disconnect()`. Addresses a remote server names go through a guard against server-side request forgery. A configured `clientSecret` with discovery needs `issuer`, and is only sent to that authorization server. `mcp check` reports clients on a new `Clients` line. See `docs/mcp-client.md`.

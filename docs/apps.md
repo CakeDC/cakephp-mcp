@@ -109,8 +109,12 @@ a pattern matched on its `Catalog` line.
 Visibility is a hint for the host, not access control. An app-only tool can
 still be called by anyone who knows its name and holds a valid token, so it is
 gated by your authorizer, needs its scopes and is audited like any other tool
-(its audit records carry `app=1`). Data an app shows also passes through the
-host, so the host vendor's terms apply to it as much as to what the model reads.
+(its audit records carry `app=1`). The page itself is a resource, and
+resources do not go through the tool authorizer: anyone who may call the
+endpoint can read it with `resources/read`. Keep data out of the page template
+and load it with a tool call from the page, where the authorizer and the scopes
+apply. Data an app shows also passes through the host, so the host vendor's
+terms apply to it as much as to what the model reads.
 
 ## Checking and testing
 

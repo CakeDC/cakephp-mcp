@@ -228,9 +228,10 @@ Hosts ask the user before running a tool they do not know to be safe, and an
 returns each tool's annotations (`readOnlyHint`, `destructiveHint`) so the
 model knows what it is about to run, but keep tools that change or delete data
 out of the catalog unless that blanket approval is acceptable. A tool run by
-`call_tools` does not get the caller's progress token, and the audit record of
-the `call_tools` call itself names the failing tool, never the output of the
-tools it ran.
+`call_tools` does not get the caller's progress token. The audit record of the
+`call_tools` call itself never holds what the tools it ran returned; when one
+fails, its `error` names that tool with the first text of its error (`b failed:
+<message>`).
 
 A tool that asks the user for input (an elicitation through `ClientGateway`,
 or a returned `InputRequiredResult`) cannot finish inside `call_tools` in the
@@ -290,7 +291,7 @@ belongs in the authorizer (see [Authorization](authorization.md)).
 
 ## Generating classes with bake
 
-With `cakephp/bake` installed, three bake commands create a class in
+With `cakephp/bake` installed, four bake commands create a class in
 `src/Mcp/` and its test in `tests/TestCase/Mcp/`:
 
 ```bash
@@ -306,7 +307,11 @@ class with the page resource and its tool, and the page template. The generated 
 parameter described and passes the `Tool schemas` line of `bin/cake mcp check`.
 Replace the placeholder description: the model reads it to decide when to call
 the tool. `--plugin Shop` bakes into a plugin, `--no-test` skips the test, and
-`--force` overwrites an existing file.
+`--force` overwrites an existing file. A class baked into a plugin lands in
+`plugins/Shop/src/Mcp`, outside the default `Mcp.discovery.scanDirs`
+(`src/Mcp` of the application): add its path, relative to the application
+root (`plugins/Shop/src/Mcp`), to `scanDirs`, or
+the server and the baked test do not find the tool.
 
 ## Annotations
 

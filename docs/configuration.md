@@ -14,9 +14,13 @@ want to change; everything else keeps its default. These are the defaults
         'description' => null,
         'websiteUrl' => null,
         'instructions' => null,
+        'cache' => null,
         'configure' => null,
     ],
     'discovery' => ['scanDirs' => ['src/Mcp'], 'excludeDirs' => [], 'cache' => '_cake_mcp_'],
+    'schema' => ['normalize' => false],
+    'catalog' => ['enabled' => false, 'tools' => [], 'maxCalls' => 5],
+    'apps' => ['enabled' => false],
     'session' => ['cache' => 'mcp_sessions', 'ttl' => 3600],
     'http' => ['allowedHosts' => null, 'allowedOrigins' => [], 'maxBodyBytes' => 4194304],
     'identity' => ['required' => true, 'attribute' => 'identity', 'scopes' => null],
@@ -40,8 +44,19 @@ want to change; everything else keeps its default. These are the defaults
         ],
     ],
     'stdio' => ['identity' => null, 'trusted' => true],
+    'audit' => [
+        'enabled' => false,
+        'methods' => ['tools/call'],
+        'log' => true,
+        'arguments' => true,
+        'redact' => ['password', 'token', 'secret'],
+        'maxLength' => 200,
+    ],
 ],
 ```
+
+`Mcp.servers` (several servers), `Mcp.clients` and `Mcp.client` (the MCP
+client) have no defaults of their own; they are described below.
 
 ## Keys
 
@@ -417,6 +432,9 @@ named in the `mcp` log) and makes `bin/cake mcp check` fail.
 | `arguments` | the arguments, redacted and cut |
 | `error` | the error message, for an outcome that is not `ok`; for `tool_error`, the first text the tool returned (kept even with `audit.arguments` off: a tool may repeat its input there) |
 | `durationMs` | how long the call took, `null` when it is not known |
+| `via` | `call_tools` when the tool catalog ran the call; left out otherwise (`via=call_tools` on the log line) |
+| `app` | `true` for a call of an app-only tool, refused calls included; left out otherwise (`app=1` on the log line) |
+| `server` | the named server that took the call; left out for the default server (`server=admin` on the log line) |
 
 | Outcome | When | Log level |
 |---|---|---|

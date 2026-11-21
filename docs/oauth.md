@@ -215,11 +215,19 @@ expected: this plugin validates the MCP tokens itself.
 | Allowed hosts | That the host of the resource is in `Mcp.http.allowedHosts`. |
 | CSRF | That the CSRF middleware skips POST requests to the MCP route. |
 | Authenticators | In `oauth` mode, that no authenticator of the application answers access tokens on the MCP route before the plugin. On a `cakedc/users` application it reads `Auth.Authenticators` (see [cakedc/users](#cakedcusers)). Fails with an install hint when `cakedc/cakephp-oauth-server` is missing. |
-| Tools | The tools the server offers, built as the endpoint builds it. Warns when there is none (a class outside `Mcp.discovery.scanDirs`, or without a namespace, is skipped without an error). |
+| Discovery | Fails when `Mcp.discovery.scanDirs` is set and `symfony/finder` is missing: the SDK then skips discovery and the server has no tools. |
+| Tools | Every tool registered on the server, built as the endpoint builds it, catalogued and app-only tools included. Warns when there is none (a class outside `Mcp.discovery.scanDirs`, or without a namespace, is skipped without an error). |
+| Tool schemas | Warns about type arrays, arrays without an item type and optional parameters without a description, in every registered tool. |
+| Conditions | What `#[McpWhen]` left out of the server, and why. |
+| Catalog | With `Mcp.catalog` on, the tools behind `find_tools` and `call_tools`, the tools a pattern matched that stay in `tools/list` because they link to an app, and patterns that match no tool. |
+| Apps | With apps announced (`Mcp.apps.enabled`, or the extension enabled in `Mcp.server.configure`), the app pages; fails when a tool links to something that is not an app page, or when tools link to apps the server does not announce. |
 | Authorizer | The configured authorizer. With `RbacToolAuthorizer` it warns when there are no rules, or no rule for plugin `CakeDC/Mcp` and controller `Tools` (wildcards count), because then no one can call a tool. |
-| Tool scopes | In `oauth` and `external` modes, warns about tools that need no scope (no line in `Mcp.auth.scopes.tools`, and no `default` or `tools/call` scope), which any valid token may call, and about names in `Mcp.auth.scopes.tools` that are not tools. |
+| Tool scopes | In `oauth` and `external` modes, warns about registered tools (catalogued and app-only ones included, `find_tools` and `call_tools` left out) that need no scope (no line in `Mcp.auth.scopes.tools`, and no `default` or `tools/call` scope), which any valid token may call, and about names in `Mcp.auth.scopes.tools` that are not tools. In host mode it warns when `auth.scopes` is set, since host mode checks no scopes. |
+| Cache hints | The `Mcp.server.cache` hints: says when `tools/list` is sent private because the authorizer can give users different tools, and warns when `resources/read` is public. |
 | Logging | That a Log engine takes the errors of the `mcp` scope. Without one, a failing tool only answers "Error while executing tool" and its error is lost (the `debug` and `error` engines of the skeleton have `'scopes' => null`). See [Logging](configuration.md#logging). |
 | Audit | When the [audit log](configuration.md#audit-log) is on, that a Log engine takes its lines. |
+| Servers | With several servers, after the lines of each one (also with `--server`): fails when two share a route, a resource or an external audience, and warns when a scan directory of one holds another's. A `Server <name>` line fails for an entry of `Mcp.servers` that is not served because of a mistake. |
+| Clients | The MCP clients of `Mcp.clients`: each config valid, and for user mode the connect and callback routes and the token store's tables. |
 
 Sample output:
 
@@ -231,11 +239,25 @@ Sample output:
 [PASS] Allowed hosts: example.com, localhost, 127.0.0.1, [::1]
 [PASS] CSRF: the MCP route is skipped
 [PASS] Authenticators: no authenticator answers access tokens at the MCP route first
+[PASS] Discovery: scans src/Mcp
 [PASS] Tools: 3 tools: find_posts, create_post, publish_post
+[PASS] Tool schemas: 3 tools, no problems
+[PASS] Conditions: nothing skipped
+[PASS] Catalog: off
+[PASS] Apps: off
 [PASS] Authorizer: RbacToolAuthorizer, 2 of 14 rules for the tools
 [PASS] Tool scopes: every tool needs a scope
+[PASS] Cache hints: off (private, not cached)
 [PASS] Logging: the mcp scope goes to mcp
 [PASS] Audit: off
+[PASS] Clients: none
+```
+
+With `Mcp.servers`, each server's lines come under a `Server <name>` heading,
+followed by one line for all of them before `Clients`:
+
+```
+[PASS] Servers: 2 servers: default, admin
 ```
 
 A failing check looks like this, and the command exits with an error code:
@@ -280,7 +302,10 @@ return [
 
 `McpConfig::rbacPermissions()` returns one rule: role `*`, plugin
 `CakeDC/Mcp`, controllers `Mcp` and `ProtectedResource`, actions `handle` and
-`metadata`, `bypassAuth` `true`. The plugin decides access itself. The oauth
+`metadata`, `bypassAuth` `true`. With a user mode client in `Mcp.clients` it
+returns a second one, for any logged-in user on the client's `connect` and
+`callback` routes (see [Calling other MCP servers](mcp-client.md)). The plugin
+decides access itself. The oauth
 plugin adds the rule for its own endpoints, see its
 [cakedc/users page](https://github.com/CakeDC/cakephp-oauth-server/blob/1.next-cake5/docs/cakedc-users.md).
 
