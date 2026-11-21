@@ -300,7 +300,9 @@ the element off. With `callback`, a static method decides; it receives the name 
 built (see [Several servers](configuration.md#several-servers)). The condition is
 read every time the server is built, so a config change applies on the next
 request. A `#[McpWhen]` on a method adds to the one on its class: both must
-hold, so a class that is off keeps all its methods off. A skipped element does not exist for clients: it is not listed, and a
+hold, so a class that is off keeps all its methods off. As with any PHP
+attribute, a `#[McpWhen]` on a parent class does not reach the classes that
+extend it: put it on each class whose elements it should cover. A skipped element does not exist for clients: it is not listed, and a
 call to it answers like a call to an unknown tool. `bin/cake mcp check` lists
 what was skipped on its `Conditions` line.
 
