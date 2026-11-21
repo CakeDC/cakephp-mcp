@@ -30,6 +30,8 @@ use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\Schema\SchemaNormalizer;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
+use Mcp\Capability\Discovery\CachedDiscoverer;
+use Mcp\Capability\Discovery\Discoverer;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandler;
 use Mcp\Capability\Registry\ResourceTemplateReference;
@@ -54,6 +56,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
+use Psr\Log\NullLogger;
 use ReflectionProperty;
 use RuntimeException;
 use stdClass;
@@ -311,14 +314,14 @@ final class ServerFactory
         }
 
         $scanDirs = $this->existingDirs((array)McpConfig::get('discovery.scanDirs', $this->server));
+        $excludeDirs = array_values(array_filter(
+            (array)McpConfig::get('discovery.excludeDirs', $this->server),
+            'is_string',
+        ));
+        $cache = McpConfig::discoveryCache($this->server);
         if ($scanDirs !== []) {
-            $cache = McpConfig::discoveryCache($this->server);
-            $builder->setDiscovery(
-                rtrim(ROOT, DS),
-                $scanDirs,
-                array_values(array_filter((array)McpConfig::get('discovery.excludeDirs', $this->server), 'is_string')),
-                $cache !== null ? Cache::pool($cache) : null,
-            );
+            $pool = $cache !== null ? Cache::pool($cache) : null;
+            $builder->setDiscovery(rtrim(ROOT, DS), $scanDirs, $excludeDirs, $pool);
         }
 
         $server = $builder->build();
@@ -326,6 +329,9 @@ final class ServerFactory
         AppTools::link($registry);
         if ($toolCatalog !== null) {
             $this->assertCatalogOwnsItsTools($registry, $toolCatalog);
+            if ($scanDirs !== []) {
+                $this->assertNoDiscoveredToolTakesTheCatalogsNames($scanDirs, $excludeDirs, $cache);
+            }
         }
         $this->lastRegistry = $registry;
 
@@ -524,6 +530,54 @@ final class ServerFactory
                 ));
             }
         }
+    }
+
+    /**
+     * The SDK skips a discovered tool whose name is already taken, here by the catalog, with a debug line only: the
+     * application's tool would vanish when the catalog is turned on. The discovery is read again (from its cache
+     * when it has one) to say so.
+     *
+     * @param list<string> $scanDirs The scanned directories.
+     * @param list<string> $excludeDirs The excluded directories.
+     * @param string|null $cache The discovery cache config.
+     * @return void
+     * @throws \InvalidArgumentException When a discovered tool has one of the catalog's names.
+     */
+    private function assertNoDiscoveredToolTakesTheCatalogsNames(
+        array $scanDirs,
+        array $excludeDirs,
+        ?string $cache,
+    ): void {
+        $discoverer = new Discoverer(new NullLogger());
+        if ($cache !== null) {
+            $discoverer = new CachedDiscoverer($discoverer, Cache::pool($cache), new NullLogger());
+        }
+        $tools = $discoverer->discover(rtrim(ROOT, DS), $scanDirs, $excludeDirs)->getTools();
+        foreach ([ToolCatalog::FIND, ToolCatalog::CALL] as $name) {
+            if (isset($tools[$name])) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is the tool catalog\'s own tool: rename the discovered tool %s, which the catalog hides '
+                    . 'while Mcp.catalog.enabled is on.',
+                    $name,
+                    self::handlerName($tools[$name]->handler),
+                ));
+            }
+        }
+    }
+
+    /**
+     * @param mixed $handler A tool handler.
+     * @return string
+     */
+    private static function handlerName(mixed $handler): string
+    {
+        if (is_array($handler) && count($handler) === 2 && is_string($handler[1])) {
+            $class = is_object($handler[0]) ? $handler[0]::class : (string)$handler[0];
+
+            return $class . '::' . $handler[1] . '()';
+        }
+
+        return is_string($handler) ? $handler : get_debug_type($handler);
     }
 
     /**

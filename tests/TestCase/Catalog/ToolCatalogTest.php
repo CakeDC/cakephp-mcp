@@ -379,6 +379,17 @@ class ToolCatalogTest extends TestCase
         $this->mcpListTools();
     }
 
+    public function testADiscoveredToolNamedLikeTheCatalogFails(): void
+    {
+        // The SDK skips a discovered tool whose name is taken: without the check it would vanish in silence.
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpDocs', 'src/McpCatalogClash']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('"find_tools" is the tool catalog\'s own tool: rename the discovered tool');
+
+        $this->mcpListTools();
+    }
+
     public function testInnerCallsDoNotReuseTheProgressToken(): void
     {
         Configure::write('Mcp.discovery.scanDirs', ['src/McpProgress']);

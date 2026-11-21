@@ -227,7 +227,10 @@ whose token lacks the scope of a tool it runs gets the same `403
 insufficient_scope` as a direct call, naming the missing scopes, so the client
 can ask for them. Each inner call writes its own audit record under its own
 name, with `via=call_tools`. `find_tools` and `call_tools` themselves are never
-refused by the authorizer: what they run is.
+refused by the authorizer: what they run is. The two names are the catalog's:
+with the catalog on, a tool of your own with one of them (discovered or added
+in `Mcp.server.configure`) stops the server from being built, with a message
+that names it.
 
 Hosts ask the user before running a tool they do not know to be safe, and an
 "always allow" for `call_tools` covers every tool in the catalog. `find_tools`
