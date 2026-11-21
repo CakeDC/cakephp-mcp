@@ -208,7 +208,7 @@ expected: this plugin validates the MCP tokens itself.
 
 | Check | What it looks at |
 | --- | --- |
-| Endpoint | The URL of the endpoint, or a warning when `Mcp.route` is disabled. For a named server on a route with parameters, the pattern and its parameters; for one with `'route' => false`, that it is served over stdio only. Fails when `Mcp.route` has parameters. |
+| Endpoint | The URL of the endpoint, or a warning when `Mcp.route` is disabled. For a named server on a route with parameters, the pattern and its parameters, a failure when a configured resource or audience lacks them (a token for one value would work for all) and a warning in host mode; for one with `'route' => false`, that it is served over stdio only. Fails when `Mcp.route` has parameters. |
 | Authentication | The mode, or the `Mcp.auth` setting that is invalid. |
 | Resource | The resource URL, the metadata URL and the scopes it advertises. In `oauth` mode it fails when the resource is not declared in `OAuthServer.resources`. In `external` mode it lists the accepted audiences and warns when the resource URL is not among them. |
 | Metadata route | That the plugin routes are connected, and warns when the path the application serves differs from the advertised one (subdirectory installs need a rewrite, see below). |

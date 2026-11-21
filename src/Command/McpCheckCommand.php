@@ -961,6 +961,45 @@ class McpCheckCommand extends Command
         }
 
         $values = $params === [] ? '' : sprintf(' (one server per value of %s)', implode(', ', $params));
+        if ($params === []) {
+            return ['pass', $url];
+        }
+        $names = implode(', ', $params);
+        $auth = (array)McpConfig::get('auth', $this->server);
+        if (($auth['mode'] ?? AuthSettings::HOST) === AuthSettings::HOST) {
+            return ['warn', sprintf(
+                '%s%s: host mode binds nothing to the value of %s, which the caller chooses in the URL: check in the '
+                . 'tools or the authorizer that the identity belongs to it, see %s',
+                $url,
+                $values,
+                $names,
+                self::DOCS . 'configuration.md#routes-with-parameters',
+            )];
+        }
+        // Each value is its own resource only when what the token is checked against holds the parameters.
+        $external = (array)($auth['external'] ?? []);
+        $bound = [];
+        if (is_string($auth['resource'] ?? null)) {
+            $bound[] = $auth['resource'];
+        }
+        if (($auth['mode'] ?? null) === AuthSettings::EXTERNAL && ($external['audience'] ?? null) !== null) {
+            $bound = array_merge($bound, array_filter((array)$external['audience'], 'is_string'));
+        }
+        foreach ($bound as $value) {
+            if (McpConfig::routeParams($value) === []) {
+                return ['fail', sprintf(
+                    '%s%s: "%s" has no {%s}, so a token for one value of %s would be accepted for every other. '
+                    . 'Put the parameter in auth.resource and external.audience, or leave them out to derive them, '
+                    . 'see %s',
+                    $url,
+                    $values,
+                    $value,
+                    $params[0],
+                    $names,
+                    self::DOCS . 'configuration.md#routes-with-parameters',
+                )];
+            }
+        }
 
         return ['pass', $url . $values];
     }

@@ -323,23 +323,37 @@ and through the `CakeDC\Mcp\Server\McpRoute` service, which a tool can take
 in its constructor:
 
 ```php
-public function __construct(private McpRoute $route)
+public function __construct(private McpRoute $route, private CurrentIdentity $identity)
 {
 }
 
 #[McpTool(name: 'list_invoices')]
 public function invoices(): array
 {
-    return $this->invoices->forTenant((string)$this->route->get('tenant'));
+    $tenant = (string)$this->route->get('tenant');
+    // The caller chooses the value in the URL: check that it is theirs.
+    if (!$this->memberships->belongsTo($this->identity->get(), $tenant)) {
+        throw ToolError::message('You are not a member of this tenant.');
+    }
+
+    return $this->invoices->forTenant($tenant);
 }
 ```
+
+The value is input the caller chooses, like any part of a URL. Check in the
+tools (or in your authorizer) that the identity belongs to it, in every mode:
+an audience bound to the value only proves the token was issued for that
+value, not that its user may have it, and host mode binds nothing to it at
+all (`bin/cake mcp check` warns on such a server).
 
 In `oauth` and `external` modes each value is its own protected resource: the
 resource (`https://app.example.com/mcp/t/acme`) and the protected resource
 metadata URL (`/.well-known/oauth-protected-resource/mcp/t/acme`) are derived
 with the value of the request, so a token issued for one tenant is refused for
-another. A configured `auth.resource` or `external.audience` may hold the
-same `{tenant}` placeholder. In `oauth` mode, declare in
+another. A configured `auth.resource` or `external.audience` must hold the
+same `{tenant}` placeholder (`'audience' => 'api://mcp/{tenant}'`): a fixed one
+would accept a token for one value on every other, and `bin/cake mcp check`
+fails on it. In `oauth` mode, declare in
 `OAuthServer.resources` the resource of each value you serve. Sessions of one
 value are kept apart from the others, audit records carry the values (a
 `route` field, `route=tenant:acme` on the log line), and tests give them with

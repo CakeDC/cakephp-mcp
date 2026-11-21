@@ -214,8 +214,48 @@ class McpRouteParamsTest extends TestCase
         $this->assertSame($expected, $server);
     }
 
+    public function testMcpCheckFailsWhenAFixedAudienceWouldServeEveryValue(): void
+    {
+        $this->external();
+        Configure::write('Mcp.servers.tenants.auth.external.audience', 'api://mcp');
+
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[FAIL] Endpoint: ');
+        $this->assertOutputContains('a token for one value of tenant would be accepted for every other');
+    }
+
+    public function testMcpCheckFailsWhenAFixedResourceWouldServeEveryValue(): void
+    {
+        $this->external();
+        Configure::write('Mcp.servers.tenants.auth.resource', 'https://app.example.com/mcp/t');
+
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('a token for one value of tenant would be accepted for every other');
+    }
+
+    public function testMcpCheckPassesWithAnAudiencePerValue(): void
+    {
+        $this->external();
+        Configure::write('Mcp.servers.tenants.auth.external.audience', 'api://mcp/{tenant}');
+
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp/t/{tenant}');
+    }
+
+    public function testMcpCheckWarnsThatHostModeBindsNothingToTheValue(): void
+    {
+        $this->exec('mcp check --server tenants');
+
+        $this->assertOutputContains('[WARN] Endpoint: http://localhost/mcp/t/{tenant}');
+        $this->assertOutputContains('check in the tools or the authorizer that the identity belongs to it');
+    }
+
     public function testMcpCheckShowsThePattern(): void
     {
+        $this->external();
         $this->exec('mcp check --server tenants');
 
         $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp/t/{tenant} (one server per value of tenant)');
