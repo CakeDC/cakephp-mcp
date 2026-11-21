@@ -74,7 +74,9 @@ class ClientConfigTest extends TestCase
                 $this->assertStringContainsString('"Mcp.client.' . $key . '"', $errors['Mcp.client.' . $key]);
                 Configure::delete('Mcp.client.' . $key);
             }
-            foreach (['refreshLeeway' => 0, 'maxResponseBytes' => 2048, 'encryptionKey' => null, 'version' => '2.0'] as $key => $value) {
+            // A number read with env() is a string of digits.
+            $good = ['refreshLeeway' => 0, 'maxResponseBytes' => 2048, 'encryptionKey' => null, 'version' => '2.0'];
+            foreach ([...$good, 'refreshLeeway' => '120', 'maxResponseBytes' => '2048'] as $key => $value) {
                 Configure::write('Mcp.client.' . $key, $value);
                 $this->assertSame([], ClientConfig::errors(), $key);
             }

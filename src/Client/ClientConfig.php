@@ -631,12 +631,14 @@ final class ClientConfig
         if ($route !== null) {
             $errors['Mcp.client.route'] = $route;
         }
+        $seconds = 'a number of seconds, 0 or more';
         $rules = [
             'name' => [fn(mixed $v): bool => is_string($v) && trim($v) !== '', 'a non-empty string'],
             'version' => [fn(mixed $v): bool => is_string($v) && trim($v) !== '', 'a non-empty string'],
             'identityAttribute' => [fn(mixed $v): bool => is_string($v) && $v !== '', 'a request attribute name'],
-            'refreshLeeway' => [fn(mixed $v): bool => is_int($v) && $v >= 0, 'a number of seconds, 0 or more'],
-            'maxResponseBytes' => [fn(mixed $v): bool => is_int($v) && $v > 0, 'a positive number of bytes'],
+            // A string of digits too: what env() gives, read with an (int) cast.
+            'refreshLeeway' => [fn(mixed $v): bool => self::digits($v) && (int)$v >= 0, $seconds],
+            'maxResponseBytes' => [fn(mixed $v): bool => self::digits($v) && (int)$v > 0, 'a positive number of bytes'],
             'encryptionKey' => [fn(mixed $v): bool => is_string($v), 'null or a string of at least 32 bytes'],
         ];
         foreach ($rules as $key => [$valid, $what]) {
@@ -652,6 +654,15 @@ final class ClientConfig
         }
 
         return $errors;
+    }
+
+    /**
+     * @param mixed $value A setting.
+     * @return bool Whether it is an int, or a string of digits.
+     */
+    private static function digits(mixed $value): bool
+    {
+        return is_int($value) || (is_string($value) && ctype_digit($value));
     }
 
     /**
