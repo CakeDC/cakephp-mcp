@@ -58,6 +58,16 @@ class ConfigMistakeTest extends TestCase
             // 'github' => env('GITHUB_MCP') with the variable not set.
             'client that is not an array' => ['clients', ['github' => null], 'github'],
             'clients as a list' => ['clients', ['claude.ai', 'cursor'], 'Mcp.clients'],
+            'servers as a list' => ['servers', [['route' => '/mcp/x']], 'Mcp.servers.0'],
+            'server name that is a number' => ['servers', ['2024' => ['route' => '/mcp/y']], 'Mcp.servers.2024'],
+            'client name that is a number' => ['clients', ['42' => ['url' => 'https://api.example.com/mcp']], '42'],
+            // A setting mistake, not a shape one: still logged and reported for that client only.
+            'client secret without its issuer' => ['clients', ['notion' => [
+                'url' => 'https://mcp.notion.example/mcp',
+                'auth' => 'user',
+                'clientId' => 'id',
+                'clientSecret' => 'secret',
+            ]], 'notion'],
         ];
     }
 

@@ -361,7 +361,7 @@ final class ClientConfig
     }
 
     /**
-     * The entries of `Mcp.clients` that cannot be used because of their shape, as entry name => what is wrong.
+     * The entries of `Mcp.clients` that cannot be used (their shape or a setting), as entry name => what is wrong.
      * The name is `Mcp.clients` when the whole setting is not an array of client name => config. The other
      * clients keep working; `bin/cake mcp check` fails on these.
      *
@@ -369,7 +369,16 @@ final class ClientConfig
      */
     public static function errors(): array
     {
-        return self::scan()[1];
+        [$valid, $errors] = self::scan();
+        foreach (array_keys($valid) as $name) {
+            try {
+                self::fromConfig($name);
+            } catch (InvalidArgumentException $e) {
+                $errors[$name] = $e->getMessage();
+            }
+        }
+
+        return $errors;
     }
 
     /**
@@ -396,7 +405,14 @@ final class ClientConfig
         $valid = [];
         $errors = [];
         foreach ($clients as $name => $config) {
-            $name = (string)$name;
+            if (is_int($name)) {
+                // PHP keeps a numeric key an int: a name like "42".
+                $errors['Mcp.clients.' . $name] = sprintf(
+                    '"Mcp.clients.%d": a client name must be a word, not a number.',
+                    $name,
+                );
+                continue;
+            }
             if (!is_array($config)) {
                 $errors[$name] = sprintf(
                     '"Mcp.clients.%s" must be the config array of the client; "Mcp.clients" is an array of client '

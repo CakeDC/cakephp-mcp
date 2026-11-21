@@ -373,7 +373,15 @@ final class McpConfig
         $valid = [];
         $errors = [];
         foreach ($servers as $name => $config) {
-            $name = (string)$name;
+            if (is_int($name)) {
+                // PHP keeps a numeric key an int: a list written by mistake, or a name like "2024".
+                $errors['Mcp.servers.' . $name] = sprintf(
+                    '"Mcp.servers.%d": a server name must be a word, not a number; "Mcp.servers" is an array of '
+                    . 'server name => config, not a list.',
+                    $name,
+                );
+                continue;
+            }
             if (!is_array($config)) {
                 $errors[$name] = sprintf(
                     '"Mcp.servers.%s" must be the config array of the server; "Mcp.servers" is an array of server '
