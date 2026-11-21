@@ -5,8 +5,8 @@ namespace CakeDC\Mcp\Client\Http;
 
 use Cake\Http\Client\Request;
 use CakeDC\Mcp\Client\Exception\ClientException;
-use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
+use Throwable;
 
 /**
  * Sends a client's OAuth requests at the trust level of their URL: URLs from the developer's config through the
@@ -89,7 +89,8 @@ final class OutboundHttp
             $response = $this->trusted->sendRequest(
                 new Request($request->url, $request->method, $request->headers, $request->body),
             );
-        } catch (ClientExceptionInterface) {
+        } catch (Throwable) {
+            // Anything the HTTP layer throws (a PSR-18 error, a gzip body that is not one) is this client's error.
             // The message is left out: it may quote the URL or the request.
             throw new ClientException(sprintf(
                 'The server at %s could not be reached.',

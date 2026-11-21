@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Test\TestCase\Client\Http;
 
 use Cake\Http\Client\Response;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Http\BlockedUrlException;
 use CakeDC\Mcp\Client\Http\EndpointGuard;
 use CakeDC\Mcp\Client\Http\GuardedHttp;
@@ -54,6 +55,23 @@ class OutboundHttpTest extends TestCase
             'internal.example.com' => ['10.0.0.1'],
         ]);
         $this->http = new OutboundHttp(new GuardedHttp(new EndpointGuard($resolver), $this->guarded, 4096), $this->trusted);
+    }
+
+    public function testAFailureOfTheHttpLayerOnAConfiguredUrlIsAClientException(): void
+    {
+        // Cake's client throws a CakeException for an answer that says gzip and is not.
+        $broken = new class implements ClientInterface {
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                return new Response(['HTTP/1.1 200 OK', 'Content-Encoding: gzip'], '{"not":"gzip"}');
+            }
+        };
+        $http = new OutboundHttp(new GuardedHttp(new EndpointGuard(new StaticHostResolver([])), $this->guarded, 4096), $broken);
+
+        $this->expectException(ClientException::class);
+        $this->expectExceptionMessage('The server at auth.example.com could not be reached.');
+
+        $http->send(new HttpRequest('POST', 'https://auth.example.com/revoke', [], 'token=x'), true);
     }
 
     public function testTrustedRequestsUseTheConfiguredClient(): void
