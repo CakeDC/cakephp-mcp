@@ -521,6 +521,28 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[FAIL] Servers: default and admin share the route /mcp');
     }
 
+    public function testServersWarnsWhenAScanDirectoryHoldsAnotherServers(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpNested']);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpNested/Admin/']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Servers: the scan directory src/McpNested of default holds');
+        $this->assertOutputContains("src/McpNested/Admin/ of admin, so default also registers admin's tools");
+        $this->assertOutputContains("'excludeDirs' => ['Admin']");
+    }
+
+    public function testServersPassesWhenTheNestedDirectoryIsExcluded(): void
+    {
+        Configure::write('Mcp.discovery', ['scanDirs' => ['src/McpNested'], 'excludeDirs' => ['Admin']]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpNested/Admin']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Servers:');
+    }
+
     public function testAnInheritedExternalAudienceFails(): void
     {
         Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);

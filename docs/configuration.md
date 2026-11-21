@@ -56,7 +56,7 @@ want to change; everything else keeps its default. These are the defaults
 - `apps.enabled`: `true` tells clients this server serves MCP Apps (the `io.modelcontextprotocol/ui` extension). Default `false`. See [MCP Apps](apps.md).
 - `server.configure`: optional callable that receives the SDK `Mcp\Server\Builder` before the server is built. See [Using the SDK builder](#using-the-sdk-builder).
 - `discovery.scanDirs`: directories (relative to `ROOT`) scanned for attributes. Missing directories are skipped.
-- `discovery.excludeDirs`: directories to skip while scanning.
+- `discovery.excludeDirs`: directories to skip while scanning, relative to each `scanDirs` entry: with `'scanDirs' => ['src/Mcp']`, `'excludeDirs' => ['Admin']` skips `src/Mcp/Admin` (and any directory named `Admin` below it), while `['src/Mcp/Admin']` skips nothing.
 - `discovery.cache`: name of the cache config for the discovery result. Set it to `null` or an empty string to disable the cache.
 - `schema.normalize`: `true` simplifies the optional parameters in `tools/list`. Default `false`. The SDK describes `?string $from = null` as `"type": ["null", "string"]` with `"default": null`, and some hosts (Gemini-based ones, for example) reject type arrays. When it is on, an optional parameter whose default is `null` loses `"null"` from its `type` and its `enum`, and that `default` is dropped. Required parameters and nullable ones with another default do not change. Only the advertised list changes: arguments are still validated against the original schema, so a client that sends `null` keeps working. See [Input schemas](tools.md#input-schemas).
 - `session.cache`: name of the cache config that stores handshake-era sessions.
@@ -178,7 +178,9 @@ named `default`; `Mcp.servers` adds more:
         'admin' => [
             'route' => '/mcp/admin',
             'server' => ['name' => 'Back office'],
-            'discovery' => ['scanDirs' => ['src/Mcp/Admin']],
+            // A sibling of src/Mcp: discovery is recursive, so src/Mcp/Admin would also
+            // be scanned by the default server.
+            'discovery' => ['scanDirs' => ['src/McpAdmin']],
             'auth' => ['mode' => 'oauth', 'scopes' => ['default' => ['admin']]],
         ],
     ],
@@ -241,8 +243,14 @@ field (`server=admin` on the log line). A server nested under another's route
 (`/mcp/admin` under `/mcp`) is also under any authenticator that covers the
 outer path; `bin/cake mcp check` reports such authenticators.
 
+Discovery is recursive, so keep each server's tools in its own directory, side
+by side (`src/Mcp` and `src/McpAdmin`), not one inside the other. A server whose
+scan directory holds another server's registers that server's tools, resources
+and prompts too, unless its `discovery.excludeDirs` names the inner directory
+relative to its own (`'excludeDirs' => ['Admin']` for `src/Mcp/Admin`).
+
 `bin/cake mcp check` checks every server and fails when two share a route or a
-resource. `mcp check`, `mcp server` and `mcp inspector` take
+resource, and warns when a scan directory holds another server's. `mcp check`, `mcp server` and `mcp inspector` take
 `--server <name>` (`mcp check --server <name>` still runs the `Servers` line
 across all servers), and tests pick a server with `mcpUseServer('admin')`.
 

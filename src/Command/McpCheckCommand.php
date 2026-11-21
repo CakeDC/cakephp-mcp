@@ -323,8 +323,67 @@ class McpCheckCommand extends Command
         if ($problems !== []) {
             return ['fail', implode('; ', $problems)];
         }
+        $nested = $this->nestedScanDirs($servers);
+        if ($nested !== []) {
+            return ['warn', implode('; ', $nested)];
+        }
 
         return ['pass', sprintf('%d servers: %s', count($servers), implode(', ', $servers))];
+    }
+
+    /**
+     * Scan directories of one server that hold another server's, not excluded: discovery is recursive, so the
+     * outer server also registers the inner server's tools, resources and prompts.
+     *
+     * @param list<string> $servers The servers.
+     * @return list<string>
+     */
+    private function nestedScanDirs(array $servers): array
+    {
+        $dirs = [];
+        foreach ($servers as $server) {
+            foreach ((array)McpConfig::get('discovery.scanDirs', $server) as $dir) {
+                if (!is_string($dir)) {
+                    continue;
+                }
+                $real = realpath(rtrim(ROOT, DS) . DS . $dir);
+                if ($real !== false && is_dir($real)) {
+                    $dirs[] = [$server, $dir, $real];
+                }
+            }
+        }
+        $warnings = [];
+        foreach ($dirs as [$outer, $outerDir, $outerPath]) {
+            $excluded = array_filter((array)McpConfig::get('discovery.excludeDirs', $outer), 'is_string');
+            foreach ($dirs as [$inner, $innerDir, $innerPath]) {
+                if ($outer === $inner || !str_starts_with($innerPath, $outerPath . DIRECTORY_SEPARATOR)) {
+                    continue;
+                }
+                $relative = str_replace(DIRECTORY_SEPARATOR, '/', substr($innerPath, strlen($outerPath) + 1));
+                foreach ($excluded as $pattern) {
+                    // As the SDK's Finder reads it: relative to the scanned directory, any segment of the path.
+                    $pattern = '#(?:^|/)' . preg_quote(trim($pattern, '/'), '#') . '(?:/|$)#';
+                    if (preg_match($pattern, $relative) === 1) {
+                        continue 2;
+                    }
+                }
+                $warnings[] = sprintf(
+                    'the scan directory %s of %s holds %s of %s, so %s also registers %s\'s tools, resources and '
+                    . 'prompts: use sibling directories, or add \'excludeDirs\' => [\'%s\'] to the discovery of %s '
+                    . '(excludeDirs is relative to each scan directory)',
+                    $outerDir,
+                    $outer,
+                    $innerDir,
+                    $inner,
+                    $outer,
+                    $inner,
+                    $relative,
+                    $outer,
+                );
+            }
+        }
+
+        return $warnings;
     }
 
     /**
