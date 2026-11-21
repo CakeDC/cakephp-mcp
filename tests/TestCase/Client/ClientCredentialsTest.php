@@ -73,6 +73,17 @@ class ClientCredentialsTest extends TestCase
         $this->assertSame('Bearer at-1', end($this->oauth->mcp->requests)['headers']['authorization'] ?? null);
     }
 
+    public function testTheStoredRowIsPlainText(): void
+    {
+        McpClients::get('robot')->listTools();
+
+        // PostgreSQL refuses a NUL byte in a text column.
+        $row = ConnectionManager::get('test')->execute('SELECT user_id FROM mcp_client_connections')->fetch('assoc');
+        $this->assertIsArray($row);
+        $this->assertStringNotContainsString("\0", (string)$row['user_id']);
+        $this->assertTrue(mb_check_encoding((string)$row['user_id'], 'UTF-8'));
+    }
+
     public function testTheTokenIsKeptUntilItExpires(): void
     {
         McpClients::get('robot')->listTools();

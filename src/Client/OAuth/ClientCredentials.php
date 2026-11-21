@@ -18,9 +18,10 @@ use CakeDC\Mcp\Client\Store\StoredConnection;
 final class ClientCredentials
 {
     /**
-     * The user id the application's own token is stored under; no identity gives one with a NUL byte.
+     * The user id the application's own token is stored under. Plain text, for every database; it cannot meet a
+     * real user, since a client_credentials client has no users (for() refuses it) and rows are keyed by client.
      */
-    public const STORE_USER = "\0client_credentials";
+    public const STORE_USER = 'client_credentials';
 
     /**
      * @param \CakeDC\Mcp\Client\ClientConfig $config The client.
