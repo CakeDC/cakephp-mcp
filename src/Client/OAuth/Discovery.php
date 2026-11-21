@@ -87,10 +87,19 @@ final class Discovery
             $resourceMetadata = $this->firstDocument(self::protectedResourceUrls($server), true);
             $prefixAllowed = true;
         }
+        $trustedIssuer = false;
         if ($resourceMetadata === null) {
-            throw new OAuthException(
-                sprintf('The server of "%s" does not publish how to sign in to it.', $config->name),
-            );
+            // A server of the 2025-03-26 revision, without protected resource metadata: its origin is the
+            // authorization server, and its metadata is on that origin, trusted like the configured url.
+            $origin = self::origin((array)parse_url($server));
+            $originDocument = $this->firstDocument(self::metadataUrls($origin), true);
+            if ($originDocument === null || ($originDocument['issuer'] ?? null) !== $origin) {
+                throw new OAuthException(
+                    sprintf('The server of "%s" does not publish how to sign in to it.', $config->name),
+                );
+            }
+            $resourceMetadata = ['resource' => $server, 'authorization_servers' => [$origin]];
+            $trustedIssuer = true;
         }
         $resource = $resourceMetadata['resource'] ?? null;
         if (!is_string($resource) || $resource === '') {
@@ -123,7 +132,7 @@ final class Discovery
             $issuer = $config->issuer;
         }
 
-        $document = $this->firstDocument($this->authorizationServerUrls($issuer), false);
+        $document = $this->firstDocument($this->authorizationServerUrls($issuer), $trustedIssuer);
         if ($document === null) {
             throw new OAuthException(sprintf(
                 'The authorization server of "%s" does not publish its details.',

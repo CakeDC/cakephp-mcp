@@ -198,7 +198,11 @@ offer `connectUrl()` again.
    authorization server: the server's `401` challenge and its protected
    resource metadata (RFC 9728), then the authorization server's metadata
    (RFC 8414). The issuer must name itself exactly as the server said, and
-   PKCE with S256 must be supported.
+   PKCE with S256 must be supported. A server of the 2025-03-26 revision may
+   publish no protected resource metadata: then its origin (`url` without the
+   path) is taken as the authorization server, as that revision says, and its
+   metadata must be at `<origin>/.well-known/oauth-authorization-server` (or
+   the OpenID Connect path) and name the origin as its issuer.
 2. Without a `clientId`, the application gets a client id in one of two
    ways, chosen by `registration` (see
    [Client ID Metadata Document](#client-id-metadata-document) below). With a

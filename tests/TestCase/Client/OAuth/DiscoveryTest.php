@@ -51,6 +51,59 @@ class DiscoveryTest extends TestCase
         $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
     }
 
+    private function withoutResourceMetadata(): void
+    {
+        $this->server->mcp->challenge = 'Bearer';
+        unset($this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA]);
+        $this->server->mcp->documents['https://mcp.example.com/.well-known/oauth-authorization-server'] = [
+            'issuer' => 'https://mcp.example.com',
+            'authorization_endpoint' => 'https://mcp.example.com/authorize',
+            'token_endpoint' => 'https://mcp.example.com/token',
+            'registration_endpoint' => 'https://mcp.example.com/register',
+            'code_challenge_methods_supported' => ['S256'],
+        ];
+    }
+
+    public function testWithoutResourceMetadataTheServersOriginIsTheAuthorizationServer(): void
+    {
+        $this->withoutResourceMetadata();
+
+        $server = $this->discover();
+
+        $this->assertSame('https://mcp.example.com', $server->issuer);
+        $this->assertSame('https://mcp.example.com/token', $server->tokenUrl);
+        $this->assertSame('https://mcp.example.com/register', $server->registrationUrl);
+        $this->assertSame(FakeOAuthServer::MCP, $server->resource);
+    }
+
+    public function testTheOriginFallbackMustNameItselfAndTheConfiguredIssuer(): void
+    {
+        $this->withoutResourceMetadata();
+        $this->server->mcp->documents['https://mcp.example.com/.well-known/oauth-authorization-server']['issuer']
+            = FakeOAuthServer::ISSUER;
+        try {
+            $this->discover();
+            $this->fail('Accepted another issuer');
+        } catch (OAuthException) {
+            $this->addToAssertionCount(1);
+        }
+
+        $this->withoutResourceMetadata();
+        Configure::write('Mcp.clients.linear.issuer', FakeOAuthServer::ISSUER);
+        $this->expectException(OAuthException::class);
+        $this->discover();
+    }
+
+    public function testWithNeitherMetadataTheSignInFailsClearly(): void
+    {
+        $this->server->mcp->challenge = 'Bearer';
+        unset($this->server->mcp->documents[FakeOAuthServer::RESOURCE_METADATA]);
+
+        $this->expectException(OAuthException::class);
+        $this->expectExceptionMessage('does not publish how to sign in');
+        $this->discover();
+    }
+
     public function testReadsWhetherTheServerSupportsClientMetadataDocuments(): void
     {
         $this->assertFalse($this->discover()->metadataDocuments);
