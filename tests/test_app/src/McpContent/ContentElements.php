@@ -51,7 +51,7 @@ class ContentElements
         #[CompletionProvider(values: ['1001', '1002', '2001'])]
         string $number,
     ): string {
-        return 'Order ' . $number;
+        return 'Order ' . (int)$number;
     }
 
     /**

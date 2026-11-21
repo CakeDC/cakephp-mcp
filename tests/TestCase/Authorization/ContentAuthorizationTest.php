@@ -87,6 +87,16 @@ class ContentAuthorizationTest extends TestCase
         $this->assertMcpResourceText('Order 1001');
     }
 
+    public function testTheAuthorizerReadsTheTemplateVariableAsTheHandlerDoes(): void
+    {
+        // A template variable takes any text but `/`: denying the exact string `orders://2001` would let these
+        // through, so the test authorizer reads the number the way the handler does (docs/authorization.md).
+        foreach (['orders://02001', 'orders://2001?x=1', 'orders://2001 ', 'orders://2001#f'] as $uri) {
+            $this->mcpReadResource($uri);
+            $this->assertMcpResourceDenied($uri);
+        }
+    }
+
     public function testADeniedTemplateIsNotListedNorCompleted(): void
     {
         $this->assertMcpResourceTemplateListed('orders://{number}');

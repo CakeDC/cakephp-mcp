@@ -26,7 +26,12 @@ final class ContentAuthorizer implements ToolAuthorizerInterface, ResourceAuthor
      */
     public function canReadResource(mixed $identity, string $uri): bool
     {
-        if (in_array($uri, ['app://salaries', 'orders://2001'], true)) {
+        if ($uri === 'app://salaries') {
+            return false;
+        }
+        // The number as ContentElements::order() reads it, not the exact string: a template variable takes any
+        // text but `/`, so `orders://02001` or `orders://2001?x=1` would pass a rule on `orders://2001`.
+        if (str_starts_with($uri, 'orders://') && (int)substr($uri, strlen('orders://')) === 2001) {
             return false;
         }
 

@@ -103,6 +103,14 @@ final class AppAuthorizer implements
 }
 ```
 
+The URI is the one the client sent, not a canonical form. A template variable
+takes any text but `/`, so `orders://2001`, `orders://02001`,
+`orders://2001?x=1` and `orders://2001 ` (with a trailing space) all reach the
+handler of `orders://{number}`, and a handler that reads the number as an
+integer loads the same order for each. Do not deny one record by its exact
+URI: deny by default and allow what the caller may read, decide by prefix as
+above, or read the variable the way the handler does.
+
 What a denied resource or prompt does:
 
 - It is left out of `resources/list`, `resources/templates/list` and
