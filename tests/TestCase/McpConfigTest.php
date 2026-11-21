@@ -335,6 +335,16 @@ class McpConfigTest extends TestCase
         }
     }
 
+    public function testATrailingLineFeedIsNotAnotherSpellingOfARouteValue(): void
+    {
+        Configure::write('Mcp.servers.tenants', ['route' => '/mcp/t/{tenant}']);
+
+        $this->assertSame(['tenant' => 'acme'], McpConfig::routeValues('/mcp/t/{tenant}', '/mcp/t/acme'));
+        $this->assertNull(McpConfig::routeValues('/mcp/t/{tenant}', "/mcp/t/acme\n"));
+        $this->assertNull(McpConfig::serverFor(new ServerRequest(['url' => '/mcp/t/acme%0A'])));
+        $this->assertFalse(McpConfig::isEndpoint(new ServerRequest(['url' => '/mcp/t/acme%0A'])));
+    }
+
     public function testOnceRoutedIsEndpointFollowsTheRouter(): void
     {
         Configure::write('Mcp.servers.tenants', ['route' => '/tenants/{tenant}']);

@@ -306,7 +306,7 @@ final class McpConfig
                 ? '(?P<' . $param[1] . '>' . self::ROUTE_VALUE . ')'
                 : preg_quote($segment, '#');
         }
-        $regex = '#^/' . implode('/', $segments) . '$#';
+        $regex = '#^/' . implode('/', $segments) . '$#D';
         if (preg_match($regex, $path, $match) !== 1) {
             return null;
         }
