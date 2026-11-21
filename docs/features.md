@@ -91,3 +91,8 @@ resource annotations, icons and `_meta`, every content type (text, image,
 audio, embedded resources, resource links), pagination, protocol revisions from
 2024-11-05 to 2026-07-28 (with `server/discover`), elicitation, sampling,
 logging and resource subscriptions.
+
+Not yet, because `mcp/sdk` 0.9 has no place for them: icons on resource
+templates, the `lastModified` annotation, `_meta` on a single content block,
+and completions that see the other arguments already filled in (a completion
+provider gets only the value being typed). They will come with the SDK.
