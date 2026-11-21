@@ -101,6 +101,35 @@ class McpCheckRouteParamsTest extends TestCase
         $this->assertExitSuccess();
     }
 
+    public function testTwoServersOnTheSamePatternFail(): void
+    {
+        Configure::write('Mcp.servers.partners', [
+            'route' => '/mcp/t/{partner}',
+            'discovery' => ['scanDirs' => ['src/McpTenant']],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Servers: tenants and partners share the route /mcp/t/{tenant}');
+        $this->assertExitError();
+    }
+
+    public function testAFixedRouteThatFitsAPatternFails(): void
+    {
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/t/admin',
+            'discovery' => ['scanDirs' => ['src/McpAdmin']],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains(
+            '[FAIL] Servers: the route /mcp/t/admin of admin fits /mcp/t/{tenant} of tenants: the router sends it '
+            . 'to admin, so tenants never serves the value admin',
+        );
+        $this->assertExitError();
+    }
+
     public function testOAuthModeFailsWhenNoValueIsDeclared(): void
     {
         $this->oauth([]);

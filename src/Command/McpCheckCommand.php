@@ -364,12 +364,15 @@ class McpCheckCommand extends Command
     private function serversCheck(array $servers): array
     {
         $routes = [];
+        $paths = [];
         $resources = [];
         $audiences = [];
         foreach ($servers as $server) {
             $route = McpConfig::get('route', $server);
             if (is_string($route) && trim($route, '/') !== '') {
-                $routes['/' . trim($route, '/')][] = $server;
+                $paths[$server] = '/' . trim($route, '/');
+                // By shape: `/mcp/{tenant}` and `/mcp/{partner}` are the same route, and only one server answers.
+                $routes[(string)preg_replace('/\{[^}\/]+\}/', '{}', $paths[$server])][] = $server;
             }
             $settings = AuthSettings::fromConfig($server);
             if ($settings->mode !== AuthSettings::HOST) {
@@ -381,11 +384,12 @@ class McpCheckCommand extends Command
             }
         }
         $problems = [];
-        foreach ($routes as $route => $names) {
+        foreach ($routes as $names) {
             if (count($names) > 1) {
-                $problems[] = sprintf('%s share the route %s', implode(' and ', $names), $route);
+                $problems[] = sprintf('%s share the route %s', implode(' and ', $names), $paths[$names[0]]);
             }
         }
+        $problems = [...$problems, ...self::shadowedValues($paths)];
         foreach ($resources as $resource => $names) {
             if (count($names) > 1) {
                 $problems[] = sprintf(
@@ -417,6 +421,43 @@ class McpCheckCommand extends Command
         }
 
         return ['pass', sprintf('%d servers: %s', count($servers), implode(', ', $servers))];
+    }
+
+    /**
+     * A fixed route that fits another server's pattern (`/mcp/admin` next to `/mcp/{tenant}`): Cake's router matches
+     * fixed routes first, so that value of the pattern never reaches its server, and in oauth mode both would claim
+     * the same resource.
+     *
+     * @param array<string, string> $paths The route of each server.
+     * @return list<string>
+     */
+    private static function shadowedValues(array $paths): array
+    {
+        $problems = [];
+        foreach ($paths as $fixedServer => $fixed) {
+            if (McpConfig::routeParams($fixed) !== []) {
+                continue;
+            }
+            foreach ($paths as $server => $pattern) {
+                $values = $server === $fixedServer || McpConfig::routeParams($pattern) === []
+                    ? null
+                    : McpConfig::routeValues($pattern, $fixed);
+                if ($values !== null) {
+                    $problems[] = sprintf(
+                        'the route %s of %s fits %s of %s: the router sends it to %s, so %s never serves the value %s',
+                        $fixed,
+                        $fixedServer,
+                        $pattern,
+                        $server,
+                        $fixedServer,
+                        $server,
+                        implode('/', $values),
+                    );
+                }
+            }
+        }
+
+        return $problems;
     }
 
     /**
