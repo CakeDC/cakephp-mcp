@@ -140,6 +140,20 @@ class OAuthFlowTest extends TestCase
         }
     }
 
+    public function testAnErrorFromAnotherIssuerIsNotPassedOn(): void
+    {
+        [$pending, $query] = $this->start();
+
+        // RFC 9207 2.4: the iss of an error response is checked first, and its error is not acted on.
+        try {
+            $this->flow()->complete($pending, ['error' => 'access_denied', 'state' => $query['state'], 'iss' => 'https://evil.example.com']);
+            $this->fail('Not refused');
+        } catch (OAuthException $e) {
+            $this->assertNull($e->error);
+            $this->assertStringContainsString('another authorization server', $e->getMessage());
+        }
+    }
+
     public function testAMissingIssIsRefusedWhenTheServerAdvertisesIt(): void
     {
         [$pending, $query] = $this->start();
@@ -225,7 +239,7 @@ class OAuthFlowTest extends TestCase
         [$pending, $query] = $this->start();
 
         try {
-            $this->flow()->complete($pending, ['error' => 'access_denied', 'state' => $query['state']]);
+            $this->flow()->complete($pending, ['error' => 'access_denied', 'state' => $query['state'], 'iss' => $pending->issuer]);
             $this->fail('Not refused');
         } catch (OAuthException $e) {
             $this->assertSame('access_denied', $e->error);

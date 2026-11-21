@@ -104,17 +104,18 @@ final class OAuthFlow
         if ($now - $pending->createdAt > PendingAuthorization::LIFETIME) {
             throw new OAuthException('The sign-in took too long; connect again.');
         }
-        if (isset($query['error'])) {
-            $error = OAuthException::code($query['error']) ?? 'error';
-
-            throw new OAuthException(sprintf('The authorization server answered %s.', $error), $error);
-        }
         $iss = $query['iss'] ?? null;
         // With configured endpoints and no configured issuer, the issuer is not known: nothing to compare `iss` with.
         $issuerKnown = !$pending->trusted || $this->config->issuer !== null;
         if (($issuerKnown && $iss !== null && $iss !== $pending->issuer) || ($iss === null && $pending->issParameter)) {
-            // RFC 9207: the response must come from the server the flow started with (mix-up).
+            // RFC 9207: the response must come from the server the flow started with (mix-up), an error response
+            // too: its error is not acted on (section 2.4).
             throw new OAuthException('The sign-in response came from another authorization server.');
+        }
+        if (isset($query['error'])) {
+            $error = OAuthException::code($query['error']) ?? 'error';
+
+            throw new OAuthException(sprintf('The authorization server answered %s.', $error), $error);
         }
         $code = $query['code'] ?? null;
         if (!is_string($code) || $code === '') {

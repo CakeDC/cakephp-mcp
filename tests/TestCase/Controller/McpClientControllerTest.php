@@ -168,7 +168,7 @@ class McpClientControllerTest extends TestCase
     {
         $query = $this->connect();
 
-        $this->returnFromAuthorization(['error' => 'access_denied', 'state' => $query['state']]);
+        $this->returnFromAuthorization(['error' => 'access_denied', 'state' => $query['state'], 'iss' => FakeOAuthServer::ISSUER]);
 
         $this->assertRedirect('/settings');
         $this->assertFlashMessage('The connection to linear could not be completed: access_denied.');

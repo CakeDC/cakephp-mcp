@@ -243,8 +243,9 @@ offer `connectUrl()` again.
 4. The authorization server sends the browser to
    `GET /mcp-client/linear/callback`. The `state` must match the one in the
    session (it is used once), the same user must still be logged in, the
-   response must come from the same issuer (`iss`, RFC 9207), and the sign-in
-   must finish within 10 minutes. The code is exchanged and the tokens are
+   response must come from the same issuer (`iss`, RFC 9207; an error answer
+   too, whose error is not shown otherwise), and the sign-in must finish
+   within 10 minutes. The code is exchanged and the tokens are
    stored.
 
 Calls then send the user's access token. It is refreshed when it expires
