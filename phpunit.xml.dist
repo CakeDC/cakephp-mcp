@@ -4,6 +4,9 @@
          bootstrap="tests/bootstrap_suite.php"
          cacheDirectory=".phpunit.cache"
          colors="true">
+    <php>
+        <ini name="memory_limit" value="-1"/>
+    </php>
     <testsuites>
         <testsuite name="cakephp-mcp">
             <directory>tests/TestCase/</directory>
