@@ -8,6 +8,8 @@ use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Authorization\ResourceAuthorizerInterface;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
 use PHPUnit\Framework\AssertionFailedError;
 use TestApp\ContentAuthorizer;
@@ -67,6 +69,25 @@ class ContentAuthorizationTest extends TestCase
         } catch (AssertionFailedError $e) {
             $this->assertStringNotContainsString('A resource that was read', $e->getMessage());
         }
+    }
+
+    public function testResourceDeniedHoldsForADeniedResourceWhoseHandlerFails(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', new class implements ToolAuthorizerInterface, ResourceAuthorizerInterface {
+            public function canCall(mixed $identity, string $tool): bool
+            {
+                return true;
+            }
+
+            public function canReadResource(mixed $identity, string $uri): bool
+            {
+                return $uri !== 'app://broken';
+            }
+        });
+        $this->mcpReadResource('app://broken');
+
+        // It exists (its handler fails), and the authorizer denied it.
+        $this->assertMcpResourceDenied();
     }
 
     public function testResourceDeniedFailsForAnUnknownUri(): void

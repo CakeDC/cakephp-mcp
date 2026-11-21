@@ -380,9 +380,10 @@ trait McpTestTrait
         } finally {
             $this->_mcpResponse = $response;
         }
-        Assert::assertArrayNotHasKey(
-            'error',
-            $read,
+        // Read without the authorizer, a registered resource whose handler fails answers its own error: it exists.
+        $trusted = $read['error'] ?? null;
+        Assert::assertFalse(
+            is_array($trusted) && ($trusted['message'] ?? null) === sprintf('Resource not found for uri: "%s".', $uri),
             $message
                 ?: sprintf('Resource "%s" is not registered, so its rejection proves nothing. Check the URI.', $uri),
         );
