@@ -598,6 +598,28 @@ class McpCheckCommandTest extends TestCase
         );
     }
 
+    public function testAScopeOnTheCatalogsOwnToolsIsKnown(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => [
+            'call_tools' => ['catalog:use'],
+            'find_tools' => ['catalog:use'],
+        ]]]);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['create_note']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('names tools that do not exist');
+    }
+
+    public function testAScopeOnTheCatalogsToolsWithTheCatalogOffIsUnknown(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => ['call_tools' => ['catalog:use']]]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('Mcp.auth.scopes.tools names tools that do not exist: call_tools');
+    }
+
     public function testToolScopesAndToolsKnowAppOnlyTools(): void
     {
         Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);

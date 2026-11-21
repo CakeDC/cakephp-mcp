@@ -844,7 +844,11 @@ class McpCheckCommand extends Command
                 $problems[] = 'tools that need no scope, so any valid token may call them: ' . self::names($free);
             }
         }
-        $unknown = array_values(array_diff(array_keys($settings->toolScopes), $tools));
+        // The catalog's own tools take a scope too: the SDK checks it before the inner calls are checked.
+        $known = McpConfig::get('catalog.enabled', $this->server) === true
+            ? [...$tools, ToolCatalog::FIND, ToolCatalog::CALL]
+            : $tools;
+        $unknown = array_values(array_diff(array_keys($settings->toolScopes), $known));
         if ($unknown !== []) {
             $problems[] = 'Mcp.auth.scopes.tools names tools that do not exist: ' . implode(', ', $unknown);
         }
