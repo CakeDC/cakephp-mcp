@@ -18,8 +18,11 @@ use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Client\ClientRegistry;
+use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
+use CakeDC\Mcp\Test\Support\StaticHostResolver;
 use CakeDC\OAuthServer\OAuthServer;
 use Mcp\Schema\Enum\CacheScope;
 use Mcp\Schema\Extension\Apps\McpApps;
@@ -866,7 +869,7 @@ class McpCheckCommandTest extends TestCase
         $this->assertExitSuccess();
         $this->assertOutputContains(
             '[PASS] Clients: github (app), local (stdio), linear (user, connect at /mcp-client/linear/connect, '
-            . 'dynamic registration, App.fullBaseUrl is not public https)',
+            . 'dynamic registration, App.fullBaseUrl is not a public https address)',
         );
     }
 
@@ -908,6 +911,24 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputNotContains('github has allowPrivateNetwork');
     }
 
+    public function testClientsLineSaysASiteOnThisMachineRegistersDynamically(): void
+    {
+        Router::fullBaseUrl('https://shop.ddev.site');
+        Configure::write('Mcp.clients', ['a' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+        McpClients::setRegistry(new ClientRegistry(resolver: new StaticHostResolver([
+            'shop.ddev.site' => ['127.0.0.1'],
+        ])));
+        try {
+            $this->exec('mcp check');
+        } finally {
+            Router::fullBaseUrl('http://localhost');
+            McpClients::reset();
+        }
+
+        $this->assertOutputContains('a (user, connect at /mcp-client/a/connect, dynamic registration, '
+            . 'App.fullBaseUrl is not a public https address)');
+    }
+
     public function testClientsLineSaysWhichRegistrationEachClientUses(): void
     {
         Router::fullBaseUrl('https://app.example.com');
@@ -917,15 +938,20 @@ class McpCheckCommandTest extends TestCase
             'c' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'metadata'],
             'd' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'clientId' => 'given'],
         ]);
+        McpClients::setRegistry(new ClientRegistry(resolver: new StaticHostResolver([
+            'app.example.com' => ['93.184.216.36'],
+        ])));
         try {
             $this->exec('mcp check');
         } finally {
             Router::fullBaseUrl('http://localhost');
+            McpClients::reset();
         }
 
         $this->assertOutputContains('a (user, connect at /mcp-client/a/connect, metadata document '
             . 'https://app.example.com/mcp-client/a/client.json when the authorization server supports it, else '
-            . 'dynamic registration)');
+            . 'dynamic registration (a site no authorization server can reach, behind a VPN say, needs '
+            . '"registration" => "dynamic"))');
         $this->assertOutputContains('b (user, connect at /mcp-client/b/connect, dynamic registration)');
         $this->assertOutputContains('c (user, connect at /mcp-client/c/connect, metadata document '
             . 'https://app.example.com/mcp-client/c/client.json)');

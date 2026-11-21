@@ -88,6 +88,8 @@ final class FakeOAuthServer
             'mcp.example.com' => ['93.184.216.34'],
             'auth.example.com' => ['93.184.216.35'],
             'internal.example.com' => ['10.0.0.1'],
+            // The application, for its client metadata document.
+            'app.example.com' => ['93.184.216.36'],
         ]);
         $this->guarded = new ScriptedGuardedTransport();
         $this->resourceMetadata([
@@ -156,6 +158,7 @@ final class FakeOAuthServer
             new GuardedHttp(new EndpointGuard($this->dns), $this->guarded, 1024 * 1024),
             $sleep ?? function (): void {
             },
+            $this->dns,
         );
     }
 

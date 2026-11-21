@@ -7,6 +7,7 @@ use CakeDC\Mcp\Client\Http\CakeGuardedTransport;
 use CakeDC\Mcp\Client\Http\DnsHostResolver;
 use CakeDC\Mcp\Client\Http\EndpointGuard;
 use CakeDC\Mcp\Client\Http\GuardedHttp;
+use CakeDC\Mcp\Client\Http\HostResolverInterface;
 use CakeDC\Mcp\Client\Http\OutboundHttp;
 use CakeDC\Mcp\Client\OAuth\ClientCredentials;
 use CakeDC\Mcp\Client\OAuth\Discovery;
@@ -38,12 +39,14 @@ class ClientRegistry
      *   server's DNS and Cake's Curl adapter by default.
      * @param \Closure|null $sleep `fn(int $microseconds): void` while another request refreshes a grant; `usleep()`
      *   by default.
+     * @param \CakeDC\Mcp\Client\Http\HostResolverInterface|null $resolver Looks host names up; DNS by default.
      */
     public function __construct(
         private ?HttpClientFactoryInterface $http = null,
         private ?ConnectionStoreInterface $store = null,
         private ?GuardedHttp $guarded = null,
         private ?Closure $sleep = null,
+        private ?HostResolverInterface $resolver = null,
     ) {
     }
 
@@ -97,6 +100,14 @@ class ClientRegistry
     }
 
     /**
+     * @return \CakeDC\Mcp\Client\Http\HostResolverInterface How host names are looked up.
+     */
+    public function resolver(): HostResolverInterface
+    {
+        return $this->resolver ??= new DnsHostResolver();
+    }
+
+    /**
      * @return \CakeDC\Mcp\Client\Http\GuardedHttp
      */
     public function guarded(): GuardedHttp
@@ -104,7 +115,7 @@ class ClientRegistry
         $proxy = ClientConfig::proxy();
 
         return $this->guarded ??= new GuardedHttp(
-            new EndpointGuard(new DnsHostResolver(), $proxy !== null),
+            new EndpointGuard($this->resolver(), $proxy !== null),
             new CakeGuardedTransport(null, $proxy),
             (int)ClientConfig::setting('maxResponseBytes'),
         );
@@ -157,7 +168,7 @@ class ClientRegistry
         return new OAuthFlow(
             $config,
             new Discovery($outbound, $config),
-            new Registrar($outbound, $this->store(), $config),
+            new Registrar($outbound, $this->store(), $config, $this->resolver()),
             new TokenClient($outbound, $config->timeout),
             $this->store(),
         );

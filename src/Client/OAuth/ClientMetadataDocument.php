@@ -6,6 +6,8 @@ namespace CakeDC\Mcp\Client\OAuth;
 use Cake\Routing\Exception\MissingRouteException;
 use Cake\Routing\Router;
 use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\Http\EndpointGuard;
+use CakeDC\Mcp\Client\Http\HostResolverInterface;
 
 /**
  * The OAuth Client ID Metadata Document of a user mode client (draft-ietf-oauth-client-id-metadata-document-03, as
@@ -16,11 +18,22 @@ use CakeDC\Mcp\Client\ClientConfig;
 final class ClientMetadataDocument
 {
     /**
-     * The local names that make a base URL unreachable from an authorization server on the internet.
+     * The local and reserved names (RFC 6761 and RFC 6762) that make a base URL unreachable from an authorization
+     * server on the internet.
      *
      * @var list<string>
      */
-    private const LOCAL_SUFFIXES = ['localhost', 'local', 'localdomain', 'internal', 'home.arpa', 'arpa'];
+    private const LOCAL_SUFFIXES = [
+        'localhost',
+        'local',
+        'localdomain',
+        'internal',
+        'home.arpa',
+        'arpa',
+        'test',
+        'example',
+        'invalid',
+    ];
 
     /**
      * @param \CakeDC\Mcp\Client\ClientConfig $config A user mode client.
@@ -79,13 +92,16 @@ final class ClientMetadataDocument
 
     /**
      * Whether an authorization server on the internet can fetch the document: its URL (from `App.fullBaseUrl`) is
-     * https, on a host name with a dot that is not a local name, or on a public IP address. Decided without a
-     * network call.
+     * https, on a public IP address or a host name with a dot that is not a local or reserved name. With a
+     * resolver, the name must also resolve, to public addresses only: `*.ddev.site` resolves to this machine.
+     * A site behind a VPN with public addresses still passes, and needs `'registration' => 'dynamic'`.
      *
      * @param \CakeDC\Mcp\Client\ClientConfig $config A user mode client.
+     * @param \CakeDC\Mcp\Client\Http\HostResolverInterface|null $resolver Resolves the host name; null to decide on
+     *   the name alone.
      * @return bool
      */
-    public static function servable(ClientConfig $config): bool
+    public static function servable(ClientConfig $config, ?HostResolverInterface $resolver = null): bool
     {
         try {
             $parts = parse_url(self::url($config));
@@ -108,7 +124,14 @@ final class ClientMetadataDocument
                 return false;
             }
         }
+        if ($resolver === null) {
+            return true;
+        }
+        $addresses = $resolver->resolve($host);
 
-        return true;
+        return $addresses !== [] && array_filter(
+            $addresses,
+            fn(string $address): bool => !EndpointGuard::isPublic($address),
+        ) === [];
     }
 }

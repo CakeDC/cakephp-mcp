@@ -286,13 +286,19 @@ for it.
 
 - `auto` (the default): the document, when the authorization server's
   metadata says `client_id_metadata_document_supported: true` and
-  `App.fullBaseUrl` is https on a public host (not `localhost`, a local name
-  such as `.internal` or `.local`, or a private address), so the
-  authorization server can fetch it. Otherwise dynamic registration, as
-  before.
+  `App.fullBaseUrl` is https on a public host, so the authorization server
+  can fetch it: not `localhost`, a local or reserved name (`.internal`,
+  `.local`, `.test`, `.example`, `.invalid`), a private address, or a name
+  that does not resolve or resolves to a private or loopback address (a
+  development site such as `shop.ddev.site` resolves to your machine).
+  Otherwise dynamic registration, as before. A site with public addresses
+  that the authorization server still cannot reach (a staging site behind a
+  VPN) needs `dynamic`: the sign-in would end on the authorization server's
+  error page.
 - `metadata`: always the document. The sign-in fails with a message when the
   base URL is not public https or the authorization server does not support
-  it.
+  it. The name is not resolved, so this also works for a private
+  authorization server that reaches a site on the same network.
 - `dynamic`: always dynamic registration.
 
 A configured `clientId` always wins over both. `bin/cake mcp check` says on

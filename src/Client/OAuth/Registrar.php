@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Client\OAuth;
 
 use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\Http\DnsHostResolver;
+use CakeDC\Mcp\Client\Http\HostResolverInterface;
 use CakeDC\Mcp\Client\Http\HttpRequest;
 use CakeDC\Mcp\Client\Http\OutboundHttp;
 use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
@@ -29,11 +31,14 @@ final class Registrar
      * @param \CakeDC\Mcp\Client\Http\OutboundHttp $http Sends the registration request (always through the guard).
      * @param \CakeDC\Mcp\Client\Store\ConnectionStoreInterface $store Keeps registrations.
      * @param \CakeDC\Mcp\Client\ClientConfig $config The user mode client.
+     * @param \CakeDC\Mcp\Client\Http\HostResolverInterface|null $resolver Looks the application's host up, to tell
+     *   whether an authorization server can fetch its client metadata document; DNS by default.
      */
     public function __construct(
         private OutboundHttp $http,
         private ConnectionStoreInterface $store,
         private ClientConfig $config,
+        private ?HostResolverInterface $resolver = null,
     ) {
     }
 
@@ -157,7 +162,10 @@ final class Registrar
             return false;
         }
         if ($config->registration === 'auto') {
-            return $server->metadataDocuments && ClientMetadataDocument::servable($config);
+            // Only where an authorization server can fetch the document: a site on this machine or a private
+            // network registers dynamically, as it can.
+            return $server->metadataDocuments
+                && ClientMetadataDocument::servable($config, $this->resolver ?? new DnsHostResolver());
         }
         $servable = ClientMetadataDocument::servable($config);
         if (!$servable) {

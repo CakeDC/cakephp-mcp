@@ -16,6 +16,7 @@ use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\McpPlugin;
 use CakeDC\Mcp\Test\Support\FakeOAuthServer;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class RegistrarTest extends TestCase
 {
@@ -66,7 +67,12 @@ class RegistrarTest extends TestCase
     {
         $config = ClientConfig::fromConfig('linear');
 
-        return new Registrar($this->server->registry($this->store)->outbound($config), $this->store, $config);
+        return new Registrar(
+            $this->server->registry($this->store)->outbound($config),
+            $this->store,
+            $config,
+            $this->server->dns,
+        );
     }
 
     public function testAutoUsesTheMetadataDocumentWhenTheServerSupportsItAndTheBaseUrlIsPublic(): void
@@ -100,6 +106,40 @@ class RegistrarTest extends TestCase
     public function testAutoRegistersWhenTheBaseUrlIsNotPublic(): void
     {
         $registration = $this->registrar()->clientFor(self::authServer(metadataDocuments: true), self::CALLBACK);
+
+        $this->assertSame('dyn-client-1', $registration->clientId);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: list<string>}>
+     */
+    public static function sitesNoAuthorizationServerReaches(): array
+    {
+        return [
+            'a name that resolves to this machine' => ['https://shop.ddev.site', ['127.0.0.1']],
+            'a name that resolves to a private address' => ['https://staging.example.com', ['10.1.2.3']],
+            'a name with one private address among public ones' => ['https://mixed.example.com', ['93.184.216.40', '192.168.1.5']],
+            'a name that does not resolve' => ['https://nowhere.example.com', []],
+            'a reserved .test name' => ['https://shop.test', ['93.184.216.41']],
+            'a reserved .example name' => ['https://shop.example', ['93.184.216.42']],
+            'a reserved .invalid name' => ['https://shop.invalid', ['93.184.216.43']],
+        ];
+    }
+
+    /**
+     * @param string $base App.fullBaseUrl.
+     * @param list<string> $addresses What its host resolves to.
+     */
+    #[DataProvider('sitesNoAuthorizationServerReaches')]
+    public function testAutoRegistersOnASiteNoAuthorizationServerReaches(string $base, array $addresses): void
+    {
+        $this->server->dns->add((string)parse_url($base, PHP_URL_HOST), $addresses);
+        Router::fullBaseUrl($base);
+        try {
+            $registration = $this->registrar()->clientFor(self::authServer(metadataDocuments: true), self::CALLBACK);
+        } finally {
+            Router::fullBaseUrl('http://localhost');
+        }
 
         $this->assertSame('dyn-client-1', $registration->clientId);
     }

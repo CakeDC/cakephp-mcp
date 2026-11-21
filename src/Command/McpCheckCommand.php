@@ -34,6 +34,7 @@ use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Client\OAuth\ClientMetadataDocument;
 use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
@@ -285,8 +286,9 @@ class McpCheckCommand extends Command
         if ($config->registration === 'dynamic') {
             return ['dynamic registration', null];
         }
-        $servable = ClientMetadataDocument::servable($config);
         if ($config->registration === 'metadata') {
+            $servable = ClientMetadataDocument::servable($config);
+
             return $servable
                 ? ['metadata document ' . ClientMetadataDocument::url($config), null]
                 : ['metadata document', sprintf(
@@ -296,12 +298,14 @@ class McpCheckCommand extends Command
                 )];
         }
 
-        return [$servable
+        // As the sign-in decides it: the name must also resolve, to public addresses only.
+        return [ClientMetadataDocument::servable($config, McpClients::registry()->resolver())
             ? sprintf(
-                'metadata document %s when the authorization server supports it, else dynamic registration',
+                'metadata document %s when the authorization server supports it, else dynamic registration (a '
+                . 'site no authorization server can reach, behind a VPN say, needs "registration" => "dynamic")',
                 ClientMetadataDocument::url($config),
             )
-            : 'dynamic registration, App.fullBaseUrl is not public https', null];
+            : 'dynamic registration, App.fullBaseUrl is not a public https address', null];
     }
 
     /**

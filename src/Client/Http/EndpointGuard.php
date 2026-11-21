@@ -158,7 +158,7 @@ final class EndpointGuard
      * @return bool Whether it is globally reachable and not multicast, with the IPv4 inside a mapped, translated
      *   (NAT64) or 6to4 address judged as well, or refused where it cannot be told.
      */
-    private static function isPublic(string $address): bool
+    public static function isPublic(string $address): bool
     {
         $bytes = inet_pton($address);
         if ($bytes === false) {
