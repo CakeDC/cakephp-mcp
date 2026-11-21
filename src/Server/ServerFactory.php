@@ -28,6 +28,7 @@ use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandler;
+use Mcp\Capability\RegistryInterface;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
@@ -65,7 +66,7 @@ final class ServerFactory
     /**
      * The registry of the last build.
      */
-    private ?Registry $lastRegistry = null;
+    private ?RegistryInterface $lastRegistry = null;
 
     /**
      * @param \Psr\Container\ContainerInterface $container The host container.
@@ -360,22 +361,15 @@ final class ServerFactory
     }
 
     /**
-     * The registry the builder holds after the host hook.
+     * The registry the builder holds after the host hook: the plugin's, or any RegistryInterface the hook set.
      *
      * @param \Mcp\Server\Builder $builder The builder.
-     * @return \Mcp\Capability\Registry
-     * @throws \InvalidArgumentException When the hook set a registry the plugin cannot prune.
+     * @return \Mcp\Capability\RegistryInterface
      */
-    private function registryOf(Builder $builder): Registry
+    private function registryOf(Builder $builder): RegistryInterface
     {
         $registry = (new ReflectionProperty(Builder::class, 'registry'))->getValue($builder);
-        if (!$registry instanceof Registry) {
-            throw new InvalidArgumentException(sprintf(
-                'Mcp.server.configure set a registry that is not %s. The plugin needs one it can change: '
-                . '#[McpWhen] removes elements from it, #[McpApp] links tools in it and the tool catalog runs on it.',
-                Registry::class,
-            ));
-        }
+        assert($registry instanceof RegistryInterface);
 
         return $registry;
     }
@@ -423,12 +417,12 @@ final class ServerFactory
     /**
      * After the build: the catalog's tools are its own, not a discovered tool with the same name.
      *
-     * @param \Mcp\Capability\Registry $registry The registry.
+     * @param \Mcp\Capability\RegistryInterface $registry The registry.
      * @param \CakeDC\Mcp\Catalog\ToolCatalog $catalog The catalog.
      * @return void
      * @throws \InvalidArgumentException When another tool took one of the names.
      */
-    private function assertCatalogOwnsItsTools(Registry $registry, ToolCatalog $catalog): void
+    private function assertCatalogOwnsItsTools(RegistryInterface $registry, ToolCatalog $catalog): void
     {
         foreach ([ToolCatalog::FIND => 'find', ToolCatalog::CALL => 'call'] as $name => $method) {
             $handler = $registry->hasTool($name) ? $registry->getTool($name)->handler : null;

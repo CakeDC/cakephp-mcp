@@ -6,8 +6,8 @@ namespace CakeDC\Mcp\Catalog;
 use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Authorization\ToolGate;
 use CakeDC\Mcp\Schema\SchemaNormalizer;
-use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandlerInterface;
+use Mcp\Capability\RegistryInterface;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
@@ -37,7 +37,7 @@ final class ToolCatalog
     public const CALL = 'call_tools';
 
     /**
-     * @param \Mcp\Capability\Registry $registry The server's registry.
+     * @param \Mcp\Capability\RegistryInterface $registry The server's registry.
      * @param \CakeDC\Mcp\Authorization\ToolGate $gate The server's gate.
      * @param list<string> $patterns `Mcp.catalog.tools`.
      * @param int $maxCalls `Mcp.catalog.maxCalls`.
@@ -50,7 +50,7 @@ final class ToolCatalog
      * @param bool $normalize `Mcp.schema.normalize`: the schemas find_tools returns follow it, as tools/list does.
      */
     public function __construct(
-        private readonly Registry $registry,
+        private readonly RegistryInterface $registry,
         private readonly ToolGate $gate,
         private readonly array $patterns,
         private readonly int $maxCalls,

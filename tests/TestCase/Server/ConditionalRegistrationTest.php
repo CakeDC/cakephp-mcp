@@ -11,10 +11,10 @@ use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Attribute\McpWhen;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Server\ServerFactory;
+use CakeDC\Mcp\Test\Support\DelegatingRegistry;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
 use Mcp\Capability\Registry;
-use Mcp\Capability\RegistryInterface;
 use Mcp\Server\Builder;
 use stdClass;
 
@@ -130,16 +130,18 @@ class ConditionalRegistrationTest extends TestCase
         $this->assertNotContains('beta_tool', $names);
     }
 
-    public function testAHookRegistryThatCannotBePrunedFails(): void
+    public function testMcpWhenPrunesARegistryOfTheHooksOwn(): void
     {
         Configure::write('Mcp.server.configure', function (Builder $builder): void {
-            $builder->setRegistry($this->createStub(RegistryInterface::class));
+            $builder->setRegistry(new DelegatingRegistry());
         });
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Mcp.server.configure');
+        $transport = $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
 
-        $this->serve([['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list']]);
+        $names = array_column($transport->responseFor(2)['result']['tools'] ?? [], 'name');
+        $this->assertContains('always', $names);
+        $this->assertNotContains('monthly_report', $names);
+        $this->assertNotContains('beta_tool', $names);
     }
 
     public function testCodeRegisteredToolsAreUntouched(): void

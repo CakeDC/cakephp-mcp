@@ -150,10 +150,11 @@ the server info (a `setServerInfo()` call in the callable is ignored; use the
 discovery when `discovery.scanDirs` has a directory. The authorizer applies to
 every tool, including the ones added here.
 
-A registry set here (`setRegistry()`) must be an `Mcp\Capability\Registry`:
-the plugin removes `#[McpWhen]` elements from it, links `#[McpApp]` tools in it
-and runs the tool catalog on it, so the server refuses to start with another
-implementation. With the tool catalog on, request handlers, a reference
+A registry set here (`setRegistry()`) can be any
+`Mcp\Capability\RegistryInterface`, as in 2.1. The plugin uses it through that
+interface: it removes `#[McpWhen]` elements from it, links `#[McpApp]` tools in
+it, runs the tool catalog on it and asks it, for the audit, whether a tool
+exists. With the tool catalog on, request handlers, a reference
 handler or a schema validator added here would not apply to the tools
 `call_tools` runs, so the server refuses those too; put such rules in an
 authorizer. A tool added here cannot be called `find_tools` or `call_tools`
@@ -440,10 +441,10 @@ Limits:
   time the person took to answer. In the stateless revision every round that
   still waits for input is skipped, and the call is recorded once, when it
   finishes.
-- To tell a denied tool from an unknown one, the audit hands the SDK the
-  tool registry it keeps (tools are then loaded when the server is built).
-  If `server.configure` sets a registry of its own, an unknown tool that the
-  authorizer refuses is recorded as `denied`.
+- To tell a denied tool from an unknown one, the audit asks the server's
+  registry (the plugin's, or the one `server.configure` set) whether the tool
+  exists: an unknown tool is recorded as `invalid`, even when the authorizer
+  would refuse it. Tools are loaded when the server is built.
 - The access token never appears in a record.
 - Over stdio the identity is `stdio.identity`, and a trusted server
   (`stdio.trusted`) denies nothing.

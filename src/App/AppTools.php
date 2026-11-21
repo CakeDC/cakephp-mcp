@@ -5,7 +5,7 @@ namespace CakeDC\Mcp\App;
 
 use CakeDC\Mcp\Attribute\McpApp;
 use CakeDC\Mcp\Server\HandlerAttributes;
-use Mcp\Capability\Registry;
+use Mcp\Capability\RegistryInterface;
 use Mcp\Schema\Tool;
 
 /**
@@ -16,10 +16,10 @@ final class AppTools
     /**
      * Writes the `_meta.ui` of every tool with `#[McpApp]` into a loaded registry.
      *
-     * @param \Mcp\Capability\Registry $registry The registry.
+     * @param \Mcp\Capability\RegistryInterface $registry The registry.
      * @return void
      */
-    public static function link(Registry $registry): void
+    public static function link(RegistryInterface $registry): void
     {
         foreach ($registry->getTools()->references as $name => $tool) {
             $reference = $registry->getTool((string)$name);

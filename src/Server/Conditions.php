@@ -5,8 +5,8 @@ namespace CakeDC\Mcp\Server;
 
 use CakeDC\Mcp\Attribute\McpWhen;
 use InvalidArgumentException;
-use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ElementReference;
+use Mcp\Capability\RegistryInterface;
 
 /**
  * Removes from a loaded registry the elements whose `#[McpWhen]` does not hold on a server.
@@ -14,12 +14,12 @@ use Mcp\Capability\Registry\ElementReference;
 final class Conditions
 {
     /**
-     * @param \Mcp\Capability\Registry $registry A loaded registry.
+     * @param \Mcp\Capability\RegistryInterface $registry A loaded registry.
      * @param string $server The MCP server being built.
      * @return list<string> What was removed: `<kind> <name> (<why>)`.
      * @throws \InvalidArgumentException When a condition cannot be evaluated; the message names the element.
      */
-    public static function prune(Registry $registry, string $server): array
+    public static function prune(RegistryInterface $registry, string $server): array
     {
         $skipped = [];
         $kinds = [
