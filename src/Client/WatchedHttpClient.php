@@ -37,6 +37,12 @@ final class WatchedHttpClient implements ClientInterface
     private array $results = [];
 
     /**
+     * Whether the server accepted (2xx) a request of the current call other than `initialize` and notifications:
+     * then that call may have run.
+     */
+    private bool $accepted = false;
+
+    /**
      * @param \Psr\Http\Client\ClientInterface $client The client it wraps.
      * @param \CakeDC\Mcp\Client\ClientConfig|null $config The client, whose `token` callable is called for each request.
      */
@@ -59,6 +65,16 @@ final class WatchedHttpClient implements ClientInterface
         unset($this->results[$method]);
         $response = $this->client->sendRequest($request);
         $this->lastStatus = $response->getStatusCode();
+        if (
+            $request->getMethod() === 'POST'
+            && $response->getStatusCode() >= 200
+            && $response->getStatusCode() < 300
+            && $method !== ''
+            && $method !== 'initialize'
+            && !str_starts_with($method, 'notifications/')
+        ) {
+            $this->accepted = true;
+        }
         $challenge = $response->getHeaderLine('WWW-Authenticate');
         $this->lastChallenge = $challenge === '' ? null : $challenge;
         if ($response->getStatusCode() === 403 && $challenge !== '') {
@@ -75,6 +91,25 @@ final class WatchedHttpClient implements ClientInterface
         }
 
         return $response;
+    }
+
+    /**
+     * Starts a call: what `unauthorizedBeforeAccepted()` tells is about the requests from here on.
+     *
+     * @return void
+     */
+    public function startCall(): void
+    {
+        $this->accepted = false;
+    }
+
+    /**
+     * @return bool Whether the last answer was a 401 and the server accepted no request of the call before it, so
+     *   the call did not run and may be sent again with a new token.
+     */
+    public function unauthorizedBeforeAccepted(): bool
+    {
+        return $this->lastStatus === 401 && !$this->accepted;
     }
 
     /**

@@ -92,6 +92,7 @@ final class ClientSession
      */
     public function call(callable $call): mixed
     {
+        $this->http?->startCall();
         $client = $this->client();
         try {
             return $call($client);
@@ -135,6 +136,15 @@ final class ClientSession
     public function lastChallenge(): ?string
     {
         return $this->http?->lastChallenge();
+    }
+
+    /**
+     * @return bool Whether the last call failed with a 401 before the server accepted any of its requests: only
+     *   then can it be sent again with a new token without running twice.
+     */
+    public function unauthorizedBeforeAccepted(): bool
+    {
+        return $this->http?->unauthorizedBeforeAccepted() ?? false;
     }
 
     /**

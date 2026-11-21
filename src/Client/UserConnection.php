@@ -156,7 +156,8 @@ final class UserConnection
             return $session->call($call);
         } catch (ExceptionInterface $e) {
             $this->markStepUp($session->takeForbidden());
-            if ($session->lastStatus() !== 401) {
+            // Only a call the server refused before running any of it: never one whose stream a 401 cut short.
+            if (!$session->unauthorizedBeforeAccepted()) {
                 throw $e;
             }
         }
