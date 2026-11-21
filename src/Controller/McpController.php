@@ -21,6 +21,7 @@ use CakeDC\Mcp\Middleware\HeaderEncodingMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
+use CakeDC\Mcp\OAuth\UndeclaredResourceException;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
@@ -58,6 +59,7 @@ class McpController extends Controller
         $factory = $factory->forServer($server);
         $responseFactory = new ResponseFactory();
         $streamFactory = new StreamFactory();
+        $route = [];
 
         try {
             // The values of a route such as /mcp/{tenant}, for tools (McpRoute), the OAuth resource and the audit.
@@ -111,6 +113,10 @@ class McpController extends Controller
             );
             $response = $factory->create()->run($transport);
         } catch (Throwable $exception) {
+            if ($exception instanceof UndeclaredResourceException && $route !== []) {
+                // A value of /mcp/{tenant} whose resource nobody declared: anyone can ask for one, so no log.
+                return $this->response->withStatus(404);
+            }
             Log::error(sprintf("MCP request failed.\n%s", $exception), ['scope' => [McpLogger::SCOPE]]);
 
             return $this->internalError();

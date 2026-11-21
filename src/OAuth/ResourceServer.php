@@ -209,7 +209,7 @@ final class ResourceServer
         $resources = $server->config()->resources;
         $declared = $resources->get($this->settings->resource);
         if ($declared === null) {
-            throw new RuntimeException(sprintf(
+            throw new UndeclaredResourceException(sprintf(
                 'The MCP resource "%s" (Mcp.auth.resource) is not declared in OAuthServer.resources (declared: %s).',
                 $this->settings->resource,
                 implode(', ', array_map(

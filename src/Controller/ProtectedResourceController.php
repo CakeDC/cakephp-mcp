@@ -9,6 +9,7 @@ use Cake\Log\Log;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
+use CakeDC\Mcp\OAuth\UndeclaredResourceException;
 use Throwable;
 
 /**
@@ -42,9 +43,11 @@ class ProtectedResourceController extends Controller
             return $response->withStatus(204);
         }
 
+        $values = [];
         try {
             $server = $this->mcpServer();
-            $settings = $server === null ? null : AuthSettings::fromConfig($server, $this->mcpRouteValues($server));
+            $values = $server === null ? [] : $this->mcpRouteValues($server);
+            $settings = $server === null ? null : AuthSettings::fromConfig($server, $values);
             if ($settings === null || $settings->mode === AuthSettings::HOST) {
                 return $response->withStatus(404)
                     ->withType('application/json')
@@ -55,6 +58,12 @@ class ProtectedResourceController extends Controller
                 JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
             );
         } catch (Throwable $exception) {
+            if ($exception instanceof UndeclaredResourceException && $values !== []) {
+                // A value of /mcp/{tenant} whose resource nobody declared: anyone can ask for one, so no log.
+                return $response->withStatus(404)
+                    ->withType('application/json')
+                    ->withStringBody((string)json_encode(['error' => 'not_found']));
+            }
             Log::error(
                 sprintf("MCP protected resource metadata failed.\n%s", $exception),
                 ['scope' => [McpLogger::SCOPE]],
