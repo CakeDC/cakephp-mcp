@@ -118,6 +118,11 @@ class CakeGuardedTransportTest extends TestCase
         $this->assertSame(strlen("Content-Encoding: identity\r\n"), $headers(null, "Content-Encoding: identity\r\n"));
         // A compressed body would be inflated whole, past the cap: the transfer stops at its headers.
         $this->assertSame(0, $headers(null, "Content-Encoding: gzip\r\n"));
+        // Cake trims the name before the colon, so these spellings are Content-Encoding to it too.
+        foreach (["Content-Encoding : gzip\r\n", "Content-Encoding\t: gzip\r\n", "Content-Encoding\x0B: gzip\r\n", "content-ENCODING:br\r\n"] as $line) {
+            $this->assertSame(0, $headers(null, $line), json_encode($line) ?: '');
+        }
+        $this->assertSame(strlen("X-Content-Encoding: gzip\r\n"), $headers(null, "X-Content-Encoding: gzip\r\n"));
     }
 
     public function testACompressedAnswerIsRefused(): void

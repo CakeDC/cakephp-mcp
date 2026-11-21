@@ -140,10 +140,13 @@ final class CakeGuardedTransport implements GuardedTransportInterface
      */
     private static function isCompressed(string $header): bool
     {
-        if (preg_match('/^content-encoding:(.*)$/i', trim($header), $match) !== 1) {
+        // Read the line as Cake does: the name is what comes before the first colon, trimmed, so
+        // "Content-Encoding : gzip" is Content-Encoding to it as well.
+        $parts = explode(':', $header, 2);
+        if (count($parts) !== 2 || strtolower(trim($parts[0])) !== 'content-encoding') {
             return false;
         }
-        $encoding = strtolower(trim($match[1]));
+        $encoding = strtolower(trim($parts[1]));
 
         return $encoding !== '' && $encoding !== 'identity';
     }
