@@ -65,7 +65,7 @@
         "test": "phpunit",
         "cs-check": "phpcs --colors -p",
         "cs-fix": "phpcbf --colors -p",
-        "stan": "phpstan analyse --no-progress"
+        "stan": "phpstan analyse --no-progress --memory-limit=1G"
     },
     "config": {
         "sort-packages": true,

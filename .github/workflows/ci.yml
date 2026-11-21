@@ -84,7 +84,7 @@ jobs:
           working-directory: cakephp-mcp
       - run: vendor/bin/phpcs
         working-directory: cakephp-mcp
-      - run: vendor/bin/phpstan analyse --no-progress
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
         working-directory: cakephp-mcp
 
   conformance:
