@@ -345,6 +345,66 @@ trait McpTestTrait
     }
 
     /**
+     * Asserts that the authorizer denied the last `mcpReadResource()`: it was answered exactly like an unknown URI,
+     * and the URI exists (a resource, or one a template matches), so a typo cannot pass as a denial.
+     *
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceDenied(string $message = ''): void
+    {
+        $uri = (string)$this->_mcpResource;
+        $error = $this->mcpResponse()['error'] ?? null;
+        Assert::assertTrue(
+            is_array($error) && ($error['message'] ?? null) === sprintf('Resource not found for uri: "%s".', $uri),
+            $message ?: sprintf(
+                'Expected "%s" to be answered like an unknown URI, got: %s',
+                $uri,
+                $this->mcpJson($this->mcpResponse()),
+            ),
+        );
+        $response = $this->_mcpResponse;
+        try {
+            $read = $this->mcpRequest('resources/read', ['uri' => $uri], true);
+        } finally {
+            $this->_mcpResponse = $response;
+        }
+        Assert::assertArrayNotHasKey(
+            'error',
+            $read,
+            $message
+                ?: sprintf('Resource "%s" is not registered, so its rejection proves nothing. Check the URI.', $uri),
+        );
+    }
+
+    /**
+     * Asserts that the authorizer denied the last `mcpGetPrompt()`: it was answered exactly like an unknown prompt,
+     * and the prompt exists, so a typo cannot pass as a denial.
+     *
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptDenied(string $message = ''): void
+    {
+        $name = (string)$this->_mcpPrompt;
+        $error = $this->mcpResponse()['error'] ?? null;
+        Assert::assertTrue(
+            is_array($error) && ($error['message'] ?? null) === sprintf('Prompt not found: "%s".', $name),
+            $message ?: sprintf(
+                'Expected "%s" to be answered like an unknown prompt, got: %s',
+                $name,
+                $this->mcpJson($this->mcpResponse()),
+            ),
+        );
+        Assert::assertContains(
+            $name,
+            array_column($this->mcpListAll('prompts/list', 'prompts', true), 'name'),
+            $message
+                ?: sprintf('Prompt "%s" is not registered, so its rejection proves nothing. Check the name.', $name),
+        );
+    }
+
+    /**
      * Asserts the values of the last `mcpComplete()`, in order.
      *
      * @param list<string> $expected The expected values.

@@ -8,6 +8,8 @@ use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use CakeDC\Mcp\Authorization\ContentGate;
+use CakeDC\Mcp\Authorization\ContentGuard;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
@@ -16,6 +18,7 @@ use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Container\ContainerBridge;
 use CakeDC\Mcp\Event\AppToolFilter;
 use CakeDC\Mcp\Event\AuditListener;
+use CakeDC\Mcp\Event\ContentListFilter;
 use CakeDC\Mcp\Event\EventDispatcher;
 use CakeDC\Mcp\Event\ToolListFilter;
 use CakeDC\Mcp\Event\ToolSchemaNormalizer;
@@ -142,8 +145,9 @@ final class ServerFactory
         $catalogOn = ($catalog['enabled'] ?? false) === true;
         $patterns = array_values(array_filter((array)($catalog['tools'] ?? []), 'is_string'));
         // The catalog's own tools are always allowed: each tool they run goes through the gate instead.
+        $authorizer = $this->authorizer();
         $gate = new ToolGate(
-            $this->authorizer(),
+            $authorizer,
             $this->identity,
             $trusted,
             $catalogOn ? [ToolCatalog::FIND, ToolCatalog::CALL] : [],
@@ -168,8 +172,16 @@ final class ServerFactory
             // application that wrote `visibility: ["app"]` itself keeps its tools/list.
             $events->listen(ResponseEvent::class, new AppToolFilter());
         }
-        // The guard goes first: the SDK asks request handlers in the order they were added.
+        // Denied resources and prompts, when the authorizer decides for them.
+        $contentGate = new ContentGate($authorizer, $this->identity, $trusted);
+        if ($contentGate->active()) {
+            $events->listen(ResponseEvent::class, new ContentListFilter($contentGate));
+        }
+        // The guards go first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
+        if ($contentGate->active()) {
+            $builder->addRequestHandler(new ContentGuard($contentGate));
+        }
         // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
         // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
         $registry = new Registry($events, $logger);
@@ -246,8 +258,16 @@ final class ServerFactory
         // Whoever set the policy (the config or the hook), a list filtered per caller is never public.
         $policy = (new ReflectionProperty(Builder::class, 'cachePolicy'))->getValue($builder);
         $this->cachePolicy = $policy instanceof CachePolicy ? $policy : null;
-        if ($policy instanceof CachePolicy && !$this->authorizer() instanceof AllowAllToolAuthorizer) {
-            $builder->setCachePolicy(CacheHints::privateToolList($policy));
+        if ($policy instanceof CachePolicy) {
+            $private = array_merge(
+                $authorizer instanceof AllowAllToolAuthorizer ? [] : ['tools/list'],
+                // A resource or prompt an authorizer filters is never in a shared cache either.
+                $contentGate->decidesResources()
+                    ? ['resources/list', 'resources/templates/list', 'resources/read']
+                    : [],
+                $contentGate->decidesPrompts() ? ['prompts/list'] : [],
+            );
+            $builder->setCachePolicy(CacheHints::private($policy, $private));
         }
 
         $instructions = McpConfig::get('server.instructions', $this->server);

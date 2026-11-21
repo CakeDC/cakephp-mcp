@@ -28,6 +28,7 @@ use Mcp\Server\Wire\CachePolicy;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
 use TestApp\Authenticator\ApiTokenAuthenticator;
+use TestApp\ContentAuthorizer;
 use TestApp\OAuthTestConfig;
 
 class McpCheckCommandTest extends TestCase
@@ -313,6 +314,24 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
 
         $this->assertOutputContains('[PASS] Authorizer: RbacToolAuthorizer, 1 of 1 rules for the tools');
+    }
+
+    public function testTheAuthorizerLineSaysWhetherResourcesAndPromptsAreCovered(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('resources and prompts are not covered');
+
+        Configure::write('Mcp.authorization.authorizer', ContentAuthorizer::class);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Authorizer: TestApp\\ContentAuthorizer; resources and prompts are covered');
+
+        $this->rbac([
+            ['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Prompts', 'action' => '*'],
+        ]);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Authorizer: RbacToolAuthorizer, 1 of 2 rules for the tools; prompts are covered, '
+            . 'resources are not (no rule for controller Resources)');
     }
 
     public function testToolScopesPassWhenEveryToolNeedsOne(): void

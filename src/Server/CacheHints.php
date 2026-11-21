@@ -55,11 +55,25 @@ final class CacheHints
      */
     public static function privateToolList(CachePolicy $policy): CachePolicy
     {
-        if ($policy->scopeFor('tools/list') !== CacheScope::Public) {
-            return $policy;
+        return self::private($policy, ['tools/list']);
+    }
+
+    /**
+     * $policy with $methods private, keeping their ttl: results an authorizer filters per caller.
+     *
+     * @param \Mcp\Server\Wire\CachePolicy $policy The policy.
+     * @param list<string> $methods The methods.
+     * @return \Mcp\Server\Wire\CachePolicy
+     */
+    public static function private(CachePolicy $policy, array $methods): CachePolicy
+    {
+        foreach ($methods as $method) {
+            if ($policy->scopeFor($method) === CacheScope::Public) {
+                $policy = $policy->withMethod($method, $policy->ttlFor($method), CacheScope::Private);
+            }
         }
 
-        return $policy->withMethod('tools/list', $policy->ttlFor('tools/list'), CacheScope::Private);
+        return $policy;
     }
 
     /**

@@ -221,7 +221,7 @@ expected: this plugin validates the MCP tokens itself.
 | Conditions | What `#[McpWhen]` left out of the server, and why. |
 | Catalog | With `Mcp.catalog` on, the tools behind `find_tools` and `call_tools`, the tools a pattern matched that stay in `tools/list` because they link to an app, and patterns that match no tool. |
 | Apps | With apps announced (`Mcp.apps.enabled`, or the extension enabled in `Mcp.server.configure`), the app pages; fails when a tool links to something that is not an app page, or when tools link to apps the server does not announce. |
-| Authorizer | The configured authorizer. With `RbacToolAuthorizer` it warns when there are no rules, or no rule for plugin `CakeDC/Mcp` and controller `Tools` (wildcards count), because then no one can call a tool. |
+| Authorizer | The configured authorizer. With `RbacToolAuthorizer` it warns when there are no rules, or no rule for plugin `CakeDC/Mcp` and controller `Tools` (wildcards count), because then no one can call a tool. It also says whether resources and prompts are covered: by an authorizer that implements `ResourceAuthorizerInterface` or `PromptAuthorizerInterface`, and for `RbacToolAuthorizer` only with rules for controller `Resources` or `Prompts` (see [Authorization](authorization.md#resources-and-prompts)). |
 | Tool scopes | In `oauth` and `external` modes, warns about registered tools (catalogued and app-only ones included, `find_tools` and `call_tools` left out) that need no scope (no line in `Mcp.auth.scopes.tools`, and no `default` or `tools/call` scope), which any valid token may call, and about names in `Mcp.auth.scopes.tools` that are not tools. In host mode it warns when `auth.scopes` is set, since host mode checks no scopes. |
 | Cache hints | The `Mcp.server.cache` hints: says when `tools/list` is sent private because the authorizer can give users different tools, and warns when `resources/read` is public. |
 | Logging | That a Log engine takes the errors of the `mcp` scope. Without one, a failing tool only answers "Error while executing tool" and its error is lost (the `debug` and `error` engines of the skeleton have `'scopes' => null`). See [Logging](configuration.md#logging). |
@@ -245,7 +245,7 @@ Sample output:
 [PASS] Conditions: nothing skipped
 [PASS] Catalog: off
 [PASS] Apps: off
-[PASS] Authorizer: RbacToolAuthorizer, 2 of 14 rules for the tools
+[PASS] Authorizer: RbacToolAuthorizer, 2 of 14 rules for the tools; resources and prompts are not covered (no rule for controller Resources or Prompts)
 [PASS] Tool scopes: every tool needs a scope
 [PASS] Cache hints: off (private, not cached)
 [PASS] Logging: the mcp scope goes to mcp

@@ -67,8 +67,58 @@ With the [audit log](configuration.md#audit-log) on, the record of a denied
 call says `denied`, so you can tell it from an unknown tool even though the
 caller cannot.
 
-Resources and prompts are not covered by the tool authorizer: any identified
-caller can list and read them.
+## Resources and prompts
+
+An authorizer that only implements `ToolAuthorizerInterface` leaves resources
+and prompts open: any identified caller can list, read and get them, as in 2.1.
+To decide who reads which resource and gets which prompt, implement one or both
+of these interfaces in the same class:
+
+```php
+use CakeDC\Mcp\Authorization\PromptAuthorizerInterface;
+use CakeDC\Mcp\Authorization\ResourceAuthorizerInterface;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+
+final class AppAuthorizer implements
+    ToolAuthorizerInterface,
+    ResourceAuthorizerInterface,
+    PromptAuthorizerInterface
+{
+    public function canCall(mixed $identity, string $tool): bool
+    {
+        return $identity !== null;
+    }
+
+    public function canReadResource(mixed $identity, string $uri): bool
+    {
+        // A concrete URI read through a template, or the template's own URI
+        // (`orders://{number}`) when templates are listed or completed.
+        return !str_starts_with($uri, 'payroll://') || ($identity['role'] ?? null) === 'hr';
+    }
+
+    public function canGetPrompt(mixed $identity, string $name): bool
+    {
+        return $name !== 'payroll_summary' || ($identity['role'] ?? null) === 'hr';
+    }
+}
+```
+
+What a denied resource or prompt does:
+
+- It is left out of `resources/list`, `resources/templates/list` and
+  `prompts/list`.
+- Reading it (`resources/read`, also a URI a template matches) or subscribing
+  to it answers exactly like an unknown URI, and getting a denied prompt
+  answers exactly like an unknown prompt, so a caller cannot tell it exists.
+- A completion for a denied prompt or template returns no values.
+- [MCP App](apps.md) pages are resources and follow the same rule.
+- With [cache hints](configuration.md#keys), the lists and `resources/read`
+  are always sent private, as `tools/list` is.
+
+`bin/cake mcp check` says on its `Authorizer` line whether resources and
+prompts are covered. Test the rules with the `assertMcpResourceNotListed()`,
+`assertMcpResourceDenied()`, `assertMcpPromptNotListed()` and
+`assertMcpPromptDenied()` assertions of [McpTestTrait](testing.md).
 
 ## RbacToolAuthorizer (cakedc/auth)
 
@@ -121,6 +171,40 @@ You can also pass a prepared `Rbac` instance to `new RbacToolAuthorizer($rbac)`
 and configure the authorizer by instance.
 
 Identities that are not arrays or `ArrayAccess` objects are denied.
+
+### Resources and prompts with Rbac
+
+`RbacToolAuthorizer` also checks resource `X` as plugin `CakeDC/Mcp`,
+controller `Resources`, action `X` (the URI read, or the template's URI when
+templates are listed or completed), and prompt `X` as controller `Prompts`,
+action `X`. It does so only when at least one rule names plugin `CakeDC/Mcp`
+and controller `Resources` (or `Prompts`), exactly or in a list. With no such
+rule, every resource (or prompt) stays open, so a 2.1 rule set changes nothing,
+and neither does a rule for a controller of your own that is also called
+`Resources`.
+
+```php
+[
+    'role' => 'editor',
+    'plugin' => 'CakeDC/Mcp',
+    'controller' => 'Resources',
+    'action' => ['app://rules', 'orders://{number}'],
+],
+[
+    // the orders a user may read, through the template
+    'role' => 'editor',
+    'plugin' => 'CakeDC/Mcp',
+    'controller' => 'Resources',
+    'action' => '*',
+    'allowed' => fn ($user, $role, $request): bool
+        => str_starts_with((string)$request->getParam('action'), 'orders://'),
+],
+['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Prompts', 'action' => '*'],
+```
+
+Actions match exactly, so the concrete URIs of a template need a `'*'` rule
+with an `allowed` callback, as above. Once the `Resources` rules are on, the
+host-wide wildcard rules of the next section grant resources too.
 
 ### Warning: host rules without a plugin key
 

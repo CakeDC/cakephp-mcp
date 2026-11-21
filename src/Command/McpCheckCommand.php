@@ -27,7 +27,10 @@ use Cake\Routing\Router;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use CakeDC\Mcp\Authorization\PromptAuthorizerInterface;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Authorization\ResourceAuthorizerInterface;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Catalog\CatalogPatterns;
 use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Client\ClientConfig;
@@ -619,11 +622,12 @@ class McpCheckCommand extends Command
                 self::DOCS . 'configuration.md#several-servers',
             )];
         }
+        $coverage = self::contentCoverage($authorizer);
         if ($authorizer instanceof AllowAllToolAuthorizer) {
-            return ['pass', 'AllowAllToolAuthorizer: every identified caller may call every tool'];
+            return ['pass', 'AllowAllToolAuthorizer: every identified caller may call every tool; ' . $coverage];
         }
         if (!$authorizer instanceof RbacToolAuthorizer) {
-            return ['pass', $authorizer::class];
+            return ['pass', $authorizer::class . '; ' . $coverage];
         }
         $docs = self::DOCS . 'authorization.md#rbactoolauthorizer-cakedcauth';
         $rules = $authorizer->permissions();
@@ -634,7 +638,7 @@ class McpCheckCommand extends Command
                 RbacToolAuthorizer::PLUGIN,
                 RbacToolAuthorizer::CONTROLLER,
                 $docs,
-            )];
+            ) . '; ' . $coverage];
         }
         $forTools = count(array_filter($rules, fn(mixed $rule): bool => is_array($rule) && self::allowsTools($rule)));
         if ($forTools === 0) {
@@ -645,10 +649,44 @@ class McpCheckCommand extends Command
                 RbacToolAuthorizer::PLUGIN,
                 RbacToolAuthorizer::CONTROLLER,
                 $docs,
-            )];
+            ) . '; ' . $coverage];
         }
 
-        return ['pass', sprintf('RbacToolAuthorizer, %d of %d rules for the tools', $forTools, count($rules))];
+        return ['pass', sprintf(
+            'RbacToolAuthorizer, %d of %d rules for the tools; %s',
+            $forTools,
+            count($rules),
+            $coverage,
+        )];
+    }
+
+    /**
+     * Whether the authorizer decides who reads resources and gets prompts.
+     *
+     * @param \CakeDC\Mcp\Authorization\ToolAuthorizerInterface $authorizer The authorizer.
+     * @return string
+     */
+    private static function contentCoverage(ToolAuthorizerInterface $authorizer): string
+    {
+        $rbac = $authorizer instanceof RbacToolAuthorizer;
+        $resources = $authorizer instanceof ResourceAuthorizerInterface
+            && (!$rbac || $authorizer->decidesFor(RbacToolAuthorizer::RESOURCES));
+        $prompts = $authorizer instanceof PromptAuthorizerInterface
+            && (!$rbac || $authorizer->decidesFor(RbacToolAuthorizer::PROMPTS));
+        if ($resources && $prompts) {
+            return 'resources and prompts are covered';
+        }
+        if (!$resources && !$prompts) {
+            return 'resources and prompts are not covered' . ($rbac
+                ? ' (no rule for controller Resources or Prompts)'
+                : ': every caller may list, read and get them');
+        }
+        [$covered, $not, $controller] = $resources
+            ? ['resources', 'prompts', RbacToolAuthorizer::PROMPTS]
+            : ['prompts', 'resources', RbacToolAuthorizer::RESOURCES];
+
+        return sprintf('%s are covered, %s are not', $covered, $not)
+            . ($rbac ? sprintf(' (no rule for controller %s)', $controller) : '');
     }
 
     /**
