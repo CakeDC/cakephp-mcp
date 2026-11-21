@@ -17,6 +17,7 @@ use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\AuditRefusalMiddleware;
 use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
 use CakeDC\Mcp\Middleware\CatalogScopeMiddleware;
+use CakeDC\Mcp\Middleware\HeaderEncodingMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
@@ -66,6 +67,8 @@ class McpController extends Controller
             $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins', $server), 'is_string'));
             $middleware = [
                 new CorsMiddleware($origins),
+                // Before the checks that read these headers.
+                new HeaderEncodingMiddleware($responseFactory, $streamFactory),
                 new DnsRebindingProtectionMiddleware(
                     McpConfig::allowedHosts($server),
                     $origins,

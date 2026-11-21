@@ -50,6 +50,15 @@ Before 2.0.0 (in the 2.x betas) the `oauth` and `external` modes answered the
 same request with a `400` Bearer `invalid_request` challenge, which clients
 read as a token problem.
 
+## 400 "header is not valid UTF-8"
+
+A request whose `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`, `Mcp-Session-Id` or
+`MCP-Protocol-Version` header is not valid UTF-8 is refused with `400` and a
+JSON-RPC `-32600` error that names the header. These headers mirror the JSON
+body, which is UTF-8, so the client is sending them wrong: a header value that
+is not ASCII must be sent the way the MCP specification says (the
+`=?base64?...?=` form), not as raw bytes in another encoding.
+
 ## 403 or a redirect to the login page (cakedc/users)
 
 On a `cakedc/users` host, `RequestAuthorizationMiddleware` authorizes the

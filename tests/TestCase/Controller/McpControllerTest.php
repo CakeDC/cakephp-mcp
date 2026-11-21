@@ -12,6 +12,7 @@ use CakeDC\Mcp\McpConfig;
 use Mcp\Schema\Enum\CacheScope;
 use Mcp\Server\Builder;
 use Mcp\Server\Wire\CachePolicy;
+use PHPUnit\Framework\Attributes\DataProvider;
 use stdClass;
 use TestApp\AuthorizationSpy;
 use TestApp\TestTokens;
@@ -69,6 +70,30 @@ class McpControllerTest extends TestCase
         );
         $this->assertResponseOk();
         $this->assertSame('stateless', $this->json()['result']['content'][0]['text'] ?? null);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function invalidUtf8Headers(): array
+    {
+        return [
+            'Mcp-Name' => ['Mcp-Name', "ech\xffo"],
+            'Mcp-Method' => ['Mcp-Method', "tools/\xc3call"],
+            'Mcp-Param' => ['Mcp-Param-Text', "\xe2\x82"],
+        ];
+    }
+
+    #[DataProvider('invalidUtf8Headers')]
+    public function testAnMcpHeaderThatIsNotUtf8IsABadRequest(string $header, string $value): void
+    {
+        $headers = $this->modernHeaders('tools/call', 'echo');
+        $headers[$header] = $value;
+
+        $this->mcp($this->modern(1, 'tools/call', ['name' => 'echo', 'arguments' => ['text' => 'hi']]), $headers);
+
+        $this->assertResponseCode(400);
+        $this->assertSame(-32600, $this->json()['error']['code'] ?? null, (string)$this->_response?->getBody());
     }
 
     public function testModernListCarriesPrivateNoCacheHintsByDefault(): void
