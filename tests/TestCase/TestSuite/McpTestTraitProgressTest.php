@@ -8,6 +8,8 @@ use Cake\Cache\Engine\ArrayEngine;
 use Cake\Core\Configure;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\TestSuite\McpTestTrait;
+use Mcp\Server\Builder;
+use Mcp\Server\ClientGateway;
 use PHPUnit\Framework\AssertionFailedError;
 
 /**
@@ -29,6 +31,24 @@ class McpTestTraitProgressTest extends TestCase
     {
         Cache::drop('mcp_sessions');
         parent::tearDown();
+    }
+
+    public function testAToolThatNotifiesManyTimesStillAnswers(): void
+    {
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(function (ClientGateway $client): string {
+                for ($i = 1; $i <= 10001; $i++) {
+                    $client->progress($i, 10001);
+                }
+
+                return 'done';
+            }, 'chatty');
+        });
+
+        $this->mcpCallTool('chatty');
+
+        $this->assertMcpToolSucceeded();
+        $this->assertMcpProgressSent(10001);
     }
 
     public function testProgressAndLogsAreRecorded(): void

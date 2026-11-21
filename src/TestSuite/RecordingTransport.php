@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace CakeDC\Mcp\TestSuite;
 
+use LogicException;
 use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\Transport\InMemoryTransport;
 use Symfony\Component\Uid\Uuid;
@@ -14,6 +15,11 @@ use Symfony\Component\Uid\Uuid;
  */
 class RecordingTransport extends InMemoryTransport
 {
+    /**
+     * The most times a handler may suspend itself (to send a notification) in one request.
+     */
+    private const MAX_STEPS = 1000000;
+
     /**
      * Every message the server sent, decoded.
      *
@@ -64,8 +70,14 @@ class RecordingTransport extends InMemoryTransport
     private function driveFiber(): void
     {
         $this->waitingOnClient = false;
-        // A bound, in case a handler suspends forever without asking anything.
-        for ($step = 0; $step < 10000 && $this->sessionFiber !== null; $step++) {
+        // A bound, in case a handler suspends forever without asking anything; reaching it fails loudly.
+        for ($step = 0; $this->sessionFiber !== null; $step++) {
+            if ($step >= self::MAX_STEPS) {
+                throw new LogicException(sprintf(
+                    'The handler suspended itself %d times without ending; RecordingTransport stopped it.',
+                    self::MAX_STEPS,
+                ));
+            }
             $fiber = $this->sessionFiber;
             $this->flushOutgoing();
             if ($fiber->isTerminated()) {
