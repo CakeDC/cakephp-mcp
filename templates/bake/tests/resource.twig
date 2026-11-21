@@ -2,16 +2,21 @@
     namespace: testNamespace,
     classImports: [
         'Cake\\TestSuite\\TestCase',
-        "#{namespace}\\Mcp\\#{className}",
+        'CakeDC\\Mcp\\TestSuite\\McpTestTrait',
     ],
 }) }}
 
 class {{ className }}Test extends TestCase
 {
+    use McpTestTrait;
+
     public function testItHasContent(): void
     {
-        $content = (new {{ className }}())();
+        $this->mcpActingAs(['id' => 1]);
 
-        $this->assertNotSame('', trim($content));
+        $this->mcpReadResource('app://{{ uriName }}');
+
+        $this->assertMcpResourceContains('# {{ className }}');
+        $this->assertMcpResourceListed('app://{{ uriName }}');
     }
 }

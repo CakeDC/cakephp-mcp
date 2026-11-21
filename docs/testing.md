@@ -145,6 +145,65 @@ $this->assertMcpToolListedFor(['id' => 1, 'role' => 'admin'], 'refund_order');
 $this->assertMcpToolNotListedFor(['id' => 2, 'role' => 'user'], 'refund_order');
 ```
 
+## Prompts, resources and completions
+
+The same trait gets prompts, reads resources and asks for completions, through
+the server as the current identity, scopes and server, like `mcpCallTool()`:
+
+```php
+public function testTheGreetingPrompt(): void
+{
+    $this->mcpActingAs(['id' => 1]);
+
+    $this->mcpGetPrompt('greet', ['name' => 'Ada']);
+
+    $this->assertMcpPromptMessages([
+        ['role' => 'user', 'text' => 'Say hello to Ada.'],
+        ['role' => 'assistant', 'text' => 'Hello, Ada!'],
+    ]);
+}
+
+public function testAnOrderReadsThroughItsTemplate(): void
+{
+    $this->mcpReadResource('orders://1002');
+
+    $this->assertMcpResourceText('Order 1002', 'text/plain');
+}
+
+public function testOrderNumbersComplete(): void
+{
+    $this->mcpComplete(['type' => 'ref/resource', 'uri' => 'orders://{number}'], 'number', '10');
+
+    $this->assertMcpCompletionValues(['1001', '1002']);
+}
+```
+
+| Method | Does |
+| --- | --- |
+| `mcpGetPrompt($name, $arguments)` | Gets a prompt and keeps the response. |
+| `mcpReadResource($uri)` | Reads a resource, also a URI a resource template matches, and keeps the response. |
+| `mcpComplete($ref, $argument, $value)` | Asks for the completions of a prompt argument (`['type' => 'ref/prompt', 'name' => 'greet']`) or of a template variable (`['type' => 'ref/resource', 'uri' => 'orders://{number}']`) and keeps the response. |
+| `mcpListPrompts()`, `mcpListResources()`, `mcpListResourceTemplates()` | Return what the current identity sees in `prompts/list`, `resources/list` and `resources/templates/list`, every page. |
+
+| Assertion | Passes when |
+| --- | --- |
+| `assertMcpPromptMessages($expected)` | the last prompt returned these messages, in order, each as `['role' => ..., 'text' => ...]` (`text` is null for a message that is not text). |
+| `assertMcpPromptContains($text)` | a text message of the last prompt contains `$text`. |
+| `assertMcpPromptError(?$contains)` | the last prompt was answered with a JSON-RPC error: an unknown prompt, a missing argument, a prompt that failed. |
+| `assertMcpResourceText($text, ?$mimeType)` | a content of the last resource read has exactly this text, and this MIME type when given. |
+| `assertMcpResourceContains($text)` | a text content of the last resource read contains `$text`. |
+| `assertMcpResourceError(?$contains)` | the last resource read was answered with a JSON-RPC error: an unknown URI or a resource that failed. The SDK sends `Error while reading resource` for an exception, not its message. |
+| `assertMcpCompletionValues($values)` | the last completion returned these values, in order. |
+| `assertMcpPromptListed($name)`, `assertMcpPromptNotListed($name)` | the current identity sees, or does not see, the prompt in `prompts/list`. |
+| `assertMcpResourceListed($uri)`, `assertMcpResourceNotListed($uri)` | the same for a resource in `resources/list`. |
+| `assertMcpResourceTemplateListed($uriTemplate)`, `assertMcpResourceTemplateNotListed($uriTemplate)` | the same for a template in `resources/templates/list`. |
+
+The `NotListed` assertions also check that the prompt, resource or template
+exists, so a typo cannot pass as hidden. `mcpResponse()` and
+`assertMcpJsonRpcError()` work on the last of all these calls. The tests that
+`bin/cake bake mcp_resource` and `bin/cake bake mcp_prompt` write use these
+helpers.
+
 ## Several servers
 
 With `Mcp.servers`, the trait talks to the `default` server. Switch with

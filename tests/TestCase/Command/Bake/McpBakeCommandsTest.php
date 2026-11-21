@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Test\TestCase\Command\Bake;
 
 use Cake\Console\TestSuite\ConsoleIntegrationTestTrait;
+use Cake\Core\Configure;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Schema\SchemaLint;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
@@ -160,6 +161,36 @@ class McpBakeCommandsTest extends TestCase
             }
         };
         Closure::bind($run, $test, $class)();
+    }
+
+    public function testTheTestsOfABakedResourceAndPromptGoThroughTheServerAndPass(): void
+    {
+        $this->exec('bake mcp_resource OrderGuide --plugin BakeTarget --force');
+        $this->assertExitSuccess();
+        $this->exec('bake mcp_prompt WeeklyReport --plugin BakeTarget --force');
+        $this->assertExitSuccess();
+        $this->assertStringContainsString("mcpReadResource('app://order-guide')", $this->baked('tests/TestCase/Mcp/OrderGuideResourceTest.php'));
+        $this->assertStringContainsString("mcpGetPrompt('weekly_report'", $this->baked('tests/TestCase/Mcp/WeeklyReportPromptTest.php'));
+        foreach (['OrderGuideResource', 'WeeklyReportPrompt'] as $class) {
+            require_once self::PLUGIN . 'src/Mcp/' . $class . '.php';
+            require_once self::PLUGIN . 'tests/TestCase/Mcp/' . $class . 'Test.php';
+        }
+        // The application's server finds the plugin's classes when its scan directories hold them.
+        Configure::write('Mcp.discovery.scanDirs', ['plugins/BakeTarget/src/Mcp']);
+
+        foreach (['OrderGuideResourceTest' => 'testItHasContent', 'WeeklyReportPromptTest' => 'testItBuildsMessages'] as $name => $method) {
+            $class = 'BakeTarget\\Test\\TestCase\\Mcp\\' . $name;
+            $test = new $class($method);
+            $run = function () use ($method): void {
+                $this->setUp();
+                try {
+                    $this->{$method}();
+                } finally {
+                    $this->tearDown();
+                }
+            };
+            Closure::bind($run, $test, $class)();
+        }
     }
 
     public function testNoTestOption(): void
