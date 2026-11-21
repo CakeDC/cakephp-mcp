@@ -125,6 +125,17 @@ final class ClientConfig
     }
 
     /**
+     * Whether $token can go in an `Authorization` header: visible ASCII only (RFC 6750 tokens are).
+     *
+     * @param string $token The token, trimmed.
+     * @return bool
+     */
+    private static function headerSafe(string $token): bool
+    {
+        return preg_match('/^[\x21-\x7E]+$/', $token) === 1;
+    }
+
+    /**
      * The token of a `token` callable, for one request.
      *
      * @return string|null Null when `token` is not a callable.
@@ -141,6 +152,13 @@ final class ClientConfig
                 'The callable of "Mcp.clients.%s.token" returned %s, not a token string.',
                 $this->name,
                 get_debug_type($token),
+            ));
+        }
+        $token = trim($token);
+        if (!self::headerSafe($token)) {
+            throw new ClientException(sprintf(
+                'The token the callable of "Mcp.clients.%s.token" returned has characters an HTTP header cannot carry.',
+                $this->name,
             ));
         }
 
@@ -351,6 +369,14 @@ final class ClientConfig
                 // Often an env() that is not set: sending no credentials would fail later and less clearly.
                 throw new InvalidArgumentException(sprintf(
                     '"%s" is empty; set it, or remove it if the server needs no token.',
+                    $key('token'),
+                ));
+            }
+            // A secret file read whole ends with a line break; the token is never quoted, a header error would.
+            $token = trim($token);
+            if (!self::headerSafe($token)) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" has characters an HTTP header cannot carry.',
                     $key('token'),
                 ));
             }

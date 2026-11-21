@@ -8,6 +8,7 @@ use Cake\Http\Client;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\CakeHttpClientFactory;
 use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use InvalidArgumentException;
 use Mcp\Schema\Enum\ProtocolVersion;
@@ -124,6 +125,37 @@ class ClientConfigTest extends TestCase
     {
         $this->expectError(['url' => 'https://a.example.com', 'token' => null], '"Mcp.clients.broken.token" is empty');
         $this->expectError(['url' => 'https://a.example.com', 'token' => ''], '"Mcp.clients.broken.token" is empty');
+    }
+
+    public function testATokenReadFromASecretFileLosesItsLineBreak(): void
+    {
+        // What file_get_contents() of a Docker or Kubernetes secret returns.
+        Configure::write('Mcp.clients.github', ['url' => 'https://api.example.com/mcp', 'token' => "robot-access-token\n"]);
+        $this->assertSame('Bearer robot-access-token', ClientConfig::fromConfig('github')->headers['Authorization']);
+
+        Configure::write('Mcp.clients.github', ['url' => 'https://api.example.com/mcp', 'token' => fn(): string => " robot-access-token\r\n"]);
+        $this->assertSame('robot-access-token', ClientConfig::fromConfig('github')->callableToken());
+    }
+
+    public function testATokenAHeaderCannotCarryFailsWithoutQuotingIt(): void
+    {
+        Configure::write('Mcp.clients.broken', ['url' => 'https://a.example.com', 'token' => "robot-access\ntoken"]);
+        try {
+            ClientConfig::fromConfig('broken');
+            $this->fail('Accepted');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('"Mcp.clients.broken.token" has characters', $e->getMessage());
+            $this->assertStringNotContainsString('robot-access', $e->getMessage());
+        }
+
+        Configure::write('Mcp.clients.broken', ['url' => 'https://a.example.com', 'token' => fn(): string => "robot-access\ntoken"]);
+        try {
+            ClientConfig::fromConfig('broken')->callableToken();
+            $this->fail('Accepted');
+        } catch (ClientException $e) {
+            $this->assertStringContainsString('has characters', $e->getMessage());
+            $this->assertStringNotContainsString('robot-access', $e->getMessage());
+        }
     }
 
     public function testUserModeNeedsAUrlAndNoToken(): void
