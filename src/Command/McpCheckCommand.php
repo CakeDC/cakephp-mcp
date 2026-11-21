@@ -39,7 +39,6 @@ use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Schema\SchemaLint;
-use CakeDC\Mcp\Server\CacheHints;
 use CakeDC\Mcp\Server\ServerFactory;
 use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
@@ -1142,7 +1141,8 @@ class McpCheckCommand extends Command
      */
     private function cacheHints(): array
     {
-        $policy = CacheHints::fromConfig(McpConfig::get('server.cache', $this->server));
+        // Read from the factory, so a policy the hook set is seen as the server sends it.
+        $policy = $this->factory()->cachePolicy();
         if ($policy === null) {
             return ['pass', 'off (private, not cached)'];
         }

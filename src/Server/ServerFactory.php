@@ -76,6 +76,11 @@ final class ServerFactory
     private bool $appsAnnounced = false;
 
     /**
+     * The cache policy the config or the hook set, before `tools/list` is forced private.
+     */
+    private ?CachePolicy $cachePolicy = null;
+
+    /**
      * @param \Psr\Container\ContainerInterface $container The host container.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The shared current identity.
      * @param string $server The MCP server this factory builds: `default` or a key of `Mcp.servers`.
@@ -240,6 +245,7 @@ final class ServerFactory
         }
         // Whoever set the policy (the config or the hook), a list filtered per caller is never public.
         $policy = (new ReflectionProperty(Builder::class, 'cachePolicy'))->getValue($builder);
+        $this->cachePolicy = $policy instanceof CachePolicy ? $policy : null;
         if ($policy instanceof CachePolicy && !$this->authorizer() instanceof AllowAllToolAuthorizer) {
             $builder->setCachePolicy(CacheHints::privateToolList($policy));
         }
@@ -574,6 +580,20 @@ final class ServerFactory
         $this->build(true, $this->quietLogger());
 
         return $this->appsAnnounced;
+    }
+
+    /**
+     * The cache hints policy set by `Mcp.server.cache` or by the host hook, before the plugin forces `tools/list`
+     * private; null when neither set one.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return \Mcp\Server\Wire\CachePolicy|null
+     */
+    public function cachePolicy(): ?CachePolicy
+    {
+        $this->build(true, $this->quietLogger());
+
+        return $this->cachePolicy;
     }
 
     /**

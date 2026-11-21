@@ -233,14 +233,18 @@ out of the catalog unless that blanket approval is acceptable. A tool run by
 fails, its `error` names that tool with the first text of its error (`b failed:
 <message>`).
 
-A tool that asks the user for input (an elicitation through `ClientGateway`,
-or a returned `InputRequiredResult`) cannot finish inside `call_tools` in the
-2026-07-28 revision: the client would answer by sending the whole batch again,
-and the tools before it would run a second time. So that call ends with the tool
-error `<tool> needs input from the user: call it on its own, not through
-call_tools.`, the results of the calls before it are kept, and its audit record
-carries its name. Keep such tools out of the catalog, or let the model call
-them directly.
+A tool that returns an `InputRequiredResult` cannot finish inside `call_tools`,
+in either protocol revision: the client would answer by sending the whole batch
+again, and the tools before it would run a second time. So that call ends with
+the tool error `<tool> needs input from the user: call it on its own, not
+through call_tools.`, the results of the calls before it are kept, and its
+audit record carries its name. An elicitation through `ClientGateway` is
+different in each revision. In the 2025-11-25 revision (the one with the
+`initialize` handshake) the request goes to the client over the session and the
+tool goes on with the answer, inside `call_tools` too. In the 2026-07-28
+revision it would turn the whole batch into an `input_required` answer, so the
+call ends with the same tool error. Keep such tools out of the catalog, or let
+the model call them directly.
 
 Tools with an app (`#[McpApp]`, see [MCP Apps](apps.md)) never go behind the
 catalog, even when a pattern matches them: they stay in `tools/list`, where the

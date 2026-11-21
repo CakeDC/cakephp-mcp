@@ -64,7 +64,7 @@ client) have no defaults of their own; they are described below.
 - `server.name`, `server.version`: reported to clients in the `initialize` result.
 - `server.title`, `server.description`, `server.websiteUrl`: optional, also reported to clients. `null` sends none.
 - `server.instructions`: optional text telling the client's model how to use your server. `null` sends none.
-- `server.cache`: the cache hints of the 2026-07-28 protocol revision, which tell a client how long it may keep a result of `server/discover`, `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and `resources/read`. `null` (the default) marks them private and not to be cached. Otherwise an array: `ttl` in milliseconds (default `0`), `scope` `'private'` (one user, the default) or `'public'` (any user, only for results that are the same for everyone), and `methods` to set them per method, for example `['ttl' => 60000, 'methods' => ['tools/list' => ['ttl' => 300000]]]`. Clients of the older revisions get no hints. A top-level `scope` applies to all six methods, so use `'public'` only per method, for results that are the same for every user: `tools/list` is always sent private when the authorizer is not `AllowAllToolAuthorizer` (it can give users different tools), whatever `server.cache` or a policy set in `server.configure` says, and keep `resources/read` private when a resource depends on who reads it. `bin/cake mcp check` says so on its `Cache hints` line, and warns when `resources/read` is public. A named server inherits `server.cache`; it writes `'cache' => null` or `'cache' => []` in its `server` section for no hints.
+- `server.cache`: the cache hints of the 2026-07-28 protocol revision, which tell a client how long it may keep a result of `server/discover`, `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and `resources/read`. `null` (the default) marks them private and not to be cached. Otherwise an array: `ttl` in milliseconds (default `0`), `scope` `'private'` (one user, the default) or `'public'` (any user, only for results that are the same for everyone), and `methods` to set them per method, for example `['ttl' => 60000, 'methods' => ['tools/list' => ['ttl' => 300000]]]`. Clients of the older revisions get no hints. A top-level `scope` applies to all six methods, so use `'public'` only per method, for results that are the same for every user: `tools/list` is always sent private when the authorizer is not `AllowAllToolAuthorizer` (it can give users different tools), whatever `server.cache` or a policy set in `server.configure` says, and keep `resources/read` private when a resource depends on who reads it. `bin/cake mcp check` says so on its `Cache hints` line, and warns when `resources/read` is public. A named server inherits `server.cache` and replaces it whole when it sets it; it writes `'cache' => null` or `'cache' => []` in its `server` section for no hints.
 - `catalog.enabled`: `true` turns on the tool catalog for this server (see [Tool catalog](tools.md#tool-catalog)). Default `false`.
 - `catalog.tools`: the tools behind the catalog, as names or `fnmatch()` patterns (`report_*`). They leave `tools/list` and are reached with `find_tools` and `call_tools`.
 - `catalog.maxCalls`: how many tools one `call_tools` may run, a positive integer. Default `5`.
@@ -207,7 +207,7 @@ named `default`; `Mcp.servers` adds more:
 Each named server needs a `route`. What it does not set comes from the default
 server, in three ways:
 
-- `auth`, `authorization`, `discovery` and `server.configure` are replaced whole
+- `auth`, `authorization`, `discovery`, `server.configure` and `server.cache` are replaced whole
   when the named server sets them, starting again from the plugin's defaults. A
   narrower server never picks up the default server's scopes, rules, tool
   directories or code-registered tools by accident. When it does not set them,
@@ -215,10 +215,15 @@ server, in three ways:
   server's own resource (see below).
 - `identity` is never taken from the default server. A named server that does
   not set it requires an identity (the plugin's default), even next to a public
-  default server; when it sets it, it is replaced whole.
+  default server; when it sets it, it is replaced whole, so the keys it leaves
+  out (`attribute`, `scopes`) go back to the plugin's defaults too, not to the
+  default server's.
 - Every other section (`server`, `http`, `session`, `stdio`, `audit`, `schema`,
   `catalog`, `apps`) is merged key by key, so `'server' => ['name' => ...]`
-  keeps the default server's version and instructions. Turning the catalog or
+  keeps the default server's version and instructions. Two keys of `server`
+  are values, not sections: `server.configure` and `server.cache` are replaced
+  whole when the named server sets them, so `'cache' => ['methods' => [...]]`
+  does not keep the default server's `ttl`. Turning the catalog or
   apps on in the default server turns them on in every named server that does
   not set them.
 
@@ -233,8 +238,10 @@ whose security section is `null` or `[]` (an unset `env()` value, for example)
 fails instead of falling back to the defaults.
 
 A mistake in one entry of `Mcp.servers` (no `route`, a name that is not a slug,
-a section that is `null`) stops that server only. The plugin logs it under the
-`mcp` scope and does not connect its routes, so its URL reaches no MCP server.
+a section that is `null`) stops that server only. The plugin logs it as an
+error, once per PHP process, to the loggers that take messages without a scope
+(the application skeleton's `error` log) and to those of the `mcp` scope, and
+does not connect its routes, so its URL reaches no MCP server.
 The rest of the application and the other servers keep working, and
 `bin/cake mcp check` fails with a `Server <name>` line that names the mistake.
 
@@ -288,8 +295,8 @@ does not change them. The guide is [Calling other MCP servers](mcp-client.md).
 ```
 
 Each client (a mistake fails with a message naming the key, and an unknown key
-is refused). A mistake in one client stops that client only: it is logged under
-the `mcp` scope, the other clients and the application keep working, and
+is refused). A mistake in one client stops that client only: it is logged as
+an error the same way as a server's, the other clients and the application keep working, and
 `bin/cake mcp check` fails on it. The settings:
 
 - `clients.<name>.url`: the server's HTTP address. https, or plain http for this machine or with `allowInsecure`. Set `url` or `command`, not both.

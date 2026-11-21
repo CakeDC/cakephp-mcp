@@ -21,8 +21,10 @@ use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
 use CakeDC\OAuthServer\OAuthServer;
+use Mcp\Schema\Enum\CacheScope;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Server\Builder;
+use Mcp\Server\Wire\CachePolicy;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
 use TestApp\Authenticator\ApiTokenAuthenticator;
@@ -923,6 +925,19 @@ class McpCheckCommandTest extends TestCase
         $this->exec('mcp check');
 
         $this->assertOutputContains('[PASS] Cache hints: ttl 60000 ms; tools/list is sent private');
+    }
+
+    public function testCacheHintsReadAPolicyTheHookSet(): void
+    {
+        // As the factory does: the hook's policy is the one the server sends.
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setCachePolicy(CachePolicy::default(30000, CacheScope::Public));
+        });
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Cache hints:');
+        $this->assertOutputContains('resources/read is public');
     }
 
     public function testPublicHintsOnlyForMethodsThatAreTheSameForEveryonePass(): void
