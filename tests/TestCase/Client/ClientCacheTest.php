@@ -161,14 +161,13 @@ class ClientCacheTest extends TestCase
     public function testAPrivateListIsNotServedForAnotherTokenOfACallable(): void
     {
         $this->server->cachePolicy = CachePolicy::default(60000, CacheScope::Private);
-        $current = 'alice-token';
-        Configure::write('Mcp.clients.remote.token', function () use (&$current): string {
-            return $current;
-        });
+        $caller = new stdClass();
+        $caller->token = 'alice-token';
+        Configure::write('Mcp.clients.remote.token', fn(): string => $caller->token);
 
         McpClients::get('remote')->listTools();
         McpClients::get('remote')->listTools();
-        $current = 'bob-token';
+        $caller->token = 'bob-token';
         McpClients::get('remote')->listTools();
 
         $this->assertSame(2, $this->sent('tools/list'));

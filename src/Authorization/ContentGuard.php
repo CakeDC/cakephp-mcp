@@ -7,7 +7,6 @@ use Mcp\Exception\PromptNotFoundException;
 use Mcp\Exception\ResourceNotFoundException;
 use Mcp\Schema\JsonRpc\Error;
 use Mcp\Schema\JsonRpc\Request;
-use Mcp\Schema\JsonRpc\Response;
 use Mcp\Schema\PromptReference;
 use Mcp\Schema\Request\CompletionCompleteRequest;
 use Mcp\Schema\Request\GetPromptRequest;
@@ -56,9 +55,9 @@ final class ContentGuard implements RequestHandlerInterface
     /**
      * @param \Mcp\Schema\JsonRpc\Request $request The request.
      * @param \Mcp\Server\Session\SessionInterface $session The session.
-     * @return \Mcp\Schema\JsonRpc\Response<mixed>|\Mcp\Schema\JsonRpc\Error
+     * @return \Mcp\Schema\JsonRpc\Error What the SDK answers for an unknown element.
      */
-    public function handle(Request $request, SessionInterface $session): Response|Error
+    public function handle(Request $request, SessionInterface $session): Error
     {
         if ($request instanceof CompletionCompleteRequest) {
             // The SDK's answer to a reference it does not have: a bad parameter.
