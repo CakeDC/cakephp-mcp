@@ -422,18 +422,20 @@ final class ToolCatalog
                 $arguments[] = $schema['description'];
             }
         }
-        $arguments = mb_strtolower(implode(' ', $arguments));
-        $name = mb_strtolower($tool->name);
-        $title = mb_strtolower((string)$tool->title);
-        $description = mb_strtolower((string)$tool->description);
-        $score = 0;
-        foreach ($terms as $term) {
-            $score += str_contains($name, $term) ? 3 : 0;
-            $score += str_contains($title, $term) ? 2 : 0;
-            $score += str_contains($description, $term) ? 1 : 0;
-            $score += str_contains($arguments, $term) ? 1 : 0;
-        }
+        // Each searched field with the points a query word found in it is worth.
+        $fields = [
+            [$tool->name, 3],
+            [(string)$tool->title, 2],
+            [(string)$tool->description, 1],
+            [implode(' ', $arguments), 1],
+        ];
 
-        return $score;
+        return array_sum(array_map(
+            fn(array $field): int => $field[1] * count(array_filter(
+                $terms,
+                fn(string $term): bool => str_contains(mb_strtolower($field[0]), $term),
+            )),
+            $fields,
+        ));
     }
 }

@@ -147,12 +147,12 @@ class ClientCredentialsTest extends TestCase
                 return null;
             }
             $sent[] = $url;
-            $mcp->tokens[] = 'machine-token-' . count($sent);
+            $mcp->tokens[] = 'robot-access-token-' . count($sent);
 
             return new ClientResponse(
                 ['HTTP/1.1 200 OK', 'Content-Type: application/json'],
                 (string)json_encode([
-                    'access_token' => 'machine-token-' . count($sent),
+                    'access_token' => 'robot-access-token-' . count($sent),
                     'token_type' => 'Bearer',
                     'expires_in' => 600,
                 ]),
@@ -171,7 +171,7 @@ class ClientCredentialsTest extends TestCase
         McpClients::get('robot')->listTools();
 
         $this->assertSame(['https://sso.example.com/token', 'https://sso.example.com/v2/token'], $sent);
-        $this->assertSame('Bearer machine-token-2', end($mcp->requests)['headers']['authorization'] ?? null);
+        $this->assertSame('Bearer robot-access-token-2', end($mcp->requests)['headers']['authorization'] ?? null);
     }
 
     public function testATokenTheServerRefusesIsReplacedOnce(): void
@@ -202,11 +202,11 @@ class ClientCredentialsTest extends TestCase
             }
             parse_str((string)$request->getBody(), $form);
             $sent[] = $form;
-            $mcp->tokens[] = 'machine-token';
+            $mcp->tokens[] = 'robot-access-token';
 
             return new ClientResponse(
                 ['HTTP/1.1 200 OK', 'Content-Type: application/json'],
-                (string)json_encode(['access_token' => 'machine-token', 'token_type' => 'Bearer', 'expires_in' => 600]),
+                (string)json_encode(['access_token' => 'robot-access-token', 'token_type' => 'Bearer', 'expires_in' => 600]),
             );
         });
         McpClients::setRegistry(new ClientRegistry(
@@ -219,7 +219,7 @@ class ClientCredentialsTest extends TestCase
 
         $this->assertCount(1, $sent);
         $this->assertSame('client_credentials', $sent[0]['grant_type']);
-        $this->assertSame('Bearer machine-token', end($mcp->requests)['headers']['authorization'] ?? null);
+        $this->assertSame('Bearer robot-access-token', end($mcp->requests)['headers']['authorization'] ?? null);
         $this->assertSame([], $this->oauth->guarded->sent, 'no discovery');
     }
 
