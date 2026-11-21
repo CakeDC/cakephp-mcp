@@ -162,6 +162,37 @@ class McpClientHttpTest extends TestCase
         $this->assertSame(['tools/list', 'tools/call'], array_values(array_slice($methods, -2)));
     }
 
+    public function testAHeaderMismatchFetchesEveryPageOfTheToolList(): void
+    {
+        $refused = 0;
+        $pages = [];
+        $this->intercepting(function ($request, array $rpc) use (&$refused, &$pages): ?ClientResponse {
+            if (($rpc['method'] ?? null) === 'tools/call' && $refused === 0) {
+                $refused++;
+
+                return self::jsonRpcError($rpc['id'], -32020);
+            }
+            if (($rpc['method'] ?? null) === 'tools/list') {
+                $cursor = $rpc['params']['cursor'] ?? null;
+                $pages[] = $cursor;
+                // Two pages, the second the last one.
+                $page = $cursor === null ? ['tools' => [], 'nextCursor' => 'page-2'] : ['tools' => []];
+
+                return new ClientResponse(
+                    ['HTTP/1.1 200 OK', 'Content-Type: application/json'],
+                    (string)json_encode(['jsonrpc' => '2.0', 'id' => $rpc['id'], 'result' => $page]),
+                );
+            }
+
+            return null;
+        });
+
+        $result = McpClients::get('remote')->callTool('echo', ['text' => 'hi']);
+
+        $this->assertSame('echo: hi', $result->content[0]->text ?? null);
+        $this->assertSame([null, 'page-2'], $pages);
+    }
+
     public function testAHeaderMismatchIsRetriedOnlyOnce(): void
     {
         $calls = 0;

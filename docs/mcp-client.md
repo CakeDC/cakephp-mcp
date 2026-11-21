@@ -93,7 +93,8 @@ pages once they have that many, and return at most that many.
 
 A request the server refused before running it is sent once more, never more:
 after a header mismatch (`-32020`, the headers of the 2026-07-28 revision do
-not match the body), the tool list is fetched again first, so the SDK learns
+not match the body), the tool list is fetched again first, every page of it
+(100 at most), so the SDK learns
 the headers each tool needs, as the specification advises; after an expired
 session (HTTP `404` in the handshake revisions), on a new session. Any other
 error is thrown as it is, so a call that may have run is never run twice. In

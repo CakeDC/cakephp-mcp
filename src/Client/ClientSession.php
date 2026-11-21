@@ -23,6 +23,11 @@ use Mcp\Schema\JsonRpc\Error;
 final class ClientSession
 {
     /**
+     * The most pages of `tools/list` fetched again after a header mismatch, against a server whose cursor never ends.
+     */
+    private const MAX_TOOL_PAGES = 100;
+
+    /**
      * Variables a stdio server inherits from this process; everything else (database passwords, keys) stays here
      * unless the client's `env` passes it.
      *
@@ -100,7 +105,12 @@ final class ClientSession
             if ($e->getCode() !== Error::HEADER_MISMATCH) {
                 throw $e;
             }
-            $client->listTools();
+            // Every page: the tool the call is for may be on any of them.
+            $cursor = null;
+            $pages = 0;
+            do {
+                $cursor = $client->listTools($cursor)->nextCursor;
+            } while ($cursor !== null && ++$pages < self::MAX_TOOL_PAGES);
 
             return $call($client);
         } catch (ConnectionException $e) {
