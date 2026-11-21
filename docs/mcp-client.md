@@ -168,8 +168,11 @@ logged-in user reach them, so add it to `config/permissions.php` as the
 ### Storing tokens
 
 By default grants are stored in two tables of the plugin,
-`mcp_client_connections` and `mcp_client_registrations`. Create them when you
-use user mode:
+`mcp_client_connections` and `mcp_client_registrations`. Rows are found by a
+SHA-256 key of the client name and the user id (or the issuer), so user ids
+that differ only in case or accents never share a grant, whatever the
+database's collation, and ids and issuers of any length fit. Create the tables
+when you use user mode:
 
 ```
 bin/cake migrations migrate -p CakeDC/Mcp

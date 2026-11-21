@@ -180,6 +180,63 @@ class TableConnectionStoreTest extends TestCase
         $this->assertNull($this->store->get('linear', '7'));
     }
 
+    public function testGrantsAndRegistrationsAreKeyedByAHash(): void
+    {
+        $this->store->save(self::connection());
+        $this->store->saveRegistration(new Registration('linear', 'https://auth.example.com', 'https://app/cb', 'c', null, 'none'));
+        $db = ConnectionManager::get('test');
+
+        $row = $db->execute('SELECT connection_key FROM mcp_client_connections')->fetch('assoc');
+        $this->assertSame(hash('sha256', "linear\0" . '7'), $row['connection_key'] ?? null);
+        $row = $db->execute('SELECT registration_key FROM mcp_client_registrations')->fetch('assoc');
+        $this->assertSame(hash('sha256', "linear\0" . 'https://auth.example.com'), $row['registration_key'] ?? null);
+
+        // The unique index is on the hash only, so no collation of the database can merge two keys.
+        foreach (['mcp_client_connections' => 'connection_key', 'mcp_client_registrations' => 'registration_key'] as $table => $key) {
+            $schema = $db->getSchemaCollection()->describe($table);
+            $unique = [];
+            foreach ($schema->constraints() as $name) {
+                $constraint = $schema->getConstraint($name);
+                if (($constraint['type'] ?? null) === 'unique') {
+                    $unique[] = $constraint['columns'];
+                }
+            }
+            foreach ($schema->indexes() as $name) {
+                $index = $schema->getIndex($name);
+                if (($index['type'] ?? null) === 'unique') {
+                    $unique[] = $index['columns'];
+                }
+            }
+            $this->assertSame([[$key]], $unique, $table);
+        }
+    }
+
+    public function testKeysThatDifferOnlyInCaseOrAccentsAreDifferentGrants(): void
+    {
+        $this->store->save(self::connection('Alice', 'the-token-of-Alice'));
+        $this->store->save(self::connection('jose@example.com', 'the-token-of-jose'));
+
+        $this->assertNull($this->store->get('linear', 'alice'));
+        $this->assertNull($this->store->get('linear', 'josé@example.com'));
+        $this->assertNull($this->store->get('Linear', 'Alice'));
+        $this->assertSame('the-token-of-Alice', $this->store->get('linear', 'Alice')?->accessToken);
+    }
+
+    public function testLongUserIdsAndIssuersAreStored(): void
+    {
+        $userId = 'did:web:id.example.com:' . str_repeat('u', 400);
+        $issuer = 'https://auth.example.com/' . str_repeat('tenant-', 80);
+        $this->store->save(self::connection($userId));
+        $this->store->saveRegistration(new Registration('linear', $issuer, 'https://app/cb', 'c', null, 'none'));
+
+        $this->assertSame('access-abc', $this->store->get('linear', $userId)?->accessToken);
+        $this->assertSame('c', $this->store->registration('linear', $issuer)?->clientId);
+        $columns = ConnectionManager::get('test')->getSchemaCollection()->describe('mcp_client_connections');
+        $this->assertSame('text', $columns->getColumnType('user_id'), 'Any user id fits, on every database.');
+        $columns = ConnectionManager::get('test')->getSchemaCollection()->describe('mcp_client_registrations');
+        $this->assertSame('text', $columns->getColumnType('issuer'), 'Any issuer fits, on every database.');
+    }
+
     public function testNoGrantNoClaim(): void
     {
         $this->assertFalse($this->store->claimRefresh('linear', '7', 'claim-a', 60));

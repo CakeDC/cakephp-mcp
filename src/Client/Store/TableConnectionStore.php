@@ -43,7 +43,9 @@ class TableConnectionStore implements ConnectionStoreInterface
      */
     public function get(string $client, string $userId): ?StoredConnection
     {
-        $row = $this->connections()->find()->where(['client' => $client, 'user_id' => $userId])->first();
+        $row = $this->connections()->find()
+            ->where(['connection_key' => self::connectionKey($client, $userId)])
+            ->first();
         if (!$row instanceof EntityInterface) {
             return null;
         }
@@ -82,8 +84,11 @@ class TableConnectionStore implements ConnectionStoreInterface
     public function save(StoredConnection $connection): void
     {
         $table = $this->connections();
-        $row = $table->find()->where(['client' => $connection->client, 'user_id' => $connection->userId])->first();
+        $row = $table->find()
+            ->where(['connection_key' => self::connectionKey($connection->client, $connection->userId)])
+            ->first();
         $data = [
+            'connection_key' => self::connectionKey($connection->client, $connection->userId),
             'client' => $connection->client,
             'user_id' => $connection->userId,
             'access_token' => $this->encrypt($connection->accessToken),
@@ -119,7 +124,10 @@ class TableConnectionStore implements ConnectionStoreInterface
                     : DateTime::createFromTimestamp($connection->expiresAt),
                 'scope' => $connection->scope,
             ],
-            ['client' => $connection->client, 'user_id' => $connection->userId, 'refresh_claim_id' => $claimId],
+            [
+                'connection_key' => self::connectionKey($connection->client, $connection->userId),
+                'refresh_claim_id' => $claimId,
+            ],
         ) === 1;
     }
 
@@ -134,8 +142,7 @@ class TableConnectionStore implements ConnectionStoreInterface
         return $this->connections()->updateAll(
             ['refresh_claim_id' => $claimId, 'refresh_claimed_at' => $now],
             [
-                'client' => $client,
-                'user_id' => $userId,
+                'connection_key' => self::connectionKey($client, $userId),
                 'OR' => [
                     'refresh_claim_id IS' => null,
                     'refresh_claimed_at <' => $now->subSeconds($leaseSeconds),
@@ -151,7 +158,7 @@ class TableConnectionStore implements ConnectionStoreInterface
     {
         $this->connections()->updateAll(
             ['refresh_claim_id' => null, 'refresh_claimed_at' => null],
-            ['client' => $client, 'user_id' => $userId, 'refresh_claim_id' => $claimId],
+            ['connection_key' => self::connectionKey($client, $userId), 'refresh_claim_id' => $claimId],
         );
     }
 
@@ -160,7 +167,7 @@ class TableConnectionStore implements ConnectionStoreInterface
      */
     public function delete(string $client, string $userId): void
     {
-        $this->connections()->deleteAll(['client' => $client, 'user_id' => $userId]);
+        $this->connections()->deleteAll(['connection_key' => self::connectionKey($client, $userId)]);
     }
 
     /**
@@ -168,7 +175,9 @@ class TableConnectionStore implements ConnectionStoreInterface
      */
     public function registration(string $client, string $issuer): ?Registration
     {
-        $row = $this->registrations()->find()->where(['client' => $client, 'issuer' => $issuer])->first();
+        $row = $this->registrations()->find()
+            ->where(['registration_key' => self::registrationKey($client, $issuer)])
+            ->first();
         if (!$row instanceof EntityInterface) {
             return null;
         }
@@ -193,8 +202,11 @@ class TableConnectionStore implements ConnectionStoreInterface
     public function saveRegistration(Registration $registration): void
     {
         $table = $this->registrations();
-        $row = $table->find()->where(['client' => $registration->client, 'issuer' => $registration->issuer])->first();
+        $row = $table->find()
+            ->where(['registration_key' => self::registrationKey($registration->client, $registration->issuer)])
+            ->first();
         $data = [
+            'registration_key' => self::registrationKey($registration->client, $registration->issuer),
             'client' => $registration->client,
             'issuer' => $registration->issuer,
             'redirect_uri' => $registration->redirectUri,
@@ -213,7 +225,7 @@ class TableConnectionStore implements ConnectionStoreInterface
      */
     public function deleteRegistration(string $client, string $issuer): void
     {
-        $this->registrations()->deleteAll(['client' => $client, 'issuer' => $issuer]);
+        $this->registrations()->deleteAll(['registration_key' => self::registrationKey($client, $issuer)]);
     }
 
     /**
@@ -273,5 +285,29 @@ class TableConnectionStore implements ConnectionStoreInterface
     private static function nullableString(mixed $value): ?string
     {
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * The key a grant is found by: a hash, so that no collation of the database can match another user's grant.
+     *
+     * @param string $client The client's name.
+     * @param string $userId The user.
+     * @return string 64 hex characters.
+     */
+    public static function connectionKey(string $client, string $userId): string
+    {
+        return hash('sha256', $client . "\0" . $userId);
+    }
+
+    /**
+     * The key a registration is found by, as connectionKey().
+     *
+     * @param string $client The client's name.
+     * @param string $issuer The authorization server.
+     * @return string 64 hex characters.
+     */
+    public static function registrationKey(string $client, string $issuer): string
+    {
+        return hash('sha256', $client . "\0" . $issuer);
     }
 }

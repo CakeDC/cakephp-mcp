@@ -16,6 +16,10 @@ if (!class_exists('CakeDCMcpMigration', false)) {
  * `bin/cake migrations migrate -p CakeDC/Mcp`.
  *
  * Tokens and secrets are stored encrypted (base64 of Security::encrypt()), hence text columns.
+ *
+ * Rows are found by a SHA-256 key (`connection_key` of client and user id, `registration_key` of client and
+ * issuer), never by the plain values: the default collation of some databases (MySQL's utf8mb4_0900_ai_ci) would
+ * match "alice" with "Alice" or "jose" with "josé", and the plain values can be as long as they need.
  */
 class CreateMcpClientTables extends CakeDCMcpMigration
 {
@@ -25,8 +29,9 @@ class CreateMcpClientTables extends CakeDCMcpMigration
     public function up(): void
     {
         $this->table('mcp_client_connections')
-            ->addColumn('client', 'string', ['limit' => 100, 'null' => false])
-            ->addColumn('user_id', 'string', ['limit' => 191, 'null' => false])
+            ->addColumn('connection_key', 'string', ['limit' => 64, 'null' => false])
+            ->addColumn('client', 'text', ['null' => false])
+            ->addColumn('user_id', 'text', ['null' => false])
             ->addColumn('access_token', 'text', ['null' => false])
             ->addColumn('refresh_token', 'text', ['null' => true])
             ->addColumn('expires', 'datetime', ['null' => true])
@@ -43,19 +48,20 @@ class CreateMcpClientTables extends CakeDCMcpMigration
             ->addColumn('refresh_claimed_at', 'datetime', ['null' => true])
             ->addColumn('created', 'datetime', ['null' => false])
             ->addColumn('modified', 'datetime', ['null' => false])
-            ->addIndex(['client', 'user_id'], ['unique' => true])
+            ->addIndex(['connection_key'], ['unique' => true])
             ->create();
 
         $this->table('mcp_client_registrations')
-            ->addColumn('client', 'string', ['limit' => 100, 'null' => false])
-            ->addColumn('issuer', 'string', ['limit' => 255, 'null' => false])
+            ->addColumn('registration_key', 'string', ['limit' => 64, 'null' => false])
+            ->addColumn('client', 'text', ['null' => false])
+            ->addColumn('issuer', 'text', ['null' => false])
             ->addColumn('redirect_uri', 'text', ['null' => false])
             ->addColumn('oauth_client_id', 'text', ['null' => false])
             ->addColumn('client_secret', 'text', ['null' => true])
             ->addColumn('auth_method', 'string', ['limit' => 30, 'null' => false])
             ->addColumn('created', 'datetime', ['null' => false])
             ->addColumn('modified', 'datetime', ['null' => false])
-            ->addIndex(['client', 'issuer'], ['unique' => true])
+            ->addIndex(['registration_key'], ['unique' => true])
             ->create();
     }
 
