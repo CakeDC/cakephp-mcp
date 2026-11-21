@@ -490,15 +490,19 @@ final class McpConfig
             return;
         }
         // A typo would leave the plugin's default: for `discovery`, src/Mcp, the default server's tools.
+        $defaults = self::DEFAULTS[$section] ?? null;
+        if (!is_array($defaults)) {
+            return;
+        }
         foreach (array_keys($values) as $key) {
-            if (!array_key_exists($key, self::DEFAULTS[$section])) {
+            if (!array_key_exists($key, $defaults)) {
                 throw new InvalidArgumentException(sprintf(
                     '"Mcp.servers.%s.%s.%s" is not a setting of "%s"; the settings are %s.',
                     $server,
                     $section,
                     $key,
                     $section,
-                    implode(', ', array_keys(self::DEFAULTS[$section])),
+                    implode(', ', array_keys($defaults)),
                 ));
             }
         }
