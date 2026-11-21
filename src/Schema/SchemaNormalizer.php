@@ -6,7 +6,8 @@ namespace CakeDC\Mcp\Schema;
 /**
  * Simplifies the optional parameters of a tool input schema, for hosts that reject type arrays.
  *
- * Only top-level properties that are not required and whose default is `null` (or absent) change: `"null"` leaves
+ * Only properties that are not required (at any level: nested objects and the items of arrays follow the same
+ * rule with their own `required`) and whose default is `null` (or absent) change: `"null"` leaves
  * a `type` list (a single type left becomes a plain string), `null` leaves an `enum`, and the `default` of `null` is
  * dropped. Leaving out such an argument already gives `null`, so the advertised schema loses nothing a client needs.
  * A nullable parameter with another default (`?string $status = 'open'`) keeps its union: there `null` is a value
@@ -27,10 +28,18 @@ final class SchemaNormalizer
         $required = is_array($inputSchema['required'] ?? null) ? $inputSchema['required'] : [];
 
         foreach ($properties as $name => $property) {
-            if (!is_array($property) || in_array($name, $required, true) || ($property['default'] ?? null) !== null) {
+            if (!is_array($property)) {
                 continue;
             }
-            $properties[$name] = self::optional($property);
+            // The objects nested in a property, or in its items, follow the same rule with their own `required`.
+            $property = self::normalize($property);
+            if (is_array($property['items'] ?? null)) {
+                $property['items'] = self::normalize($property['items']);
+            }
+            if (!in_array($name, $required, true) && ($property['default'] ?? null) === null) {
+                $property = self::optional($property);
+            }
+            $properties[$name] = $property;
         }
         $inputSchema['properties'] = $properties;
 

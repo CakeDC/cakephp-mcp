@@ -23,6 +23,24 @@ class SchemaLintTest extends TestCase
         ], $problems);
     }
 
+    public function testLooksBelowTheTopLevel(): void
+    {
+        $problems = SchemaLint::problems(['name' => 'report', 'inputSchema' => ['type' => 'object', 'properties' => [
+            'filter' => ['type' => 'object', 'description' => 'Filter.', 'properties' => [
+                'date_from' => ['type' => ['null', 'string'], 'description' => 'First day.'],
+            ], 'required' => ['date_from']],
+            'rows' => ['type' => 'array', 'description' => 'Rows.', 'items' => ['type' => 'object', 'properties' => [
+                'tags' => ['type' => 'array', 'items' => []],
+            ]]],
+        ], 'required' => ['filter', 'rows']]]);
+
+        $this->assertSame([
+            'filter.date_from: type union null|string',
+            'rows[].tags: array without item type',
+            'rows[].tags: optional without a description',
+        ], $problems);
+    }
+
     public function testCleanAndEmptySchemasHaveNoProblems(): void
     {
         $this->assertSame([], SchemaLint::problems([

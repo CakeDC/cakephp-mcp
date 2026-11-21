@@ -18,6 +18,23 @@ class SchemaNormalizerTest extends TestCase
         $this->assertSame(['type' => 'string', 'description' => 'First day.'], $out['properties']['date_from']);
     }
 
+    public function testOptionalNullablesOfNestedObjectsAreSimplifiedToo(): void
+    {
+        $out = SchemaNormalizer::normalize(['type' => 'object', 'properties' => [
+            'filter' => ['type' => 'object', 'properties' => [
+                'date_from' => ['type' => ['null', 'string'], 'default' => null],
+                'kept' => ['type' => ['null', 'string']],
+            ], 'required' => ['kept']],
+            'rows' => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => [
+                'note' => ['type' => ['string', 'null']],
+            ]]],
+        ]]);
+
+        $this->assertSame(['type' => 'string'], $out['properties']['filter']['properties']['date_from']);
+        $this->assertSame(['type' => ['null', 'string']], $out['properties']['filter']['properties']['kept']);
+        $this->assertSame(['type' => 'string'], $out['properties']['rows']['items']['properties']['note']);
+    }
+
     public function testRequiredNullableIsKept(): void
     {
         $schema = ['type' => 'object', 'properties' => ['x' => ['type' => ['null', 'string']]], 'required' => ['x']];
