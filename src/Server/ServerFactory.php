@@ -645,13 +645,17 @@ final class ServerFactory
     }
 
     /**
-     * @param mixed $value `Mcp.catalog.<key>`.
+     * @param mixed $value `Mcp.catalog.<key>`: an integer, or a string of digits as env() gives.
      * @param string $key `maxCalls` or `maxResultBytes`.
      * @return int
      * @throws \InvalidArgumentException When it is not a positive integer.
      */
     private static function positiveInt(mixed $value, string $key): int
     {
+        // A string of digits too: what env() gives.
+        if (is_string($value) && ctype_digit($value)) {
+            $value = (int)$value;
+        }
         if (!is_int($value) || $value < 1) {
             throw new InvalidArgumentException(sprintf('"Mcp.catalog.%s" must be a positive integer.', $key));
         }

@@ -191,7 +191,14 @@ class ToolCatalogTest extends TestCase
         $this->assertTrue($result['hasMore']);
         $this->assertLessThanOrEqual(9000, strlen((string)json_encode($result['tools'])));
 
-        foreach ([0, -1, '4096', 1.5] as $bad) {
+        // A number read with env() is a string of digits.
+        Configure::write('Mcp.catalog.maxResultBytes', '9000');
+        Configure::write('Mcp.catalog.maxCalls', '3');
+        $this->mcpCallTool('find_tools', ['limit' => 50]);
+        $this->assertLessThanOrEqual(9000, strlen((string)json_encode($this->mcpResult()['structuredContent']['tools'])));
+        Configure::write('Mcp.catalog.maxCalls', 5);
+
+        foreach ([0, -1, '0', '-1', '12kb', 1.5] as $bad) {
             Configure::write('Mcp.catalog.maxResultBytes', $bad);
             try {
                 $this->mcpCallTool('find_tools', []);
