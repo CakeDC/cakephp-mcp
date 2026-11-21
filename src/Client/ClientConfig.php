@@ -595,16 +595,60 @@ final class ClientConfig
     public static function errors(): array
     {
         [$valid, $errors] = self::scan();
-        $route = self::routeError();
-        if ($route !== null) {
-            $errors['Mcp.client.route'] = $route;
-        }
+        $errors += self::settingErrors();
         foreach (array_keys($valid) as $name) {
             try {
                 self::fromConfig($name);
             } catch (InvalidArgumentException $e) {
                 $errors[$name] = $e->getMessage();
             }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * What is wrong with the settings shared by every client, `Mcp.client.*`, as `Mcp.client.<key>` => message.
+     * `store` and `encryptionKey` as a store are checked by `bin/cake mcp check`, which builds the store.
+     *
+     * @return array<string, string>
+     */
+    private static function settingErrors(): array
+    {
+        $settings = Configure::read('Mcp.client') ?? [];
+        if (!is_array($settings)) {
+            return ['Mcp.client' => '"Mcp.client" must be an array of the settings shared by every client.'];
+        }
+        $errors = [];
+        foreach (array_diff(array_map('strval', array_keys($settings)), array_keys(self::SETTINGS)) as $key) {
+            $errors['Mcp.client.' . $key] = sprintf(
+                '"Mcp.client.%s" is not a setting: the shared client settings are %s.',
+                $key,
+                implode(', ', array_keys(self::SETTINGS)),
+            );
+        }
+        $route = self::routeError();
+        if ($route !== null) {
+            $errors['Mcp.client.route'] = $route;
+        }
+        $rules = [
+            'name' => [fn(mixed $v): bool => is_string($v) && trim($v) !== '', 'a non-empty string'],
+            'version' => [fn(mixed $v): bool => is_string($v) && trim($v) !== '', 'a non-empty string'],
+            'identityAttribute' => [fn(mixed $v): bool => is_string($v) && $v !== '', 'a request attribute name'],
+            'refreshLeeway' => [fn(mixed $v): bool => is_int($v) && $v >= 0, 'a number of seconds, 0 or more'],
+            'maxResponseBytes' => [fn(mixed $v): bool => is_int($v) && $v > 0, 'a positive number of bytes'],
+            'encryptionKey' => [fn(mixed $v): bool => is_string($v), 'null or a string of at least 32 bytes'],
+        ];
+        foreach ($rules as $key => [$valid, $what]) {
+            $value = $settings[$key] ?? null;
+            if ($value !== null && !$valid($value)) {
+                $errors['Mcp.client.' . $key] = sprintf('"Mcp.client.%s" must be %s.', $key, $what);
+            }
+        }
+        try {
+            self::proxy();
+        } catch (InvalidArgumentException $e) {
+            $errors['Mcp.client.proxy'] = $e->getMessage();
         }
 
         return $errors;

@@ -53,6 +53,36 @@ class ClientConfigTest extends TestCase
         $this->assertNull($config->protocolVersion);
     }
 
+    public function testSharedSettingsOfTheWrongTypeAreReported(): void
+    {
+        $this->assertSame([], ClientConfig::errors());
+        $bad = [
+            'name' => '',
+            'version' => 2,
+            'refreshLeeway' => -1,
+            'maxResponseBytes' => '1MB',
+            'identityAttribute' => ['identity'],
+            'encryptionKey' => 12345,
+            'proxy' => 'socks5://proxy.corp.example',
+            'proxi' => 'http://proxy.corp.example',
+        ];
+        try {
+            foreach ($bad as $key => $value) {
+                Configure::write('Mcp.client.' . $key, $value);
+                $errors = ClientConfig::errors();
+                $this->assertArrayHasKey('Mcp.client.' . $key, $errors, $key);
+                $this->assertStringContainsString('"Mcp.client.' . $key . '"', $errors['Mcp.client.' . $key]);
+                Configure::delete('Mcp.client.' . $key);
+            }
+            foreach (['refreshLeeway' => 0, 'maxResponseBytes' => 2048, 'encryptionKey' => null, 'version' => '2.0'] as $key => $value) {
+                Configure::write('Mcp.client.' . $key, $value);
+                $this->assertSame([], ClientConfig::errors(), $key);
+            }
+        } finally {
+            Configure::delete('Mcp.client');
+        }
+    }
+
     public function testTheProxyIsOffByDefault(): void
     {
         $this->assertNull(ClientConfig::proxy());

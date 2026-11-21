@@ -413,7 +413,7 @@ an error the same way as a server's, the other clients and the application keep 
 - `clients.<name>.authorizationUrl`, `clients.<name>.tokenUrl`, `clients.<name>.revocationUrl`: user mode: the authorization server's endpoints, to skip discovery (for example on your own network). `authorizationUrl`, `tokenUrl` and `clientId` go together. They are trusted like `url`. With `client_credentials`, `tokenUrl` alone replaces `issuer`.
 - `clients.<name>.issuer`: the issuer the authorization server names itself by (for Keycloak, `https://sso.example.com/realms/<realm>`). When set, the `iss` of each sign-in response must match it, and with discovery the MCP server must name exactly this authorization server or the sign-in fails. Required with `clientSecret` and discovery (no configured endpoints), so the secret only goes to the server that issued it. Default `null`: the client does not know the issuer and does not compare `iss`. With `client_credentials` (and no `tokenUrl`), the token endpoint is read from this issuer's metadata, which must name the same issuer.
 
-Shared settings:
+Shared settings (a key that is not one of these, or a value of the wrong type, is logged and fails `bin/cake mcp check`):
 
 - `client.route`: the path under which user mode clients get their connect and callback routes (`<route>/<name>/connect`, `<route>/<name>/callback`). Default `/mcp-client`. Connected only when a client uses user mode. A value that is not a path (`false`, `''`, `'/'`) connects nothing, is logged, and fails `bin/cake mcp check`.
 - `client.store`: the class of the `ConnectionStoreInterface` that keeps user grants. Default `TableConnectionStore` (the plugin's tables; run `bin/cake migrations migrate -p CakeDC/Mcp`).
