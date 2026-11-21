@@ -10,6 +10,16 @@ namespace CakeDC\Mcp\Client\Store;
 final class StoredConnection
 {
     /**
+     * The most scopes a step-up mark keeps.
+     */
+    public const MAX_STEP_UP_SCOPES = 50;
+
+    /**
+     * The longest step-up mark, in bytes.
+     */
+    public const MAX_STEP_UP_LENGTH = 2048;
+
+    /**
      * @param string $client The client's name in `Mcp.clients`.
      * @param string $userId The user.
      * @param string $accessToken The access token.
@@ -63,10 +73,21 @@ final class StoredConnection
     public function withStepUp(array $scopes): self
     {
         $granted = $this->scope === null ? [] : explode(' ', $this->scope);
-        $union = array_values(array_unique(array_filter(
+        $all = array_values(array_unique(array_filter(
             [...$granted, ...$this->stepUpScopes(), ...$scopes],
             fn(string $s): bool => $s !== '',
         )));
+        // Bounded, in the order above: the scopes come from the MCP server, and the next authorization URL and
+        // the database column carry them.
+        $union = [];
+        $length = 0;
+        foreach ($all as $scope) {
+            $length += strlen($scope) + ($union === [] ? 0 : 1);
+            if (count($union) >= self::MAX_STEP_UP_SCOPES || $length > self::MAX_STEP_UP_LENGTH) {
+                break;
+            }
+            $union[] = $scope;
+        }
 
         return new self(
             $this->client,

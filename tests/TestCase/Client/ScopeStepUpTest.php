@@ -112,6 +112,21 @@ class ScopeStepUpTest extends TestCase
         $this->assertSame(['read', 'write', 'files:write', 'admin'], $this->store->get('linear', '7')?->stepUpScopes());
     }
 
+    public function testTheMarkIsBounded(): void
+    {
+        $stored = $this->store->get('linear', '7');
+        $this->assertNotNull($stored);
+        // Challenges that each name many scopes: what a server that is broken or hostile could send.
+        for ($call = 0; $call < 10; $call++) {
+            $stored = $stored->withStepUp(array_map(fn(int $n): string => sprintf('scope:%02d%04d', $call, $n), range(1, 500)));
+        }
+
+        $this->assertLessThanOrEqual(StoredConnection::MAX_STEP_UP_SCOPES, count($stored->stepUpScopes()));
+        $this->assertLessThanOrEqual(StoredConnection::MAX_STEP_UP_LENGTH, strlen((string)$stored->stepUpScope));
+        // What the user had comes first and is kept.
+        $this->assertSame(['read', 'write'], array_slice($stored->stepUpScopes(), 0, 2));
+    }
+
     public function testTheNextConnectAsksForTheUnionOfScopes(): void
     {
         try {
