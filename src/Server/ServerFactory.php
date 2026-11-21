@@ -274,6 +274,9 @@ final class ServerFactory
         $this->appsAnnounced = $appsOn || $hookEnabledApps;
         // The registry the server will use, the plugin's or one the hook set.
         $registry = $this->registryOf($builder);
+        // One bridge for the server and the catalog's inner calls: a tool class the host did not register is one
+        // object per server, whether it is called by name or through call_tools.
+        $bridge = new ContainerBridge($this->container);
         if ($catalogOn) {
             $this->assertCatalogCanRunEverything($builder, $ownHandlers);
             $toolCatalog = new ToolCatalog(
@@ -281,7 +284,7 @@ final class ServerFactory
                 $gate,
                 $patterns,
                 $this->maxCalls($catalog['maxCalls'] ?? 5),
-                new ReferenceHandler(new ContainerBridge($this->container)),
+                new ReferenceHandler($bridge),
                 $logger,
                 $this->scopePolicy(),
                 $events,
@@ -299,7 +302,7 @@ final class ServerFactory
                 websiteUrl: $this->optionalString('server.websiteUrl'),
                 title: $this->optionalString('server.title'),
             )
-            ->setContainer(new ContainerBridge($this->container))
+            ->setContainer($bridge)
             ->setLogger($logger)
             ->setEventDispatcher($events)
             ->setSession(new Psr16SessionStore(
