@@ -5,6 +5,8 @@ namespace CakeDC\Mcp\Test\TestCase\Client;
 
 use Cake\Core\Configure;
 use Cake\Http\Client\Response as ClientResponse;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\ClientRegistry;
 use CakeDC\Mcp\Client\Exception\ClientException;
@@ -140,6 +142,22 @@ class McpClientHttpTest extends TestCase
             [sprintf('HTTP/1.1 %d X', $status), 'Content-Type: application/json'],
             (string)json_encode(['jsonrpc' => '2.0', 'id' => $id, 'error' => ['code' => $code, 'message' => 'Header mismatch']]),
         );
+    }
+
+    public function testTheQueryOfTheConfiguredUrlIsNotLogged(): void
+    {
+        Configure::write('Mcp.clients.remote', ['url' => 'https://mcp.example.com/mcp?api_key=s3cr3t-key']);
+        Log::setConfig('mcp_query', ['className' => ArrayLog::class, 'scopes' => ['mcp']]);
+        try {
+            McpClients::get('remote')->listTools();
+            $engine = Log::engine('mcp_query');
+            $logged = implode("\n", $engine instanceof ArrayLog ? $engine->read() : []);
+        } finally {
+            Log::drop('mcp_query');
+        }
+
+        $this->assertStringContainsString('https://mcp.example.com/mcp', $logged);
+        $this->assertStringNotContainsString('s3cr3t-key', $logged);
     }
 
     public function testAHeaderMismatchRefreshesTheToolListAndRetriesOnce(): void

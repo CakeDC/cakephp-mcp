@@ -107,6 +107,11 @@ Results are the SDK's classes. A server or network error is thrown as the SDK's
 exception (`Mcp\Exception\ExceptionInterface`, for example
 `Mcp\Exception\RequestException` or `ConnectionException`).
 
+The client logs to the `mcp` scope. Headers and tokens are never logged, and
+the configured `url` is logged without its query. At `debug` level the bodies
+sent and received are logged as they are, so keep `debug` off for the `mcp`
+scope in production when tool arguments or results are private.
+
 ### The application's own OAuth token
 
 Some servers give machine clients an OAuth client of their own (the client

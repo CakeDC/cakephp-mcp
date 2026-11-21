@@ -70,7 +70,7 @@ final class ClientSession
             ->setRequestTimeout($this->config->timeout)
             // The caller decides whether to try again; retries here would multiply the timeout.
             ->setMaxRetries(0)
-            ->setLogger(new McpLogger())
+            ->setLogger(McpLogger::forUrl($this->config->url))
             ->addRequestHandler(new PingHandler());
         if ($this->lists !== null) {
             $builder->addNotificationHandler(new ListChangedHandler($this->lists));
@@ -207,7 +207,7 @@ final class ClientSession
             $this->http,
             new RequestFactory(),
             new StreamFactory(),
-            new McpLogger(),
+            McpLogger::forUrl($this->config->url),
         );
     }
 }
