@@ -142,7 +142,12 @@ offer `connectUrl()` again.
    registration for every user.
 3. The browser goes to the authorization server with PKCE, a `state` and the
    `resource` parameter (RFC 8707). The sign-in in progress is kept in the
-   user's session.
+   user's session. The scopes asked for are the ones the server names (its
+   challenge, or its metadata), plus `offline_access` when the authorization
+   server or the server lists it: servers in the OpenID Connect style (Auth0,
+   Okta, Microsoft Entra ID) only issue a refresh token for it. A configured
+   `scopes` is sent as written, so add `offline_access` there yourself if you
+   set it.
 4. The authorization server sends the browser to
    `GET /mcp-client/linear/callback`. The `state` must match the one in the
    session (it is used once), the same user must still be logged in, the

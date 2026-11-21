@@ -40,7 +40,8 @@ class DiscoveryTest extends TestCase
         $this->assertSame(FakeOAuthServer::ISSUER . '/register', $server->registrationUrl);
         $this->assertSame(FakeOAuthServer::ISSUER . '/revoke', $server->revocationUrl);
         $this->assertSame(FakeOAuthServer::MCP, $server->resource);
-        $this->assertSame(['read', 'write'], $server->scopes);
+        // The resource lists offline_access, so it is asked for with the challenge's scopes.
+        $this->assertSame(['read', 'write', 'offline_access'], $server->scopes);
         $this->assertTrue($server->issParameter);
         $this->assertFalse($server->trusted);
         $this->assertSame(['none', 'client_secret_basic'], $server->authMethods);
@@ -65,6 +66,33 @@ class DiscoveryTest extends TestCase
         $this->assertSame(['read'], $server->scopes);
         // The well-known URL of the configured server is trusted: it never went through the guard.
         $this->assertSame(['GET ' . FakeOAuthServer::AS_METADATA], $this->server->guarded->urls());
+    }
+
+    public function testOfflineAccessIsAskedForWhenTheAuthorizationServerListsIt(): void
+    {
+        // An OpenID Connect style server: a refresh token only with the offline_access scope.
+        $this->server->resourceMetadata([
+            'resource' => FakeOAuthServer::MCP,
+            'authorization_servers' => [FakeOAuthServer::ISSUER],
+        ]);
+        $this->server->authorizationServer(['scopes_supported' => ['openid', 'read', 'write', 'offline_access']]);
+
+        $this->assertSame(['read', 'write', 'offline_access'], $this->discover()->scopes);
+    }
+
+    public function testOfflineAccessIsAskedForWhenTheResourceListsIt(): void
+    {
+        $this->server->mcp->challenge = 'Bearer resource_metadata="' . FakeOAuthServer::RESOURCE_METADATA . '"';
+
+        $this->assertSame(['read', 'write', 'offline_access'], $this->discover()->scopes);
+    }
+
+    public function testConfiguredScopesAreSentAsWritten(): void
+    {
+        Configure::write('Mcp.clients.linear.scopes', ['issues:read']);
+        $this->server->authorizationServer(['scopes_supported' => ['issues:read', 'offline_access']]);
+
+        $this->assertSame(['issues:read'], $this->discover()->scopes);
     }
 
     public function testConfiguredScopesWin(): void

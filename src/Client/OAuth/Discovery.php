@@ -154,6 +154,17 @@ final class Discovery
             $scopes = $challenged !== null && trim($challenged) !== ''
                 ? self::scopes(explode(' ', $challenged))
                 : self::scopes($resourceMetadata['scopes_supported'] ?? []);
+            // Servers in the OpenID Connect style only issue a refresh token for offline_access: ask for it with
+            // the other scopes when either side lists it. Configured scopes are sent as written.
+            $offline = [
+                ...(is_array($document['scopes_supported'] ?? null) ? $document['scopes_supported'] : []),
+                ...(is_array($resourceMetadata['scopes_supported'] ?? null)
+                    ? $resourceMetadata['scopes_supported']
+                    : []),
+            ];
+            if ($scopes !== [] && in_array('offline_access', $offline, true)) {
+                $scopes[] = 'offline_access';
+            }
         }
 
         return new AuthServer(

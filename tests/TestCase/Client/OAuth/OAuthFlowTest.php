@@ -63,7 +63,7 @@ class OAuthFlowTest extends TestCase
         $this->assertSame('code', $query['response_type']);
         $this->assertSame('dyn-client-1', $query['client_id']);
         $this->assertSame(self::CALLBACK, $query['redirect_uri']);
-        $this->assertSame('read write', $query['scope']);
+        $this->assertSame('read write offline_access', $query['scope']);
         $this->assertSame(FakeOAuthServer::MCP, $query['resource']);
         $this->assertSame('S256', $query['code_challenge_method']);
         $this->assertSame($pending->state, $query['state']);
