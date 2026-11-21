@@ -327,6 +327,17 @@ class McpInspectorCommand extends Command
 
                 return null;
             }
+            $params = McpConfig::routeParams($route);
+            if ($params !== []) {
+                $io->error(sprintf(
+                    'The route %s has parameters ({%s}): pass the URL of one value with --url, such as %s.',
+                    $route,
+                    implode('}, {', $params),
+                    rtrim($base, '/') . McpConfig::withRouteValues($route, array_fill_keys($params, 'acme')),
+                ));
+
+                return null;
+            }
             $url = rtrim($base, '/') . $route;
         }
 

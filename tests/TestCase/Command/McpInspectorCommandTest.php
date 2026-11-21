@@ -64,6 +64,20 @@ class McpInspectorCommandTest extends TestCase
         );
     }
 
+    public function testHttpOnARouteWithParametersAsksForTheUrl(): void
+    {
+        Configure::write('App.fullBaseUrl', 'https://app.example.com');
+        Configure::write('Mcp.servers.tenants', ['route' => '/mcp/t/{tenant}']);
+
+        $this->assertSame(1, $this->runCommand(['--server', 'tenants', '--http']));
+
+        $this->assertSame([], $this->launched);
+        $this->assertStringContainsString(
+            'has parameters ({tenant}): pass the URL of one value with --url, such as https://app.example.com/mcp/t/acme',
+            $this->err->messages()[0] ?? '',
+        );
+    }
+
     public function testHttpUsesTheFullBaseUrlAndTheRoute(): void
     {
         Configure::write('App.fullBaseUrl', 'https://app.example.com/');
