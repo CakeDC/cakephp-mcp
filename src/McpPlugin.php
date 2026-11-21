@@ -9,14 +9,13 @@ use Cake\Console\CommandCollection;
 use Cake\Core\BasePlugin;
 use Cake\Core\ContainerInterface;
 use Cake\Core\PluginApplicationInterface;
-use Cake\Log\Log;
 use Cake\Routing\RouteBuilder;
 use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Command\McpInspectorCommand;
 use CakeDC\Mcp\Command\McpServerCommand;
 use CakeDC\Mcp\Identity\CurrentIdentity;
-use CakeDC\Mcp\Log\McpLogger;
+use CakeDC\Mcp\Log\ConfigMistakes;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\Server\ServerFactory;
 
@@ -39,10 +38,10 @@ class McpPlugin extends BasePlugin
         // A mistake in one entry stops that entry only: it is logged, its routes are not connected and
         // `bin/cake mcp check` fails on it, while the rest of the application keeps working.
         foreach (McpConfig::serverErrors() as $name => $error) {
-            Log::error(sprintf('MCP server "%s" is not served: %s', $name, $error), ['scope' => [McpLogger::SCOPE]]);
+            ConfigMistakes::log(sprintf('MCP server "%s" is not served: %s', $name, $error));
         }
         foreach (ClientConfig::errors() as $name => $error) {
-            Log::error(sprintf('MCP client "%s" is not usable: %s', $name, $error), ['scope' => [McpLogger::SCOPE]]);
+            ConfigMistakes::log(sprintf('MCP client "%s" is not usable: %s', $name, $error));
         }
 
         $caches = [];

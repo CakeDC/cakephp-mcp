@@ -10,6 +10,7 @@ use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
+use CakeDC\Mcp\Log\ConfigMistakes;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Test\Support\McpHttpTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -31,6 +32,7 @@ class ConfigMistakeTest extends TestCase
     {
         parent::setUp();
         Log::setConfig('mcp_mistakes', ['className' => ArrayLog::class, 'scopes' => ['mcp']]);
+        ConfigMistakes::reset();
     }
 
     protected function tearDown(): void
@@ -108,6 +110,46 @@ class ConfigMistakeTest extends TestCase
         $logged = implode("\n", $engine->read());
         $this->assertStringContainsString($entry, $logged);
         $this->assertStringContainsString('error', $logged);
+    }
+
+    /**
+     * The application skeleton's `debug` and `error` loggers have `'scopes' => null`, which takes only
+     * messages without a scope: a mistake must still reach its error log, once, next to a scoped `mcp` log.
+     */
+    public function testTheMistakeReachesTheSkeletonErrorLogOncePerProcess(): void
+    {
+        Log::setConfig('skeleton_debug', [
+            'className' => ArrayLog::class,
+            'levels' => ['notice', 'info', 'debug'],
+            'scopes' => null,
+        ]);
+        Log::setConfig('skeleton_error', [
+            'className' => ArrayLog::class,
+            'levels' => ['warning', 'error', 'critical', 'alert', 'emergency'],
+            'scopes' => null,
+        ]);
+        Log::setConfig('catch_all', ['className' => ArrayLog::class, 'scopes' => []]);
+        try {
+            Configure::write('Mcp.servers', ['admin' => ['server' => ['name' => 'Admin']]]);
+
+            $this->get('/no-such-page');
+            $this->get('/no-such-page');
+
+            foreach (['skeleton_error', 'mcp_mistakes', 'catch_all'] as $config) {
+                $engine = Log::engine($config);
+                $this->assertInstanceOf(ArrayLog::class, $engine);
+                $lines = array_values(array_filter($engine->read(), fn(string $line): bool => str_contains($line, '"admin"')));
+                $this->assertCount(1, $lines, $config . ': ' . implode("\n", $engine->read()));
+                $this->assertStringContainsString('error', $lines[0]);
+            }
+            $debug = Log::engine('skeleton_debug');
+            $this->assertInstanceOf(ArrayLog::class, $debug);
+            $this->assertSame([], $debug->read());
+        } finally {
+            Log::drop('skeleton_debug');
+            Log::drop('skeleton_error');
+            Log::drop('catch_all');
+        }
     }
 
     #[DataProvider('mistakes')]
