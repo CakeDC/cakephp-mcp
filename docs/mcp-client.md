@@ -335,8 +335,9 @@ scopes they already had plus the ones the server asked for. `needsMoreScope()`
 says so, `stepUpScopes()` lists them, and the next connect of that user
 (`connectUrl()`) asks the authorization server for all of them, so nothing
 granted before is lost. Configured `scopes` are no limit here: the scopes the
-server names are added to them. The mark keeps 50 scopes and 2048 bytes at
-most, the ones the user already had first:
+server names are added to them, except `offline_access`, which is only asked
+for when the authorization server lists it, as on the first sign-in. The mark
+keeps 50 scopes and 2048 bytes at most, the ones the user already had first:
 
 ```php
 $linear = McpClients::get('linear')->for($identity);

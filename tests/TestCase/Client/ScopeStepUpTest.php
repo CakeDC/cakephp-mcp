@@ -34,6 +34,8 @@ class ScopeStepUpTest extends TestCase
 
     private InterceptingHttpClient $interceptor;
 
+    private string $challengeScope = 'files:write admin';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -56,7 +58,7 @@ class ScopeStepUpTest extends TestCase
                     [
                         'HTTP/1.1 403 Forbidden',
                         'Content-Type: application/json',
-                        'WWW-Authenticate: Bearer error="insufficient_scope", scope="files:write admin", '
+                        'WWW-Authenticate: Bearer error="insufficient_scope", scope="' . $this->challengeScope . '", '
                         . 'resource_metadata="' . FakeOAuthServer::RESOURCE_METADATA . '"',
                     ],
                     '',
@@ -178,6 +180,23 @@ class ScopeStepUpTest extends TestCase
 
         $this->assertFalse($user->needsMoreScope());
         $this->assertSame([], $user->stepUpScopes());
+    }
+
+    public function testOfflineAccessNamedByTheServerIsNotMarked(): void
+    {
+        // As on the first sign-in, offline_access is the authorization server's to offer, not the MCP server's to
+        // ask for: one that does not know it would refuse every connect while the mark asked for it.
+        $this->challengeScope = 'admin offline_access';
+        $user = McpClients::get('linear')->for(7);
+
+        try {
+            $user->callTool('delete_all');
+            $this->fail('No error');
+        } catch (ExceptionInterface) {
+            $this->addToAssertionCount(1);
+        }
+
+        $this->assertSame(['read', 'write', 'admin'], $user->stepUpScopes());
     }
 
     public function testTheMarkIsBounded(): void

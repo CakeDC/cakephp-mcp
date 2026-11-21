@@ -207,9 +207,12 @@ final class UserConnection
         if (($parameters['error'] ?? null) !== 'insufficient_scope') {
             return;
         }
+        // offline_access is the authorization server's to offer, as on the first sign-in (Discovery): one that
+        // does not know it would refuse every connect while the mark asked for it.
         $scopes = array_values(array_filter(
             explode(' ', $parameters['scope'] ?? ''),
-            fn(string $scope): bool => preg_match('/\A[\x21\x23-\x5B\x5D-\x7E]+\z/', $scope) === 1,
+            fn(string $scope): bool => $scope !== 'offline_access'
+                && preg_match('/\A[\x21\x23-\x5B\x5D-\x7E]+\z/', $scope) === 1,
         ));
         $stored = $this->stored();
         // A retry limit (MCP authorization, step-up): scopes the last sign-in already asked for were not granted,
