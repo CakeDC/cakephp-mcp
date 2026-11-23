@@ -321,6 +321,38 @@ class ContentAuthorizationTest extends TestCase
         $this->assertMcpPromptNotListed('payroll');
     }
 
+    public function testARbacRuleForResourcesOnlyLeavesPromptsAsIn21(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resources', 'action' => ['app://rules']],
+        ]]);
+
+        $this->assertMcpResourceListed('app://rules');
+        $this->assertMcpResourceNotListed('app://salaries');
+        // No rule names Prompts: every prompt stays open, as in 2.1.
+        $this->assertMcpPromptListed('greet');
+        $this->assertMcpPromptListed('payroll');
+        $this->mcpGetPrompt('payroll');
+        $this->assertMcpPromptContains('Run the payroll.');
+    }
+
+    public function testARbacRuleForPromptsOnlyLeavesResourcesAsIn21(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'user', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Prompts', 'action' => 'greet'],
+        ]]);
+
+        $this->assertMcpPromptListed('greet');
+        $this->assertMcpPromptNotListed('payroll');
+        $this->assertMcpResourceListed('app://salaries');
+        $this->mcpReadResource('app://salaries');
+        $this->assertMcpResourceText('{"total": 100}');
+    }
+
     public function testTheToolCatalogWorksNextToAnAuthorizerForResourcesAndPrompts(): void
     {
         Configure::write('Mcp.discovery.scanDirs', ['src/Mcp', 'src/McpContent']);
