@@ -49,7 +49,9 @@ class ClientMetadataDocumentTest extends TestCase
 
         $this->assertResponseOk();
         $this->assertContentType('application/json');
-        $this->assertStringContainsString('public', $this->_response?->getHeaderLine('Cache-Control') ?? '');
+        // The authorization server that fetches it may cache it; a shared cache may not, since the URLs in it can
+        // come from the request's Host when App.fullBaseUrl is not set.
+        $this->assertSame('private, max-age=3600', $this->_response?->getHeaderLine('Cache-Control'));
         $document = json_decode((string)$this->_response?->getBody(), true);
         $this->assertSame([
             'client_id' => 'https://app.example.com/mcp-client/linear/client.json',

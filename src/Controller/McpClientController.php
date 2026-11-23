@@ -78,6 +78,9 @@ class McpClientController extends Controller
     /**
      * The client's OAuth Client ID Metadata Document: public, no login, no secret.
      *
+     * Sent `private`: the authorization server that fetches it may keep it, a shared cache may not, since its URLs
+     * come from the request's Host when App.fullBaseUrl is not set.
+     *
      * @param string $client The client name.
      * @return \Cake\Http\Response
      */
@@ -91,7 +94,7 @@ class McpClientController extends Controller
 
         return $this->response
             ->withType('application/json')
-            ->withHeader('Cache-Control', 'public, max-age=3600')
+            ->withHeader('Cache-Control', 'private, max-age=3600')
             ->withStringBody((string)json_encode(ClientMetadataDocument::document($config), JSON_UNESCAPED_SLASHES));
     }
 
