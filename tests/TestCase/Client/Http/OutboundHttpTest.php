@@ -6,6 +6,8 @@ namespace CakeDC\Mcp\Test\TestCase\Client\Http;
 use Cake\Http\Client;
 use Cake\Http\Client\AdapterInterface;
 use Cake\Http\Client\Response;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Http\BlockedUrlException;
@@ -21,6 +23,7 @@ use Closure;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use RuntimeException;
 
 class OutboundHttpTest extends TestCase
 {
@@ -150,6 +153,35 @@ class OutboundHttpTest extends TestCase
         $this->expectExceptionMessage('The server at auth.example.com could not be reached.');
 
         $http->send(new HttpRequest('POST', 'https://auth.example.com/revoke', [], 'token=x'), true);
+    }
+
+    public function testTheCauseOfAFailureOnAConfiguredUrlIsLoggedAtDebugWithoutTheUrlsSecrets(): void
+    {
+        Log::setConfig('mcp_http_debug', ['className' => ArrayLog::class, 'scopes' => ['mcp'], 'levels' => ['debug']]);
+        $broken = new class implements ClientInterface {
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                throw new RuntimeException('Could not resolve host for https://auth.example.com/revoke?token=s3cret', 6);
+            }
+        };
+        $http = new OutboundHttp(new GuardedHttp(new EndpointGuard(new StaticHostResolver([])), $this->guarded, 4096), $broken);
+
+        try {
+            $http->send(new HttpRequest('POST', 'https://auth.example.com/revoke?token=s3cret', [], 'token=x'), true);
+            $this->fail('No exception');
+        } catch (ClientException $e) {
+            $this->assertNull($e->getPrevious());
+        } finally {
+            $engine = Log::engine('mcp_http_debug');
+            Log::drop('mcp_http_debug');
+        }
+
+        $this->assertInstanceOf(ArrayLog::class, $engine);
+        $logged = implode("\n", $engine->read());
+        $this->assertStringContainsString('RuntimeException', $logged);
+        $this->assertStringContainsString('Could not resolve host', $logged);
+        $this->assertStringContainsString('auth.example.com', $logged);
+        $this->assertStringNotContainsString('s3cret', $logged);
     }
 
     public function testTrustedRequestsUseTheConfiguredClient(): void

@@ -115,7 +115,9 @@ final class CakeGuardedTransport implements GuardedTransportInterface
             );
         } catch (Throwable $e) {
             // Anything the HTTP layer throws (a gzip body that is not one, say) is this transport's error. The
-            // message is left out: it quotes the URL, whose query may carry a secret.
+            // message is left out of the exception: it quotes the URL, whose query may carry a secret. The cause is
+            // logged at debug level with every URL cut down to its host.
+            HttpFailure::log($e, $pin->host);
             if ($compressed) {
                 throw self::compressed($pin->host);
             }

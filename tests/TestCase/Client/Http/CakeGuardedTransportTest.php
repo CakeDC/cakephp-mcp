@@ -5,6 +5,8 @@ namespace CakeDC\Mcp\Test\TestCase\Client\Http;
 
 use Cake\Http\Client\AdapterInterface;
 use Cake\Http\Client\Response;
+use Cake\Log\Engine\ArrayLog;
+use Cake\Log\Log;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Client\Exception\ClientException;
 use CakeDC\Mcp\Client\Http\BlockedUrlException;
@@ -12,6 +14,7 @@ use CakeDC\Mcp\Client\Http\CakeGuardedTransport;
 use CakeDC\Mcp\Client\Http\CheckedEndpoint;
 use CakeDC\Mcp\Client\Http\HttpRequest;
 use Psr\Http\Message\RequestInterface;
+use RuntimeException;
 
 class CakeGuardedTransportTest extends TestCase
 {
@@ -177,6 +180,44 @@ class CakeGuardedTransportTest extends TestCase
             new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34'),
             2048,
         );
+    }
+
+    public function testTheCauseOfAFailureIsLoggedAtDebugWithoutTheUrlsSecrets(): void
+    {
+        Log::setConfig('mcp_http_debug', ['className' => ArrayLog::class, 'scopes' => ['mcp'], 'levels' => ['debug']]);
+        $adapter = new class implements AdapterInterface {
+            public function send(RequestInterface $request, array $options): array
+            {
+                throw new RuntimeException(
+                    'cURL Error (60) SSL certificate problem: unable to get local issuer certificate for '
+                    . 'https://user:pw@auth.example.com/meta?token=s3cret',
+                    60,
+                );
+            }
+        };
+
+        try {
+            (new CakeGuardedTransport($adapter))->send(
+                new HttpRequest('GET', 'https://user:pw@auth.example.com/meta?token=s3cret'),
+                new CheckedEndpoint('https://auth.example.com', 'auth.example.com', 443, '93.184.216.34'),
+                2048,
+            );
+            $this->fail('No exception');
+        } catch (ClientException $e) {
+            $this->assertSame('The server at auth.example.com could not be reached.', $e->getMessage());
+            $this->assertNull($e->getPrevious(), 'The cause would carry the URL to whatever logs the exception.');
+        } finally {
+            $engine = Log::engine('mcp_http_debug');
+            Log::drop('mcp_http_debug');
+        }
+
+        $this->assertInstanceOf(ArrayLog::class, $engine);
+        $logged = implode("\n", $engine->read());
+        $this->assertStringContainsString('auth.example.com', $logged);
+        $this->assertStringContainsString('RuntimeException', $logged);
+        $this->assertStringContainsString('SSL certificate problem', $logged);
+        $this->assertStringNotContainsString('s3cret', $logged);
+        $this->assertStringNotContainsString('pw@', $logged);
     }
 
     public function testAnIpv6PinIsBracketed(): void

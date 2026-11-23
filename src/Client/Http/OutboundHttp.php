@@ -121,13 +121,14 @@ final class OutboundHttp
             $response = $this->deadline !== null && $client instanceof Client
                 ? $client->send($psr, ['timeout' => max(1, (int)ceil($request->timeout))] + $client->getConfig())
                 : $client->sendRequest($psr);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             // Anything the HTTP layer throws (a PSR-18 error, a gzip body that is not one) is this client's error.
-            // The message is left out: it may quote the URL or the request.
-            throw new ClientException(sprintf(
-                'The server at %s could not be reached.',
-                (string)parse_url($request->url, PHP_URL_HOST),
-            ));
+            // Its message is left out of the exception, which may quote the URL or the request: the cause is
+            // logged at debug level with every URL cut down to its host.
+            $host = (string)parse_url($request->url, PHP_URL_HOST);
+            HttpFailure::log($e, $host);
+
+            throw new ClientException(sprintf('The server at %s could not be reached.', $host));
         }
 
         return new HttpResponse($response->getStatusCode(), $response->getHeaders(), (string)$response->getBody());
