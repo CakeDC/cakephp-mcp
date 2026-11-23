@@ -11,18 +11,27 @@ use Cake\Console\TestSuite\StubConsoleInput;
 use Cake\Console\TestSuite\StubConsoleOutput;
 use Cake\Core\Configure;
 use Cake\Core\Plugin;
+use Cake\Datasource\ConnectionManager;
 use Cake\Http\ServerRequest;
 use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Client\ClientRegistry;
+use CakeDC\Mcp\Client\McpClients;
 use CakeDC\Mcp\Command\McpCheckCommand;
 use CakeDC\Mcp\Test\Support\OAuthFixtures;
+use CakeDC\Mcp\Test\Support\StaticHostResolver;
 use CakeDC\OAuthServer\OAuthServer;
+use Mcp\Schema\Enum\CacheScope;
+use Mcp\Schema\Extension\Apps\McpApps;
+use Mcp\Server\Builder;
+use Mcp\Server\Wire\CachePolicy;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\NullLogger;
 use TestApp\Authenticator\ApiTokenAuthenticator;
+use TestApp\ContentAuthorizer;
 use TestApp\OAuthTestConfig;
 
 class McpCheckCommandTest extends TestCase
@@ -204,6 +213,37 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputRegExp('/\\[PASS\\] Tools: \\d+ tools: .*echo/');
     }
 
+    public function testToolSchemasWarnAboutUnionsAndUntypedArrays(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('[WARN] Tool schemas: report.date_from: type union null|string');
+        $this->assertOutputContains('report.statuses: array without item type');
+        $this->assertOutputContains('tools.md#input-schemas');
+    }
+
+    public function testToolSchemasFollowTheNormalizer(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+        Configure::write('Mcp.schema.normalize', true);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('type union');
+    }
+
+    public function testToolSchemasWithoutToolsPass(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/NoTools']);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Tool schemas: no tools to check');
+    }
+
     public function testNoToolFoundWarns(): void
     {
         Configure::write('Mcp.discovery.scanDirs', ['src/NoTools']);
@@ -279,6 +319,44 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[PASS] Authorizer: RbacToolAuthorizer, 1 of 1 rules for the tools');
     }
 
+    public function testARbacRuleForAControllerThePluginDoesNotHaveWarns(): void
+    {
+        $this->rbac([
+            ['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            // Misspelled: `Resources`, `Prompts`.
+            ['role' => 'hr', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Resource', 'action' => '*'],
+            ['role' => 'hr', 'plugin' => 'CakeDC/Mcp', 'controller' => ['prompts'], 'action' => '*'],
+            // The plugin's own routes, from McpConfig::rbacPermissions(), and a wildcard: fine.
+            ['plugin' => 'CakeDC/Mcp', 'controller' => ['Mcp', 'ProtectedResource', 'McpClient'], 'bypassAuth' => true],
+            ['role' => 'admin', 'plugin' => 'CakeDC/Mcp', 'controller' => '*', 'action' => '*'],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains(
+            "[WARN] Authorizer: rules for plugin 'CakeDC/Mcp' name controllers it does not have, so they decide "
+            . 'nothing: Resource, prompts',
+        );
+    }
+
+    public function testTheAuthorizerLineSaysWhetherResourcesAndPromptsAreCovered(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('resources and prompts are not covered');
+
+        Configure::write('Mcp.authorization.authorizer', ContentAuthorizer::class);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Authorizer: TestApp\\ContentAuthorizer; resources and prompts are covered');
+
+        $this->rbac([
+            ['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Tools', 'action' => '*'],
+            ['role' => 'editor', 'plugin' => 'CakeDC/Mcp', 'controller' => 'Prompts', 'action' => '*'],
+        ]);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Authorizer: RbacToolAuthorizer, 1 of 2 rules for the tools; prompts are covered, '
+            . 'resources are not (no rule for controller Resources)');
+    }
+
     public function testToolScopesPassWhenEveryToolNeedsOne(): void
     {
         Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
@@ -300,6 +378,18 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('[WARN] Tool scopes: ');
         $this->assertOutputRegExp('/tools that need no scope, so any valid token may call them: [^.]*echo/');
         $this->assertOutputContains('Mcp.auth.scopes.tools names tools that do not exist: creat_note');
+    }
+
+    public function testADefaultServerWithoutARouteHasNoResourceToCheck(): void
+    {
+        // The top-level auth is the base the named servers inherit; the default server itself is stdio only.
+        Configure::write('Mcp.route', false);
+        Configure::write('Mcp.auth', ['mode' => 'oauth']);
+
+        $this->exec('mcp check --server default');
+
+        $this->assertOutputContains('[PASS] Resource: no HTTP endpoint');
+        $this->assertOutputNotContains('[FAIL] Resource');
     }
 
     public function testToolScopesDoNotApplyInHostMode(): void
@@ -404,6 +494,207 @@ class McpCheckCommandTest extends TestCase
         $this->assertOutputContains('rewrite');
     }
 
+    public function testNamedExternalServerHasItsOwnMetadataRoute(): void
+    {
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['mode' => 'external', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'cache' => 'mcp_check_cache',
+        ]]]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertOutputContains('[PASS] Metadata route');
+        $this->assertOutputNotContains('advertised URL path');
+    }
+
+    public function testRbacRulesWithoutTheRbacAuthorizerWarn(): void
+    {
+        Configure::write('Mcp.authorization.rbac', ['permissions' => [['role' => 'admin']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Authorizer: authorization.rbac has rules, but the authorizer is');
+    }
+
+    public function testANamedServersAuthorizationWithoutAnAuthorizerFails(): void
+    {
+        // Replaced whole: setting only the rules would leave the default AllowAllToolAuthorizer.
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/admin',
+            'authorization' => ['rbac' => ['permissions' => [['role' => 'admin']]]],
+        ]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Server admin: "Mcp.servers.admin.authorization.authorizer" must be set');
+    }
+
+    public function testScopesInHostModeWarn(): void
+    {
+        Configure::write('Mcp.auth.scopes', ['default' => ['admin']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Tool scopes: auth.scopes is set, but host mode does not check scopes');
+    }
+
+    public function testANamedServersAuthWithoutAModeFails(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => ['scopes' => ['default' => ['admin']]]]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Server admin: "Mcp.servers.admin.auth.mode" must be set');
+    }
+
+    public function testSharedExternalAudienceFails(): void
+    {
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        $auth = ['mode' => 'external', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'audience' => 'api://mcp',
+            'cache' => 'mcp_check_cache',
+        ]];
+        Configure::write('Mcp.auth', $auth);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'auth' => $auth]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('default and admin accept the audience api://mcp');
+    }
+
+    public function testServersLineRunsWithTheServerOption(): void
+    {
+        // Two servers on one route: whichever was connected last would win in silence.
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp']);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Servers: default and admin share the route /mcp');
+    }
+
+    public function testServersWarnsWhenAScanDirectoryHoldsAnotherServers(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpNested']);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpNested/Admin/']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Servers: the scan directory src/McpNested of default holds');
+        $this->assertOutputContains("src/McpNested/Admin/ of admin, so default also registers admin's tools");
+        $this->assertOutputContains("'excludeDirs' => ['Admin']");
+    }
+
+    public function testServersPassesWhenTheNestedDirectoryIsExcluded(): void
+    {
+        Configure::write('Mcp.discovery', ['scanDirs' => ['src/McpNested'], 'excludeDirs' => ['Admin']]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpNested/Admin']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Servers:');
+    }
+
+    public function testTheCatalogLineKeepsToolsWithAnAppOut(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['*']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Catalog: 0 tools behind find_tools and call_tools');
+        $this->assertOutputContains('kept in tools/list because they link to an app, which the host reads from '
+            . 'tools/list: show_inbox');
+        $this->assertDoesNotMatchRegularExpression('/Catalog: [^\n]*inbox_rows/', $this->_out->output());
+    }
+
+    public function testToolScopesKnowCataloguedTools(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => ['create_note' => ['notes:write']]]]);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['create_note', 'admin_only']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('Catalog: 2 tools behind find_tools and call_tools: admin_only, create_note');
+        $this->assertOutputNotContains('names tools that do not exist');
+        $this->assertOutputRegExp('/tools that need no scope, so any valid token may call them: [^\n]*admin_only/');
+        $this->assertDoesNotMatchRegularExpression(
+            '/tools that need no scope[^\n]*(find_tools|call_tools)/',
+            $this->_out->output(),
+        );
+    }
+
+    public function testAScopeOnTheCatalogsOwnToolsIsKnown(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => [
+            'call_tools' => ['catalog:use'],
+            'find_tools' => ['catalog:use'],
+        ]]]);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['create_note']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('names tools that do not exist');
+    }
+
+    public function testAScopeOnTheCatalogsToolsWithTheCatalogOffIsUnknown(): void
+    {
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => ['call_tools' => ['catalog:use']]]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('Mcp.auth.scopes.tools names tools that do not exist: call_tools');
+    }
+
+    public function testToolScopesAndToolsKnowAppOnlyTools(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.auth', ['mode' => 'oauth', 'scopes' => ['tools' => ['inbox_rows' => ['notes:read']]]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('names tools that do not exist');
+        $this->assertOutputRegExp('/Tools: 2 tools: [^\n]*inbox_rows/');
+    }
+
+    public function testAppsEnabledByTheHookPass(): void
+    {
+        // A 2.1 application that served apps through the hook, without Mcp.apps.
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->enableExtension(new McpApps());
+        });
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('[FAIL] Apps');
+        // Not off: it warns only about the fixture's page that does not render.
+        $this->assertOutputContains('] Apps: 2 app resources');
+    }
+
+    public function testAnInheritedExternalAudienceFails(): void
+    {
+        Cache::setConfig('mcp_check_cache', ['className' => ArrayEngine::class]);
+        Configure::write('Mcp.auth', ['mode' => 'external', 'external' => [
+            'issuer' => 'https://issuer.example',
+            'audience' => 'api://mcp',
+            'cache' => 'mcp_check_cache',
+        ]]);
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Server admin: "Mcp.servers.admin.auth" must be set');
+    }
+
     public function testExternalModeReportsTheAudiences(): void
     {
         Configure::write('Mcp.auth', ['mode' => 'external', 'resource' => 'http://localhost/mcp', 'external' => [
@@ -488,6 +779,461 @@ class McpCheckCommandTest extends TestCase
 
         $this->assertExitSuccess();
         $this->assertOutputContains('[PASS] Authenticators');
+    }
+
+    public function testOneServerOutputIsUnchanged(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('Server default');
+        $this->assertOutputNotContains('Servers:');
+    }
+
+    public function testChecksEveryServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('Server default');
+        $this->assertOutputContains('Server admin');
+        $this->assertOutputContains('[PASS] Endpoint: http://localhost/mcp/admin');
+        $this->assertOutputRegExp('/\[PASS\] Tools: \d+ tools: .*find_order/');
+        $this->assertOutputContains('[PASS] Servers: 2 servers: default, admin');
+    }
+
+    public function testCheckOneServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+
+        $this->exec('mcp check --server admin');
+
+        $this->assertExitSuccess();
+        $this->assertOutputContains('Server admin');
+        $this->assertOutputNotContains('Server default');
+        // The line across servers still runs: what another server shares concerns this one.
+        $this->assertOutputContains('[PASS] Servers:');
+    }
+
+    public function testUnknownServerFails(): void
+    {
+        $this->exec('mcp check --server nope');
+
+        $this->assertExitError();
+        $this->assertErrorContains('"Mcp.servers.nope" is not configured.');
+    }
+
+    public function testSharedRouteFails(): void
+    {
+        Configure::write('Mcp.servers.copy', ['route' => '/mcp/']);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Servers: default and copy share the route /mcp');
+    }
+
+    public function testSharedResourceFails(): void
+    {
+        Configure::write('Mcp.auth', OAuthTestConfig::MCP_AUTH);
+        Configure::write('Mcp.servers.admin', [
+            'route' => '/mcp/admin',
+            'auth' => ['resource' => OAuthTestConfig::MCP] + OAuthTestConfig::MCP_AUTH,
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('share the resource ' . OAuthTestConfig::MCP);
+    }
+
+    public function testToolSchemasCoverCataloguedTools(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpSchema']);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['report']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Tool schemas: report.date_from: type union null|string');
+    }
+
+    public function testAppsLine(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Apps: off');
+
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Apps: inbox_rows, show_inbox link to apps but Mcp.apps.enabled is off');
+
+        Configure::write('Mcp.apps.enabled', true);
+        $this->exec('mcp check');
+        // The pages are rendered: ui://test/broken's template throws.
+        $this->assertOutputContains('[WARN] Apps: 2 app resources: ui://test/broken, ui://test/inbox; ui://test/broken does not render');
+
+        Configure::write('Mcp.servers.apps', [
+            'route' => '/mcp/apps',
+            'discovery' => ['scanDirs' => ['src/McpApps'], 'excludeDirs' => []],
+            'apps' => ['enabled' => true],
+        ]);
+        Configure::write('Mcp.discovery.scanDirs', ['src/Mcp']);
+        $this->exec('mcp check --server default');
+        $this->assertOutputContains('[PASS] Apps: on, no app resources');
+    }
+
+    public function testAppsLineFailsOnAMissingResource(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.discovery.excludeDirs', []);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->addTool(fn(): string => 'x', 'orphan', meta: ['ui' => ['resourceUri' => 'ui://test/missing']]);
+        });
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Apps: orphan links to ui://test/missing, which is not an app resource');
+    }
+
+    public function testCatalogLine(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Catalog: off');
+
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpDocs']);
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['order_*', 'find_order']]);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Catalog: 4 tools behind find_tools and call_tools: find_order, order_numbers');
+
+        Configure::write('Mcp.catalog.tools', ['order_*', 'nope_*']);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[WARN] Catalog: nope_* matches no tool');
+    }
+
+    public function testClientsLine(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Clients: none');
+
+        Configure::write('Mcp.clients', [
+            'github' => ['url' => 'https://api.example.com/mcp', 'token' => 't'],
+            'local' => ['command' => 'php', 'args' => ['server.php']],
+            'linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user'],
+        ]);
+        $this->exec('mcp check');
+        $this->assertExitSuccess();
+        $this->assertOutputContains(
+            '[PASS] Clients: github (app), local (stdio), linear (user, connect at /mcp-client/linear/connect, '
+            . 'dynamic registration, App.fullBaseUrl is not a public https address)',
+        );
+    }
+
+    public function testClientsLineShowsTheProxyWithoutItsPassword(): void
+    {
+        Configure::write('Mcp.clients', ['github' => ['url' => 'https://api.example.com/mcp', 'token' => 't']]);
+        Configure::write('Mcp.client.proxy', 'http://me:secret@proxy.corp.example:3128');
+
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Clients: github (app); through the proxy http://proxy.corp.example:3128');
+        $this->assertOutputNotContains('secret');
+
+        Configure::write('Mcp.client.proxy', 'proxy.corp.example:3128');
+        $this->exec('mcp check');
+        $this->assertOutputContains('[FAIL] Clients: "Mcp.client.proxy" must be null or a proxy URL');
+    }
+
+    public function testANamedServerWithoutRouteIsReportedAsStdioOnly(): void
+    {
+        Configure::write('Mcp.servers.local', ['route' => false]);
+
+        $this->exec('mcp check --server local');
+
+        $this->assertOutputContains('[PASS] Endpoint: no HTTP route (route is false): served over stdio only, with bin/cake mcp server --server local');
+        $this->assertOutputNotContains('[FAIL]');
+    }
+
+    public function testClientsLineWarnsForEachClientThatAllowsThePrivateNetwork(): void
+    {
+        Configure::write('Mcp.clients', [
+            'corp' => ['url' => 'https://mcp.corp.example/mcp', 'auth' => 'user', 'allowPrivateNetwork' => true],
+            'github' => ['url' => 'https://api.example.com/mcp', 'token' => 't'],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Clients: ');
+        $this->assertOutputContains('corp has allowPrivateNetwork');
+        $this->assertOutputNotContains('github has allowPrivateNetwork');
+    }
+
+    public function testClientsLineSaysASiteOnThisMachineRegistersDynamically(): void
+    {
+        Router::fullBaseUrl('https://shop.ddev.site');
+        Configure::write('Mcp.clients', ['a' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+        McpClients::setRegistry(new ClientRegistry(resolver: new StaticHostResolver([
+            'shop.ddev.site' => ['127.0.0.1'],
+        ])));
+        try {
+            $this->exec('mcp check');
+        } finally {
+            Router::fullBaseUrl('http://localhost');
+            McpClients::reset();
+        }
+
+        $this->assertOutputContains('a (user, connect at /mcp-client/a/connect, dynamic registration, '
+            . 'App.fullBaseUrl is not a public https address)');
+    }
+
+    public function testClientsLineSaysWhichRegistrationEachClientUses(): void
+    {
+        Router::fullBaseUrl('https://app.example.com');
+        Configure::write('Mcp.clients', [
+            'a' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user'],
+            'b' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'dynamic'],
+            'c' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'metadata'],
+            'd' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'clientId' => 'given'],
+        ]);
+        McpClients::setRegistry(new ClientRegistry(resolver: new StaticHostResolver([
+            'app.example.com' => ['93.184.216.36'],
+        ])));
+        try {
+            $this->exec('mcp check');
+        } finally {
+            Router::fullBaseUrl('http://localhost');
+            McpClients::reset();
+        }
+
+        $this->assertOutputContains('a (user, connect at /mcp-client/a/connect, metadata document '
+            . 'https://app.example.com/mcp-client/a/client.json when the authorization server supports it, else '
+            . 'dynamic registration (a site no authorization server can reach, behind a VPN say, needs '
+            . '"registration" => "dynamic"))');
+        $this->assertOutputContains('b (user, connect at /mcp-client/b/connect, dynamic registration)');
+        $this->assertOutputContains('c (user, connect at /mcp-client/c/connect, metadata document '
+            . 'https://app.example.com/mcp-client/c/client.json)');
+        $this->assertOutputContains('d (user, connect at /mcp-client/d/connect, configured client id)');
+    }
+
+    public function testClientsLineFailsWhenTheMetadataDocumentCannotBeFetched(): void
+    {
+        Configure::write('Mcp.clients', [
+            'c' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user', 'registration' => 'metadata'],
+        ]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Clients: "Mcp.clients.c.registration" is "metadata", but App.fullBaseUrl');
+    }
+
+    public function testClientsLineShowsClientCredentialsClients(): void
+    {
+        Configure::write('Mcp.clients', ['robot' => [
+            'url' => 'https://mcp.example.com/mcp',
+            'auth' => 'client_credentials',
+            'clientId' => 'id',
+            'clientSecret' => 'secret',
+            'issuer' => 'https://auth.example.com',
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Clients: robot (client credentials from https://auth.example.com)');
+        $this->assertOutputNotContains('secret');
+    }
+
+    public function testClientsLineNeverCallsATokenCallable(): void
+    {
+        $called = false;
+        Configure::write('Mcp.clients', ['vault' => [
+            'url' => 'https://api.example.com/mcp',
+            'token' => function () use (&$called): string {
+                $called = true;
+
+                return 't';
+            },
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Clients: vault (app, token from a callable)');
+        $this->assertFalse($called);
+    }
+
+    public function testClientsLineFailsOnABadClient(): void
+    {
+        Configure::write('Mcp.clients', ['plain' => ['url' => 'http://mcp.example.com/mcp']]);
+
+        $this->exec('mcp check');
+
+        $this->assertExitError();
+        $this->assertOutputContains('[FAIL] Clients: "Mcp.clients.plain.url" uses plain http');
+        $this->assertOutputContains('docs/mcp-client.md');
+    }
+
+    public function testClientsLineFailsWithoutTheRoutes(): void
+    {
+        Configure::write('TestApp.mcpRoutes', false);
+        Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[FAIL] Clients: the connect and callback routes of user mode clients are not connected');
+    }
+
+    public function testClientsLineFailsOnTablesOfAPreRelease(): void
+    {
+        Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+        $db = ConnectionManager::get('test');
+        // The newest column: a table of an older pre-release lacks it too.
+        $db->execute('ALTER TABLE mcp_client_connections DROP COLUMN requested_scope');
+        try {
+            $this->exec('mcp check');
+        } finally {
+            $db->execute('ALTER TABLE mcp_client_connections ADD COLUMN requested_scope TEXT NULL');
+        }
+
+        $this->assertOutputContains('[FAIL] Clients: the table mcp_client_connections has no requested_scope column');
+        $this->assertOutputContains('a pre-release of 2.2 created it: run bin/cake migrations rollback -p CakeDC/Mcp');
+    }
+
+    public function testClientsLineFailsWithoutTheTables(): void
+    {
+        Configure::write('Mcp.clients', ['linear' => ['url' => 'https://mcp.example.com/mcp', 'auth' => 'user']]);
+        $db = ConnectionManager::get('test');
+        $db->execute('ALTER TABLE mcp_client_registrations RENAME TO mcp_client_registrations_away');
+        try {
+            $this->exec('mcp check');
+        } finally {
+            $db->execute('ALTER TABLE mcp_client_registrations_away RENAME TO mcp_client_registrations');
+        }
+
+        $this->assertOutputContains('[FAIL] Clients: the table mcp_client_registrations is missing');
+        $this->assertOutputContains('bin/cake migrations migrate -p CakeDC/Mcp');
+    }
+
+    public function testConditionsListSkippedElements(): void
+    {
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Conditions: nothing skipped');
+
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpWhen']);
+        $this->exec('mcp check');
+        $this->assertOutputContains('[PASS] Conditions: skipped: tool beta_tool (');
+        $this->assertOutputContains('tool monthly_report (TestApp.reports is off)');
+    }
+
+    public function testCacheHintsOffPass(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Cache hints: off (private, not cached)');
+    }
+
+    public function testPublicToolListWithAnAuthorizerWarns(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Cache hints: tools/list is sent private');
+        $this->assertOutputContains('resources/read is public');
+    }
+
+    public function testCacheHintsSayAFilteredToolListIsSentPrivate(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', RbacToolAuthorizer::class);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public', 'methods' => [
+            'resources/read' => ['scope' => 'private'],
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Cache hints: ttl 60000 ms; tools/list is sent private');
+    }
+
+    public function testCacheHintsSayAToolListThatDependsOnAppsSupportIsSentPrivate(): void
+    {
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public', 'methods' => [
+            'resources/read' => ['scope' => 'private'],
+        ]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains(
+            '[PASS] Cache hints: ttl 60000 ms; tools/list is sent private, because clients with and without MCP Apps '
+            . 'get different tools',
+        );
+    }
+
+    public function testCacheHintsReadAPolicyTheHookSet(): void
+    {
+        // As the factory does: the hook's policy is the one the server sends.
+        Configure::write('Mcp.server.configure', function (Builder $builder): void {
+            $builder->setCachePolicy(CachePolicy::default(30000, CacheScope::Public));
+        });
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[WARN] Cache hints:');
+        $this->assertOutputContains('resources/read is public');
+    }
+
+    public function testCacheHintsKnowResourcesReadIsSentPrivateWithAResourceAuthorizer(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpContent']);
+        Configure::write('Mcp.authorization.authorizer', ContentAuthorizer::class);
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'scope' => 'public']);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputNotContains('resources/read is public');
+        $this->assertOutputContains('resources/read is sent private');
+    }
+
+    public function testPublicHintsOnlyForMethodsThatAreTheSameForEveryonePass(): void
+    {
+        Configure::write('Mcp.server.cache', ['ttl' => 60000, 'methods' => ['prompts/list' => ['scope' => 'public']]]);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Cache hints: ttl 60000 ms');
+    }
+
+    public function testDiscoveryPassesWithFinder(): void
+    {
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Discovery: scans src/Mcp');
+    }
+
+    public function testDiscoveryIsOffWithoutScanDirs(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', []);
+
+        $this->exec('mcp check');
+
+        $this->assertOutputContains('[PASS] Discovery: off (no Mcp.discovery.scanDirs)');
+    }
+
+    public function testDiscoveryFailsWithoutFinder(): void
+    {
+        $out = new StubConsoleOutput();
+        $command = new class extends McpCheckCommand {
+            protected function finderAvailable(): bool
+            {
+                return false;
+            }
+        };
+
+        $code = $command->run([], new ConsoleIo($out, new StubConsoleOutput(), new StubConsoleInput([])));
+
+        $this->assertSame(McpCheckCommand::CODE_ERROR, $code);
+        $this->assertStringContainsString(
+            '[FAIL] Discovery: Mcp.discovery.scanDirs is set but symfony/finder is not installed',
+            $out->output(),
+        );
     }
 
     public function testMissingOAuthPluginFailsWithTheInstallHint(): void

@@ -1,0 +1,23 @@
+{{ element('Bake.file_header', {
+    namespace: "#{namespace}\\Mcp",
+    classImports: [
+        'Mcp\\Capability\\Attribute\\McpPrompt',
+    ],
+}) }}
+
+#[McpPrompt(name: '{{ mcpName }}')]
+class {{ className }}
+{
+    /**
+     * Describe what the prompt is for: clients show it in their prompt list.
+     *
+     * @param string $topic What the prompt is about. Leave it out for a general one.
+     * @return list<array{role: string, content: string}>
+     */
+    public function __invoke(string $topic = ''): array
+    {
+        return [
+            ['role' => 'user', 'content' => trim('Write the prompt here. ' . $topic)],
+        ];
+    }
+}

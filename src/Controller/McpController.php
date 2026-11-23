@@ -16,9 +16,12 @@ use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\AuditRefusalMiddleware;
 use CakeDC\Mcp\Middleware\BodyLimitMiddleware;
+use CakeDC\Mcp\Middleware\CatalogScopeMiddleware;
+use CakeDC\Mcp\Middleware\HeaderEncodingMiddleware;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
+use CakeDC\Mcp\OAuth\UndeclaredResourceException;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
@@ -36,6 +39,7 @@ use Throwable;
  */
 class McpController extends Controller
 {
+    use ResolvesServerTrait;
     use SkipsHostAuthorizationTrait;
 
     /**
@@ -48,16 +52,27 @@ class McpController extends Controller
         $this->skipHostAuthorization();
         // A long-running worker reuses the container: no request starts with the previous one's identity.
         $identity->set(null);
+        $server = $this->mcpServer();
+        if ($server === null) {
+            return $this->response->withStatus(404);
+        }
+        $factory = $factory->forServer($server);
         $responseFactory = new ResponseFactory();
         $streamFactory = new StreamFactory();
+        $route = [];
 
         try {
-            $maxBodyBytes = McpConfig::maxBodyBytes();
-            $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins'), 'is_string'));
+            // The values of a route such as /mcp/{tenant}, for tools (McpRoute), the OAuth resource and the audit.
+            $route = $this->mcpRouteValues($server);
+            $factory->route()->set($route);
+            $maxBodyBytes = McpConfig::maxBodyBytes($server);
+            $origins = array_values(array_filter((array)McpConfig::get('http.allowedOrigins', $server), 'is_string'));
             $middleware = [
                 new CorsMiddleware($origins),
+                // Before the checks that read these headers.
+                new HeaderEncodingMiddleware($responseFactory, $streamFactory),
                 new DnsRebindingProtectionMiddleware(
-                    McpConfig::allowedHosts(),
+                    McpConfig::allowedHosts($server),
                     $origins,
                     $responseFactory,
                     $streamFactory,
@@ -66,12 +81,28 @@ class McpController extends Controller
                 // Bearer challenge.
                 new BodyLimitMiddleware($maxBodyBytes, $responseFactory, $streamFactory),
             ];
-            $audit = AuditSettings::fromConfig();
+            $audit = AuditSettings::fromConfig($server, $route);
             if ($audit->enabled) {
                 // Right before authentication, to record the calls it refuses.
-                $middleware[] = new AuditRefusalMiddleware($audit, new AuditWriter($audit), $identity);
+                $middleware[] = new AuditRefusalMiddleware(
+                    $audit,
+                    new AuditWriter($audit),
+                    $identity,
+                    fn(string $tool): bool => $factory->isAppOnlyTool($tool),
+                );
             }
-            $middleware[] = $this->authentication($identity, $responseFactory, $streamFactory, $maxBodyBytes);
+            $middleware[] = $this->authentication(
+                $server,
+                $route,
+                $identity,
+                $responseFactory,
+                $streamFactory,
+                $maxBodyBytes,
+            );
+            $catalog = $this->catalogScopes($server, $route, $responseFactory, $streamFactory, $maxBodyBytes);
+            if ($catalog !== null) {
+                $middleware[] = $catalog;
+            }
             $transport = new StreamableHttpTransport(
                 $this->request,
                 $responseFactory,
@@ -82,6 +113,10 @@ class McpController extends Controller
             );
             $response = $factory->create()->run($transport);
         } catch (Throwable $exception) {
+            if ($exception instanceof UndeclaredResourceException && $route !== []) {
+                // A value of /mcp/{tenant} whose resource nobody declared: anyone can ask for one, so no log.
+                return $this->response->withStatus(404);
+            }
             Log::error(sprintf("MCP request failed.\n%s", $exception), ['scope' => [McpLogger::SCOPE]]);
 
             return $this->internalError();
@@ -91,9 +126,45 @@ class McpController extends Controller
     }
 
     /**
+     * With the tool catalog on and access tokens checked, the step that requires the scopes of the tools a
+     * `call_tools` runs. Null otherwise.
+     *
+     * @param string $server The MCP server.
+     * @param array<string, string> $route The values of its route's parameters.
+     * @param \Cake\Http\ResponseFactory $responseFactory For its 403.
+     * @param \Cake\Http\StreamFactory $streamFactory For the body it hands on.
+     * @param int $maxBodyBytes The largest body it reads.
+     * @return \CakeDC\Mcp\Middleware\CatalogScopeMiddleware|null
+     */
+    private function catalogScopes(
+        string $server,
+        array $route,
+        ResponseFactory $responseFactory,
+        StreamFactory $streamFactory,
+        int $maxBodyBytes,
+    ): ?CatalogScopeMiddleware {
+        $settings = AuthSettings::fromConfig($server, $route);
+        $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
+        if ($policy === null || McpConfig::get('catalog.enabled', $server) !== true) {
+            return null;
+        }
+
+        return new CatalogScopeMiddleware(
+            $policy,
+            (new ResourceServer($settings))->metadata(),
+            array_values(array_filter((array)McpConfig::get('catalog.tools', $server), 'is_string')),
+            $responseFactory,
+            $streamFactory,
+            $maxBodyBytes,
+        );
+    }
+
+    /**
      * The middleware that identifies the caller: the host's identity in host mode, an OAuth access
      * token otherwise. Invalid settings throw, so the endpoint fails closed.
      *
+     * @param string $server The MCP server.
+     * @param array<string, string> $route The values of its route's parameters.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity Shared with the tools.
      * @param \Cake\Http\ResponseFactory $responseFactory For its responses.
      * @param \Cake\Http\StreamFactory $streamFactory For their bodies.
@@ -101,12 +172,14 @@ class McpController extends Controller
      * @return \Psr\Http\Server\MiddlewareInterface
      */
     private function authentication(
+        string $server,
+        array $route,
         CurrentIdentity $identity,
         ResponseFactory $responseFactory,
         StreamFactory $streamFactory,
         int $maxBodyBytes,
     ): MiddlewareInterface {
-        $settings = AuthSettings::fromConfig();
+        $settings = AuthSettings::fromConfig($server, $route);
         if ($settings->mode !== AuthSettings::HOST) {
             return (new ResourceServer($settings))->middleware(
                 $identity,
@@ -115,14 +188,14 @@ class McpController extends Controller
                 $maxBodyBytes,
             );
         }
-        $scopes = McpConfig::get('identity.scopes');
+        $scopes = McpConfig::get('identity.scopes', $server);
 
         return new IdentityMiddleware(
             $identity,
             $responseFactory,
             $streamFactory,
-            McpConfig::get('identity.required') !== false,
-            (string)McpConfig::get('identity.attribute'),
+            McpConfig::get('identity.required', $server) !== false,
+            (string)McpConfig::get('identity.attribute', $server),
             is_callable($scopes) ? Closure::fromCallable($scopes) : null,
         );
     }

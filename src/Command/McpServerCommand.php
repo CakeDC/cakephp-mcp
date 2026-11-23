@@ -6,10 +6,12 @@ namespace CakeDC\Mcp\Command;
 use Cake\Command\Command;
 use Cake\Console\Arguments;
 use Cake\Console\ConsoleIo;
+use Cake\Console\ConsoleOptionParser;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Server\ServerFactory;
+use InvalidArgumentException;
 use Mcp\Server\Transport\StdioTransport;
 use Mcp\Server\Transport\TransportInterface;
 
@@ -57,12 +59,34 @@ class McpServerCommand extends Command
         // QUIET keeps only the stderr logger for errors and warnings.
         $io->setLoggers(ConsoleIo::QUIET);
 
-        $resolver = McpConfig::get('stdio.identity');
+        $server = $args->getOption('server');
+        $server = is_string($server) ? $server : McpConfig::DEFAULT_SERVER;
+        try {
+            $factory = $this->serverFactory->forServer($server);
+        } catch (InvalidArgumentException $exception) {
+            $io->err(sprintf('<error>%s</error>', $exception->getMessage()));
+
+            return static::CODE_ERROR;
+        }
+
+        $resolver = McpConfig::get('stdio.identity', $server);
         $this->identity->set(is_callable($resolver) ? $resolver() : null);
 
-        $this->serverFactory->create((bool)McpConfig::get('stdio.trusted'))->run($this->createTransport());
+        $factory->create((bool)McpConfig::get('stdio.trusted', $server))->run($this->createTransport());
 
         return static::CODE_SUCCESS;
+    }
+
+    /**
+     * @param \Cake\Console\ConsoleOptionParser $parser The parser.
+     * @return \Cake\Console\ConsoleOptionParser
+     */
+    protected function buildOptionParser(ConsoleOptionParser $parser): ConsoleOptionParser
+    {
+        return $parser->addOption('server', [
+            'help' => 'The MCP server to serve: default, or a key of Mcp.servers.',
+            'default' => McpConfig::DEFAULT_SERVER,
+        ]);
     }
 
     /**

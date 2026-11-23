@@ -1,0 +1,41 @@
+{{ element('Bake.file_header', {
+    namespace: testNamespace,
+    classImports: [
+        'Cake\\Core\\Plugin',
+        'Cake\\TestSuite\\TestCase',
+        'CakeDC\\Mcp\\McpPlugin',
+        'CakeDC\\Mcp\\TestSuite\\McpTestTrait',
+        "#{namespace}\\Mcp\\#{className}",
+    ],
+}) }}
+
+class {{ className }}Test extends TestCase
+{
+    use McpTestTrait;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // The page's layout comes from the plugin, which a test case does not load by itself.
+        if (!Plugin::isLoaded('CakeDC/Mcp')) {
+            Plugin::getCollection()->add(new McpPlugin());
+        }
+    }
+
+    public function testThePageRenders(): void
+    {
+        $page = (new {{ className }}())->page();
+
+        $this->assertSame('text/html;profile=mcp-app', $page->mimeType);
+        $this->assertStringContainsString('McpApps', $page->text);
+    }
+
+    public function testTheToolAnswers(): void
+    {
+        $this->mcpActingAs(['id' => 1]);
+
+        $this->mcpCallTool('show_{{ mcpName }}');
+
+        $this->assertMcpToolSucceeded();
+    }
+}

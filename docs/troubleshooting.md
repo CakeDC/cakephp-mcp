@@ -9,9 +9,10 @@ them without a network call.
 
 ## The tool list is empty
 
-Run `bin/cake mcp check` first: its `Tools` line lists the tools the server
-offers, and its `Authorizer` line says when `RbacToolAuthorizer` has no rule
-that lets anyone call them. Other causes:
+Run `bin/cake mcp check` first: its `Discovery` line fails when
+`symfony/finder` is missing (the SDK then skips discovery), its `Tools` line
+lists the tools the server offers, and its `Authorizer` line says when
+`RbacToolAuthorizer` has no rule that lets anyone call them. Other causes:
 
 - A class in a scan directory fails to load (a syntax error, a missing
   parent class or interface). The SDK silently skips discovery and returns
@@ -49,6 +50,15 @@ Before 2.0.0 (in the 2.x betas) the `oauth` and `external` modes answered the
 same request with a `400` Bearer `invalid_request` challenge, which clients
 read as a token problem.
 
+## 400 "header is not valid UTF-8"
+
+A request whose `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`, `Mcp-Session-Id` or
+`MCP-Protocol-Version` header is not valid UTF-8 is refused with `400` and a
+JSON-RPC `-32600` error that names the header. These headers mirror the JSON
+body, which is UTF-8, so the client is sending them wrong: a header value that
+is not ASCII must be sent the way the MCP specification says (the
+`=?base64?...?=` form), not as raw bytes in another encoding.
+
 ## 403 or a redirect to the login page (cakedc/users)
 
 On a `cakedc/users` host, `RequestAuthorizationMiddleware` authorizes the
@@ -85,8 +95,16 @@ authorization service on the MCP route.
 ## Server-sent events stall behind nginx
 
 The plugin sends `X-Accel-Buffering: no` on event streams so nginx does not
-buffer them. If a stream still stalls, a proxy or CDN in front is ignoring the
-header. Disable response buffering for the MCP path there.
+buffer them. If a stream still stalls, or progress arrives all at once at the
+end of a call, something between the tool and the client is buffering:
+
+- PHP: `output_buffering` and `zlib.output_compression` hold the output until
+  the request ends. Turn them off for the MCP route (for example in a
+  `.user.ini` or the FPM pool).
+- Apache: `mod_deflate` compresses, and so buffers, `text/event-stream`;
+  exclude that type.
+- A proxy or CDN in front that ignores the header: disable response buffering
+  for the MCP path there.
 
 ## The session is lost between requests
 

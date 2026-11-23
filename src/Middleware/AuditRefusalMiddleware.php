@@ -7,6 +7,7 @@ use CakeDC\Mcp\Audit\AuditRecord;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Identity\CurrentIdentity;
+use Closure;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -25,11 +26,13 @@ final class AuditRefusalMiddleware implements MiddlewareInterface
      * @param \CakeDC\Mcp\Audit\AuditSettings $settings The audit settings.
      * @param \CakeDC\Mcp\Audit\AuditWriter $writer Writes the records.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The token owner, set by authentication.
+     * @param \Closure(string): bool|null $appOnly Whether a tool is app-only, so its records carry `app=1`.
      */
     public function __construct(
         private readonly AuditSettings $settings,
         private readonly AuditWriter $writer,
         private readonly CurrentIdentity $identity,
+        private readonly ?Closure $appOnly = null,
     ) {
     }
 
@@ -68,6 +71,8 @@ final class AuditRefusalMiddleware implements MiddlewareInterface
             $message['method'] === 'resources/read' ? [] : $this->writer->arguments($params['arguments'] ?? null),
             $outcome === AuditRecord::UNAUTHORIZED ? 'Unauthorized' : 'insufficient_scope',
             null,
+            app: $message['method'] === 'tools/call' && is_string($name) && $this->appOnly !== null
+                && ($this->appOnly)($name),
         ));
 
         return $response;

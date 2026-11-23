@@ -16,6 +16,17 @@ use Mcp\Exception\ToolCallException;
 final class ToolError
 {
     /**
+     * An error whose message the model reads as it is, for example "Order "A-1042" does not exist.".
+     *
+     * @param string $message What went wrong, written so the model can act on it.
+     * @return \Mcp\Exception\ToolCallException
+     */
+    public static function message(string $message): ToolCallException
+    {
+        return new ToolCallException($message);
+    }
+
+    /**
      * A validation failure, one line per field.
      *
      * Takes an entity with errors (for example the one of a failed save, or of

@@ -11,6 +11,7 @@ use Cake\Log\Engine\ArrayLog;
 use Cake\Log\Log;
 use Cake\Routing\Router;
 use Cake\Routing\RoutingApplicationInterface;
+use CakeDC\Mcp\Catalog\CatalogScopes;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\Middleware\IdentityMiddleware;
@@ -19,6 +20,7 @@ use CakeDC\Mcp\OAuth\ResourceServer;
 use CakeDC\Mcp\Server\ServerFactory;
 use Closure;
 use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Server\Authorization\AccessToken;
 use PHPUnit\Framework\Assert;
 use stdClass;
@@ -56,6 +58,32 @@ trait McpTestTrait
     protected array $_mcpClaims = [];
 
     /**
+     * The MCP server the requests go to (`Mcp.servers`).
+     */
+    protected string $_mcpServer = McpConfig::DEFAULT_SERVER;
+
+    /**
+     * The values of the server's route parameters (`/mcp/{tenant}`) the requests are made with.
+     *
+     * @var array<string, string>
+     */
+    protected array $_mcpRoute = [];
+
+    /**
+     * The notifications the server sent during the last `mcpCallTool()`.
+     *
+     * @var list<array<string, mixed>>
+     */
+    protected array $_mcpNotifications = [];
+
+    /**
+     * The notifications of the last request, whatever it was.
+     *
+     * @var list<array<string, mixed>>
+     */
+    protected array $_mcpLastNotifications = [];
+
+    /**
      * The JSON-RPC response to the last `mcpCallTool()`.
      *
      * @var array<string, mixed>|null
@@ -66,6 +94,16 @@ trait McpTestTrait
      * The name of the tool of the last `mcpCallTool()`.
      */
     protected ?string $_mcpTool = null;
+
+    /**
+     * The prompt name of the last `mcpGetPrompt()`.
+     */
+    protected ?string $_mcpPrompt = null;
+
+    /**
+     * The URI of the last `mcpReadResource()`.
+     */
+    protected ?string $_mcpResource = null;
 
     /**
      * What the server logged in the `mcp` scope during the last `mcpCallTool()`,
@@ -99,6 +137,21 @@ trait McpTestTrait
     }
 
     /**
+     * Sends the following requests to another MCP server: `default` or a key of `Mcp.servers`. For a server on a
+     * route with parameters (`/mcp/{tenant}`), $route gives their values, as the HTTP endpoint would read them from
+     * the path: tools see them through `McpRoute`, and the scope policy uses that value's resource.
+     *
+     * @param string $server The server.
+     * @param array<string, string> $route The values of the route's parameters.
+     * @return void
+     */
+    public function mcpUseServer(string $server, array $route = []): void
+    {
+        $this->_mcpServer = $server;
+        $this->_mcpRoute = $route;
+    }
+
+    /**
      * Calls a tool and keeps the response for the `assertMcp*()` methods.
      *
      * @param string $name The tool name.
@@ -111,9 +164,368 @@ trait McpTestTrait
         $this->_mcpResponse = $this->mcpRequest('tools/call', [
             'name' => $name,
             'arguments' => $arguments === [] ? new stdClass() : $arguments,
+            // As clients that show progress do: the tool's progress notifications are then sent and recorded.
+            '_meta' => ['progressToken' => 'mcp-test'],
+        ], log: $this->_mcpLog);
+        $this->_mcpNotifications = $this->_mcpLastNotifications;
+
+        return $this->_mcpResponse;
+    }
+
+    /**
+     * Gets a prompt as the current identity, and keeps the response for `assertMcpPrompt*()`.
+     *
+     * @param string $name The prompt name.
+     * @param array<string, mixed> $arguments Its arguments.
+     * @return array<string, mixed> The JSON-RPC response.
+     */
+    public function mcpGetPrompt(string $name, array $arguments = []): array
+    {
+        $this->_mcpPrompt = $name;
+        $params = ['name' => $name];
+        if ($arguments !== []) {
+            $params['arguments'] = $arguments;
+        }
+        $this->_mcpResponse = $this->mcpRequest('prompts/get', $params, log: $this->_mcpLog);
+
+        return $this->_mcpResponse;
+    }
+
+    /**
+     * Reads a resource as the current identity (a concrete URI, also one a template matches), and keeps the
+     * response for `assertMcpResource*()`.
+     *
+     * @param string $uri The resource URI.
+     * @return array<string, mixed> The JSON-RPC response.
+     */
+    public function mcpReadResource(string $uri): array
+    {
+        $this->_mcpResource = $uri;
+        $this->_mcpResponse = $this->mcpRequest('resources/read', ['uri' => $uri], log: $this->_mcpLog);
+
+        return $this->_mcpResponse;
+    }
+
+    /**
+     * Asks for the completions of an argument of a prompt (`['type' => 'ref/prompt', 'name' => ...]`) or of a
+     * variable of a resource template (`['type' => 'ref/resource', 'uri' => 'orders://{number}']`), and keeps
+     * the response for `assertMcpCompletionValues()`.
+     *
+     * @param array<string, string> $ref The reference.
+     * @param string $argument The argument or variable name.
+     * @param string $value What the user typed so far.
+     * @return array<string, mixed> The JSON-RPC response.
+     */
+    public function mcpComplete(array $ref, string $argument, string $value): array
+    {
+        $this->_mcpResponse = $this->mcpRequest('completion/complete', [
+            'ref' => $ref,
+            'argument' => ['name' => $argument, 'value' => $value],
         ], log: $this->_mcpLog);
 
         return $this->_mcpResponse;
+    }
+
+    /**
+     * The resources the current identity sees in `resources/list`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function mcpListResources(): array
+    {
+        return $this->mcpListAll('resources/list', 'resources', false);
+    }
+
+    /**
+     * The resource templates the current identity sees in `resources/templates/list`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function mcpListResourceTemplates(): array
+    {
+        return $this->mcpListAll('resources/templates/list', 'resourceTemplates', false);
+    }
+
+    /**
+     * The prompts the current identity sees in `prompts/list`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function mcpListPrompts(): array
+    {
+        return $this->mcpListAll('prompts/list', 'prompts', false);
+    }
+
+    /**
+     * Asserts the messages of the last `mcpGetPrompt()`: one `['role' => ..., 'text' => ...]` per message, in order.
+     * A message whose content is not text has `text` null.
+     *
+     * @param list<array{role: string, text: string|null}> $expected The expected messages.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptMessages(array $expected, string $message = ''): void
+    {
+        Assert::assertSame(
+            $expected,
+            $this->mcpPromptMessages(),
+            $message ?: 'Unexpected prompt messages. Response: ' . $this->mcpJson($this->mcpResponse()),
+        );
+    }
+
+    /**
+     * Asserts that a text message of the last `mcpGetPrompt()` contains $text.
+     *
+     * @param string $text The expected text.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptContains(string $text, string $message = ''): void
+    {
+        Assert::assertStringContainsString(
+            $text,
+            implode("\n", array_filter(array_column($this->mcpPromptMessages(), 'text'), 'is_string')),
+            $message,
+        );
+    }
+
+    /**
+     * Asserts that the last `mcpGetPrompt()` was answered with a JSON-RPC error (an unknown prompt, missing
+     * arguments, a prompt that failed).
+     *
+     * @param string|null $contains Text the error message must contain.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptError(?string $contains = null, string $message = ''): void
+    {
+        $this->assertMcpJsonRpcError(null, $contains, $message);
+    }
+
+    /**
+     * Asserts that the last `mcpReadResource()` returned a content with this exact text, and with $mimeType
+     * when given.
+     *
+     * @param string $expected The expected text.
+     * @param string|null $mimeType The expected MIME type of that content.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceText(string $expected, ?string $mimeType = null, string $message = ''): void
+    {
+        $contents = $this->mcpResourceContents();
+        $matching = array_filter(
+            $contents,
+            fn(array $content): bool => ($content['text'] ?? null) === $expected
+                && ($mimeType === null || ($content['mimeType'] ?? null) === $mimeType),
+        );
+        Assert::assertNotSame([], $matching, $message ?: sprintf(
+            'No content of the resource has the text %s%s. Contents: %s',
+            json_encode($expected),
+            $mimeType === null ? '' : ' with MIME type ' . $mimeType,
+            $this->mcpJson($contents),
+        ));
+    }
+
+    /**
+     * Asserts that a text content of the last `mcpReadResource()` contains $text.
+     *
+     * @param string $text The expected text.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceContains(string $text, string $message = ''): void
+    {
+        Assert::assertStringContainsString(
+            $text,
+            implode("\n", array_filter(array_column($this->mcpResourceContents(), 'text'), 'is_string')),
+            $message,
+        );
+    }
+
+    /**
+     * Asserts that the last `mcpReadResource()` was answered with a JSON-RPC error (an unknown URI, a resource
+     * that failed).
+     *
+     * @param string|null $contains Text the error message must contain.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceError(?string $contains = null, string $message = ''): void
+    {
+        $this->assertMcpJsonRpcError(null, $contains, $message);
+    }
+
+    /**
+     * Asserts that the authorizer denied the last `mcpReadResource()`: it was answered exactly like an unknown URI,
+     * and the URI exists (a resource, or one a template matches), so a typo cannot pass as a denial.
+     *
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceDenied(string $message = ''): void
+    {
+        $uri = (string)$this->_mcpResource;
+        $error = $this->mcpResponse()['error'] ?? null;
+        Assert::assertTrue(
+            is_array($error) && ($error['message'] ?? null) === sprintf('Resource not found for uri: "%s".', $uri),
+            $message ?: sprintf(
+                'Expected "%s" to be answered like an unknown URI, got: %s',
+                $uri,
+                $this->mcpJson($this->mcpResponse()),
+            ),
+        );
+        $response = $this->_mcpResponse;
+        try {
+            $read = $this->mcpRequest('resources/read', ['uri' => $uri], true);
+        } finally {
+            $this->_mcpResponse = $response;
+        }
+        // Read without the authorizer, a registered resource whose handler fails answers its own error: it exists.
+        $trusted = $read['error'] ?? null;
+        Assert::assertFalse(
+            is_array($trusted) && ($trusted['message'] ?? null) === sprintf('Resource not found for uri: "%s".', $uri),
+            $message
+                ?: sprintf('Resource "%s" is not registered, so its rejection proves nothing. Check the URI.', $uri),
+        );
+    }
+
+    /**
+     * Asserts that the authorizer denied the last `mcpGetPrompt()`: it was answered exactly like an unknown prompt,
+     * and the prompt exists, so a typo cannot pass as a denial.
+     *
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptDenied(string $message = ''): void
+    {
+        $name = (string)$this->_mcpPrompt;
+        $error = $this->mcpResponse()['error'] ?? null;
+        Assert::assertTrue(
+            is_array($error) && ($error['message'] ?? null) === sprintf('Prompt not found: "%s".', $name),
+            $message ?: sprintf(
+                'Expected "%s" to be answered like an unknown prompt, got: %s',
+                $name,
+                $this->mcpJson($this->mcpResponse()),
+            ),
+        );
+        Assert::assertContains(
+            $name,
+            array_column($this->mcpListAll('prompts/list', 'prompts', true), 'name'),
+            $message
+                ?: sprintf('Prompt "%s" is not registered, so its rejection proves nothing. Check the name.', $name),
+        );
+    }
+
+    /**
+     * Asserts the values of the last `mcpComplete()`, in order.
+     *
+     * @param list<string> $expected The expected values.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpCompletionValues(array $expected, string $message = ''): void
+    {
+        $response = $this->mcpResponse();
+        $values = $response['result']['completion']['values'] ?? null;
+        if (!is_array($values)) {
+            Assert::fail($message ?: 'The completion failed: ' . $this->mcpJson($response) . $this->mcpLogText());
+        }
+        Assert::assertSame($expected, $values, $message);
+    }
+
+    /**
+     * Asserts that the current identity sees a resource in `resources/list`.
+     *
+     * @param string $uri The resource URI.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceListed(string $uri, string $message = ''): void
+    {
+        Assert::assertContains(
+            $uri,
+            array_column($this->mcpListResources(), 'uri'),
+            $message ?: sprintf('Resource "%s" is not listed for the current identity.', $uri),
+        );
+    }
+
+    /**
+     * Asserts that the current identity does not see a resource in `resources/list`. It also checks that the
+     * resource exists, so a typo cannot pass as hidden.
+     *
+     * @param string $uri The resource URI.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceNotListed(string $uri, string $message = ''): void
+    {
+        $this->mcpAssertHidden('resources/list', 'resources', 'uri', $uri, 'Resource', $message);
+    }
+
+    /**
+     * Asserts that the current identity sees a resource template in `resources/templates/list`.
+     *
+     * @param string $uriTemplate The URI template, `orders://{number}`.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceTemplateListed(string $uriTemplate, string $message = ''): void
+    {
+        Assert::assertContains(
+            $uriTemplate,
+            array_column($this->mcpListResourceTemplates(), 'uriTemplate'),
+            $message
+                ?: sprintf('Resource template "%s" is not listed for the current identity.', $uriTemplate),
+        );
+    }
+
+    /**
+     * Asserts that the current identity does not see a resource template in `resources/templates/list`, and
+     * that it exists.
+     *
+     * @param string $uriTemplate The URI template.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceTemplateNotListed(string $uriTemplate, string $message = ''): void
+    {
+        $this->mcpAssertHidden(
+            'resources/templates/list',
+            'resourceTemplates',
+            'uriTemplate',
+            $uriTemplate,
+            'Resource template',
+            $message,
+        );
+    }
+
+    /**
+     * Asserts that the current identity sees a prompt in `prompts/list`.
+     *
+     * @param string $name The prompt name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptListed(string $name, string $message = ''): void
+    {
+        Assert::assertContains(
+            $name,
+            array_column($this->mcpListPrompts(), 'name'),
+            $message ?: sprintf('Prompt "%s" is not listed for the current identity.', $name),
+        );
+    }
+
+    /**
+     * Asserts that the current identity does not see a prompt in `prompts/list`, and that it exists.
+     *
+     * @param string $name The prompt name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptNotListed(string $name, string $message = ''): void
+    {
+        $this->mcpAssertHidden('prompts/list', 'prompts', 'name', $name, 'Prompt', $message);
     }
 
     /**
@@ -127,12 +539,15 @@ trait McpTestTrait
     }
 
     /**
-     * @return array<string, mixed> The JSON-RPC response to the last `mcpCallTool()`.
+     * @return array<string, mixed> The JSON-RPC response to the last `mcpCallTool()`, `mcpGetPrompt()`,
+     *   `mcpReadResource()` or `mcpComplete()`.
      */
     public function mcpResponse(): array
     {
         if ($this->_mcpResponse === null) {
-            Assert::fail('No tool was called yet. Call mcpCallTool() first.');
+            Assert::fail(
+                'No request was sent yet. Call mcpCallTool(), mcpGetPrompt(), mcpReadResource() or mcpComplete().',
+            );
         }
 
         return $this->_mcpResponse;
@@ -236,7 +651,7 @@ trait McpTestTrait
         $this->assertMcpJsonRpcError(-32602, sprintf('Tool not found: "%s".', $tool), $message);
         Assert::assertContains(
             $tool,
-            array_column($this->mcpToolDefinitions(true), 'name'),
+            $this->mcpRegisteredToolNames(),
             $message ?: sprintf('Tool "%s" is not registered, so its rejection proves nothing. Check the name.', $tool),
         );
     }
@@ -297,6 +712,419 @@ trait McpTestTrait
     }
 
     /**
+     * Asserts one value of the last result's `structuredContent`, found by a dot path
+     * (`order.lines.0.sku`). Value types matter. Fails when the path does not exist. $expected may be a closure
+     * that gets the value: the assertion passes when it returns `true` (strictly), and it is not called for a
+     * path that does not exist.
+     *
+     * @param string $path Dot path into the structured content.
+     * @param mixed $expected The expected value, or a closure that tells whether the value is right.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentPath(string $path, mixed $expected, string $message = ''): void
+    {
+        [$found, $value] = $this->mcpStructuredContentAt($path);
+        if (!$found) {
+            Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
+        }
+        if ($expected instanceof Closure) {
+            Assert::assertTrue(
+                $expected($value) === true,
+                $message ?: sprintf(
+                    'The closure did not return true for "%s" in the structuredContent: %s.',
+                    $path,
+                    (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ),
+            );
+
+            return;
+        }
+        Assert::assertSame($expected, $value, $message);
+    }
+
+    /**
+     * Asserts that a dot path, or each of several, does not exist in the last result's `structuredContent`. A key
+     * that is there with a `null` value exists (`assertMcpStructuredContentHas()` passes on it), so it fails here.
+     *
+     * @param list<string>|string $paths A dot path, or a list of them.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentMissing(string|array $paths, string $message = ''): void
+    {
+        foreach ((array)$paths as $path) {
+            Assert::assertFalse(
+                $this->mcpStructuredContentAt($path)[0],
+                $message ?: sprintf('The structuredContent has "%s".', $path),
+            );
+        }
+    }
+
+    /**
+     * Asserts that the last result's `structuredContent` does not hold $fragment: fails exactly when
+     * `assertMcpStructuredContentSubset($fragment)` would pass. The same rule, so it is anchored at the top of the
+     * structured content; for pairs anywhere, use `assertMcpStructuredContentLacks()`.
+     *
+     * @param array<mixed> $fragment The part that must not be there whole.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentNotSubset(array $fragment, string $message = ''): void
+    {
+        $actual = $this->mcpResult()['structuredContent'] ?? null;
+        Assert::assertFalse(
+            self::mcpIsSubset($fragment, $actual),
+            $message ?: sprintf(
+                'The structuredContent %s holds %s.',
+                $this->mcpJson(is_array($actual) ? $actual : []),
+                $this->mcpJson($fragment),
+            ),
+        );
+    }
+
+    /**
+     * Asserts that none of the key and value pairs of $pairs is in any object of the last result's
+     * `structuredContent`, at any depth (`['sku' => 'X']` fails when any object, however nested, has `sku` "X").
+     * Value types matter.
+     *
+     * @param array<string, mixed> $pairs Key => value pairs that must appear nowhere.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentLacks(array $pairs, string $message = ''): void
+    {
+        $actual = $this->mcpResult()['structuredContent'] ?? null;
+        foreach ($pairs as $key => $value) {
+            Assert::assertFalse(
+                self::mcpHasPairAnywhere($actual, (string)$key, $value),
+                $message ?: sprintf(
+                    'The structuredContent has "%s": %s.',
+                    $key,
+                    (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ),
+            );
+        }
+    }
+
+    /**
+     * Asserts the last result's `structuredContent`, or the value at a dot path of it, ignoring the order of list
+     * items at every level (key order never matters). Value types matter and duplicates count: `[1, 1, 2]` is not
+     * `[1, 2, 2]`. Fails when the path does not exist.
+     *
+     * @param mixed $expected The expected value.
+     * @param string $path A dot path, or an empty string for the whole structured content.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentIgnoringOrder(
+        mixed $expected,
+        string $path = '',
+        string $message = '',
+    ): void {
+        [$found, $value] = $this->mcpStructuredContentAt($path);
+        if (!$found) {
+            Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
+        }
+        Assert::assertTrue(self::mcpSame($expected, $value, true), $message ?: sprintf(
+            '"%s" in the structuredContent is %s, not %s in any order.',
+            $path === '' ? '(all)' : $path,
+            (string)json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string)json_encode($expected, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        ));
+    }
+
+    /**
+     * Asserts the keys of the last result's `structuredContent`, not their values. $shape describes them level by
+     * level: a string is a key that must exist, `key => [...]` a key and what its value holds, and `'*' => [...]`
+     * what every item of the list at that level holds (the list must not be empty: a wildcard that checks nothing
+     * fails). With $exact, a described level may have no other keys.
+     *
+     * @param array<mixed> $shape The keys, for example `['order' => ['id', 'lines' => ['*' => ['sku']]], 'total']`.
+     * @param bool $exact Whether keys other than the described ones fail.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentKeys(array $shape, bool $exact = false, string $message = ''): void
+    {
+        $problem = self::mcpShapeProblem($shape, $this->mcpResult()['structuredContent'] ?? null, '', $exact);
+        Assert::assertNull($problem, $message ?: (string)$problem);
+    }
+
+    /**
+     * Asserts that a dot path exists in the last result's `structuredContent`, even with a `null` value.
+     *
+     * @param string $path Dot path into the structured content.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentHas(string $path, string $message = ''): void
+    {
+        Assert::assertTrue(
+            $this->mcpStructuredContentAt($path)[0],
+            $message ?: sprintf('The structuredContent has no "%s".', $path),
+        );
+    }
+
+    /**
+     * Asserts that the last result's `structuredContent` holds $expected: every key of an object with the same
+     * value (recursively, other keys allowed), lists compared whole. Value types matter.
+     *
+     * @param array<mixed> $expected The expected part.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentSubset(array $expected, string $message = ''): void
+    {
+        $actual = $this->mcpResult()['structuredContent'] ?? null;
+        Assert::assertTrue(
+            self::mcpIsSubset($expected, $actual),
+            $message ?: sprintf(
+                'The structuredContent %s does not hold %s.',
+                $this->mcpJson(is_array($actual) ? $actual : []),
+                $this->mcpJson($expected),
+            ),
+        );
+    }
+
+    /**
+     * Asserts how many items (or keys) the list or object at a dot path of the last result's `structuredContent`
+     * has; an empty path is the whole structured content.
+     *
+     * @param string $path Dot path, or an empty string.
+     * @param int $count The expected count.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentCount(string $path, int $count, string $message = ''): void
+    {
+        [$found, $value] = $this->mcpStructuredContentAt($path);
+        if (!$found || !is_array($value)) {
+            Assert::fail($message ?: sprintf('The structuredContent has no list or object at "%s".', $path));
+        }
+        Assert::assertCount($count, $value, $message);
+    }
+
+    /**
+     * Asserts the JSON type of the value at a dot path of the last result's `structuredContent`: `string`,
+     * `number` (an integer is a number too), `integer`, `boolean`, `array`, `object` or `null`. An empty path is
+     * the whole structured content.
+     *
+     * @param string $path Dot path, or an empty string.
+     * @param string $type The JSON type.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpStructuredContentType(string $path, string $type, string $message = ''): void
+    {
+        [$found, $value] = $this->mcpStructuredContentAt($path);
+        if (!$found) {
+            Assert::fail($message ?: sprintf('The structuredContent has no "%s".', $path));
+        }
+        $actual = match (true) {
+            $value === null => 'null',
+            is_bool($value) => 'boolean',
+            is_int($value) => 'integer',
+            is_float($value) => 'number',
+            is_string($value) => 'string',
+            is_array($value) && array_is_list($value) && $value !== [] => 'array',
+            default => 'object',
+        };
+        $matches = $actual === $type || ($type === 'number' && $actual === 'integer')
+            || ($value === [] && ($type === 'array' || $type === 'object'));
+        Assert::assertTrue(
+            $matches,
+            $message ?: sprintf('"%s" in the structuredContent is %s, not %s.', $path, $actual, $type),
+        );
+    }
+
+    /**
+     * Asserts that the values of the last `mcpComplete()` include $value.
+     *
+     * @param string $value The expected value.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpCompletionContains(string $value, string $message = ''): void
+    {
+        $values = $this->mcpResponse()['result']['completion']['values'] ?? null;
+        if (!is_array($values)) {
+            Assert::fail($message ?: 'The completion failed: ' . $this->mcpJson($this->mcpResponse()));
+        }
+        Assert::assertContains($value, $values, $message);
+    }
+
+    /**
+     * Asserts that another identity sees a prompt in `prompts/list`, with default scopes and no claims. The
+     * test's own identity, scopes and claims stay as they were.
+     *
+     * @param mixed $identity The identity.
+     * @param string $name The prompt name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptListedFor(mixed $identity, string $name, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpPromptListed($name, $message));
+    }
+
+    /**
+     * Asserts that another identity does not see a prompt in `prompts/list` (and that it exists).
+     *
+     * @param mixed $identity The identity.
+     * @param string $name The prompt name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpPromptNotListedFor(mixed $identity, string $name, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpPromptNotListed($name, $message));
+    }
+
+    /**
+     * Asserts that another identity sees a resource in `resources/list`.
+     *
+     * @param mixed $identity The identity.
+     * @param string $uri The resource URI.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceListedFor(mixed $identity, string $uri, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpResourceListed($uri, $message));
+    }
+
+    /**
+     * Asserts that another identity does not see a resource in `resources/list` (and that it exists).
+     *
+     * @param mixed $identity The identity.
+     * @param string $uri The resource URI.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpResourceNotListedFor(mixed $identity, string $uri, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpResourceNotListed($uri, $message));
+    }
+
+    /**
+     * Asserts that another identity sees a tool in `tools/list`, with default scopes and no claims. The test's own
+     * identity, scopes and claims stay as they were.
+     *
+     * @param mixed $identity The identity to list the tools for.
+     * @param string $name The tool name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpToolListedFor(mixed $identity, string $name, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpToolListed(
+            $name,
+            $message ?: sprintf('Tool "%s" is not listed for that identity.', $name),
+        ));
+    }
+
+    /**
+     * Asserts that another identity does not see a tool in `tools/list` (and that the tool exists), with default
+     * scopes and no claims. The test's own identity, scopes and claims stay as they were.
+     *
+     * @param mixed $identity The identity to list the tools for.
+     * @param string $name The tool name.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpToolNotListedFor(mixed $identity, string $name, string $message = ''): void
+    {
+        $this->mcpAs($identity, fn() => $this->assertMcpToolNotListed($name, $message));
+    }
+
+    /**
+     * Runs $assertion as $identity, then puts back the test's identity, scopes and claims.
+     *
+     * @param mixed $identity The identity.
+     * @param callable(): void $assertion The assertion.
+     * @return void
+     */
+    private function mcpAs(mixed $identity, callable $assertion): void
+    {
+        $saved = [$this->_mcpIdentity, $this->_mcpScopes, $this->_mcpClaims];
+        $this->mcpActingAs($identity);
+        try {
+            $assertion();
+        } finally {
+            [$this->_mcpIdentity, $this->_mcpScopes, $this->_mcpClaims] = $saved;
+        }
+    }
+
+    /**
+     * @param string $path Dot path into the last result's structured content.
+     * @return array{0: bool, 1: mixed} Whether the path exists, and its value.
+     */
+    private function mcpStructuredContentAt(string $path): array
+    {
+        $value = $this->mcpResult()['structuredContent'] ?? null;
+        if ($path === '') {
+            return [$value !== null, $value];
+        }
+        foreach (explode('.', $path) as $key) {
+            if (!is_array($value) || !array_key_exists($key, $value)) {
+                return [false, null];
+            }
+            $value = $value[$key];
+        }
+
+        return [true, $value];
+    }
+
+    /**
+     * The notifications the server sent during the last `mcpCallTool()`, all of them or those of one method
+     * (`notifications/progress`, `notifications/message`...).
+     *
+     * @param string|null $method A notification method, or null for all.
+     * @return list<array<string, mixed>>
+     */
+    public function mcpNotifications(?string $method = null): array
+    {
+        return array_values(array_filter(
+            $this->_mcpNotifications,
+            fn(array $notification): bool => $method === null || ($notification['method'] ?? null) === $method,
+        ));
+    }
+
+    /**
+     * Asserts that the last call sent a notification of $method.
+     *
+     * @param string $method The notification method, for example `notifications/message`.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpNotificationSent(string $method, string $message = ''): void
+    {
+        Assert::assertNotEmpty(
+            $this->mcpNotifications($method),
+            $message ?: sprintf('The last call sent no %s notification.', $method),
+        );
+    }
+
+    /**
+     * Asserts that the last call reported progress: at least once, or exactly $count times.
+     *
+     * @param int|null $count The expected number of progress notifications, or null for at least one.
+     * @param string $message The failure message.
+     * @return void
+     */
+    public function assertMcpProgressSent(?int $count = null, string $message = ''): void
+    {
+        $sent = count($this->mcpNotifications('notifications/progress'));
+        if ($count === null) {
+            Assert::assertGreaterThan(0, $sent, $message ?: 'The last call reported no progress.');
+
+            return;
+        }
+        Assert::assertSame($count, $sent, $message ?: sprintf('The last call reported progress %d times.', $sent));
+    }
+
+    /**
      * Asserts that the current identity sees a tool in `tools/list`.
      *
      * @param string $name The tool name.
@@ -329,7 +1157,7 @@ trait McpTestTrait
         );
         Assert::assertContains(
             $name,
-            array_column($this->mcpToolDefinitions(true), 'name'),
+            $this->mcpRegisteredToolNames(),
             $message ?: sprintf('Tool "%s" is not registered, so its absence proves nothing. Check the name.', $name),
         );
     }
@@ -378,14 +1206,18 @@ trait McpTestTrait
         if ($params !== null) {
             $request['params'] = $params;
         }
+        // A request refused before it reaches the server (a missing scope) sends no notifications either.
+        $this->_mcpLastNotifications = [];
 
         $factory = $this->mcpContainer()->get(ServerFactory::class);
         if (!$factory instanceof ServerFactory) {
             Assert::fail('The container has no MCP ServerFactory. Is the CakeDC/Mcp plugin loaded?');
         }
+        $factory = $factory->forServer($this->_mcpServer);
         $factory->identity()->set($this->_mcpIdentity);
+        $factory->route()->set($this->_mcpRoute);
 
-        $scopes = McpConfig::get('identity.scopes');
+        $scopes = McpConfig::get('identity.scopes', $this->_mcpServer);
         $token = null;
         if ($this->_mcpIdentity !== null) {
             $token = IdentityMiddleware::accessTokenFor(
@@ -400,10 +1232,14 @@ trait McpTestTrait
             }
         }
         if ($token !== null && $this->_mcpScopes !== null && !$trusted) {
-            $settings = AuthSettings::fromConfig();
+            $settings = AuthSettings::fromConfig($this->_mcpServer, $this->_mcpRoute);
             $policy = $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
             if ($policy !== null) {
-                $required = $policy->requiredFor($request);
+                $catalog = McpConfig::get('catalog.enabled', $this->_mcpServer) === true
+                    ? array_values(array_filter((array)McpConfig::get('catalog.tools', $this->_mcpServer), 'is_string'))
+                    : [];
+                // call_tools needs the scopes of the catalogued tools it runs, as the endpoint requires.
+                $required = CatalogScopes::required($policy, $request, $catalog);
                 // In oauth mode the authorization server expands the token's scopes with the `implies` of
                 // the declared resource before the policy sees them; the policy then adds its own `implies`.
                 $granted = $policy->expand((new ResourceServer($settings))->grantedScopes($token->getScopes()));
@@ -430,10 +1266,20 @@ trait McpTestTrait
             [
                 (string)json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
                     'protocolVersion' => ProtocolVersion::latestHandshake()->value,
-                    'capabilities' => new stdClass(),
+                    // With MCP Apps on, the trait is a host that renders apps, so app-only tools are listed to it.
+                    'capabilities' => McpConfig::get('apps.enabled', $this->_mcpServer) === true
+                        ? ['extensions' => [McpApps::EXTENSION_ID => ['mimeTypes' => [McpApps::MIME_TYPE]]]]
+                        : new stdClass(),
                     'clientInfo' => ['name' => 'McpTestTrait', 'version' => '1.0'],
                 ]]),
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
+                // So the log notifications of a tool are sent and recorded.
+                (string)json_encode([
+                    'jsonrpc' => '2.0',
+                    'id' => 'mcp-test-log-level',
+                    'method' => 'logging/setLevel',
+                    'params' => ['level' => 'debug'],
+                ]),
                 (string)json_encode($request),
             ],
             $token,
@@ -453,9 +1299,19 @@ trait McpTestTrait
             Log::drop($logConfig);
         }
 
+        $this->_mcpLastNotifications = array_values(array_filter(
+            $transport->sent,
+            fn(array $message): bool => !array_key_exists('id', $message) && isset($message['method']),
+        ));
         $response = $transport->responseFor(2);
         if ($response === null) {
-            Assert::fail(sprintf('The server sent no response to `%s`.', $method));
+            Assert::fail($transport->waitsOnClient()
+                ? sprintf(
+                    'The tool asked the client something (sampling or elicitation), which McpTestTrait cannot '
+                    . 'answer, so `%s` got no response.',
+                    $method,
+                )
+                : sprintf('The server sent no response to `%s`.', $method));
         }
 
         return $response;
@@ -490,6 +1346,155 @@ trait McpTestTrait
     }
 
     /**
+     * @param mixed $expected The expected part.
+     * @param mixed $actual The value.
+     * @return bool Whether $actual holds $expected (objects by key, other values identical).
+     */
+    private static function mcpIsSubset(mixed $expected, mixed $actual): bool
+    {
+        if (!is_array($expected) || array_is_list($expected)) {
+            return self::mcpSame($expected, $actual, false);
+        }
+        if (!is_array($actual)) {
+            return false;
+        }
+        foreach ($expected as $key => $value) {
+            if (!array_key_exists($key, $actual) || !self::mcpIsSubset($value, $actual[$key])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Every page of a list method.
+     *
+     * @param string $method `resources/list`, `resources/templates/list` or `prompts/list`.
+     * @param string $key The key of the items in the result.
+     * @param bool $trusted Skip the authorizer, to see everything registered.
+     * @return list<array<string, mixed>>
+     */
+    private function mcpListAll(string $method, string $key, bool $trusted): array
+    {
+        $items = [];
+        $cursor = null;
+        for ($page = 0; $page < 100; $page++) {
+            $response = $this->mcpRequest($method, $cursor === null ? null : ['cursor' => $cursor], $trusted);
+            // A server with nothing of that kind does not announce the capability, and answers "method not found".
+            if (($response['error']['code'] ?? null) === -32601) {
+                return [];
+            }
+            $result = $response['result'] ?? null;
+            if (!is_array($result) || !is_array($result[$key] ?? null)) {
+                Assert::fail($method . ' failed: ' . $this->mcpJson($response));
+            }
+            foreach ($result[$key] as $item) {
+                if (is_array($item)) {
+                    $items[] = $item;
+                }
+            }
+            $cursor = $result['nextCursor'] ?? null;
+            if (!is_string($cursor)) {
+                break;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * Asserts that $value is not in what the current identity lists, and is in what is registered.
+     *
+     * @param string $method The list method.
+     * @param string $key The key of the items in the result.
+     * @param string $field The item field compared with $value.
+     * @param string $value The URI, URI template or name.
+     * @param string $what `Resource`, `Resource template` or `Prompt`, for the messages.
+     * @param string $message The failure message.
+     * @return void
+     */
+    private function mcpAssertHidden(
+        string $method,
+        string $key,
+        string $field,
+        string $value,
+        string $what,
+        string $message,
+    ): void {
+        Assert::assertNotContains(
+            $value,
+            array_column($this->mcpListAll($method, $key, false), $field),
+            $message ?: sprintf('%s "%s" is listed for the current identity.', $what, $value),
+        );
+        Assert::assertContains(
+            $value,
+            array_column($this->mcpListAll($method, $key, true), $field),
+            $message ?: sprintf(
+                '%s "%s" is not registered, so its absence proves nothing. Check the name.',
+                $what,
+                $value,
+            ),
+        );
+    }
+
+    /**
+     * @return list<array{role: string, text: string|null}> The messages of the last `mcpGetPrompt()`.
+     */
+    private function mcpPromptMessages(): array
+    {
+        $response = $this->mcpResponse();
+        $messages = $response['result']['messages'] ?? null;
+        if (!is_array($messages)) {
+            Assert::fail('The prompt failed: ' . $this->mcpJson($response) . $this->mcpLogText());
+        }
+        $found = [];
+        foreach ($messages as $item) {
+            $content = is_array($item) ? ($item['content'] ?? null) : null;
+            $found[] = [
+                'role' => is_array($item) ? (string)($item['role'] ?? '') : '',
+                'text' => is_array($content) && ($content['type'] ?? null) === 'text'
+                    && is_string($content['text'] ?? null) ? $content['text'] : null,
+            ];
+        }
+
+        return $found;
+    }
+
+    /**
+     * @return list<array<string, mixed>> The contents of the last `mcpReadResource()`.
+     */
+    private function mcpResourceContents(): array
+    {
+        $response = $this->mcpResponse();
+        $contents = $response['result']['contents'] ?? null;
+        if (!is_array($contents)) {
+            Assert::fail('The resource read failed: ' . $this->mcpJson($response) . $this->mcpLogText());
+        }
+
+        return array_values(array_filter($contents, 'is_array'));
+    }
+
+    /**
+     * Every tool registered on the server, including those `tools/list` leaves out (catalogued and app-only
+     * tools), as `bin/cake mcp check` sees them.
+     *
+     * @return list<string>
+     */
+    private function mcpRegisteredToolNames(): array
+    {
+        $factory = $this->mcpContainer()->get(ServerFactory::class);
+        if (!$factory instanceof ServerFactory) {
+            Assert::fail('The container has no MCP ServerFactory. Is the CakeDC/Mcp plugin loaded?');
+        }
+
+        return array_map(
+            fn(array $tool): string => (string)$tool['name'],
+            $factory->forServer($this->_mcpServer)->registeredToolDefinitions(),
+        );
+    }
+
+    /**
      * @return array<string, mixed> The `result` of the last tool call, or an empty array.
      */
     private function mcpResult(): array
@@ -497,6 +1502,136 @@ trait McpTestTrait
         $result = $this->mcpResponse()['result'] ?? null;
 
         return is_array($result) ? $result : [];
+    }
+
+    /**
+     * @param mixed $value A decoded JSON value.
+     * @param string $key A key.
+     * @param mixed $expected Its value.
+     * @return bool Whether some object in $value, at any depth, has $key with exactly $expected.
+     */
+    private static function mcpHasPairAnywhere(mixed $value, string $key, mixed $expected): bool
+    {
+        if (!is_array($value)) {
+            return false;
+        }
+        if (!array_is_list($value) && array_key_exists($key, $value) && self::mcpSame($expected, $value[$key], false)) {
+            return true;
+        }
+        foreach ($value as $child) {
+            if (self::mcpHasPairAnywhere($child, $key, $expected)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether two decoded JSON values are equal. The order of an object's keys never matters; with $anyOrder, the
+     * order of list items does not either, but each expected item is matched with an actual one of its own, so
+     * duplicates count. Value types matter.
+     *
+     * @param mixed $expected The expected value.
+     * @param mixed $actual The actual value.
+     * @param bool $anyOrder Whether list items may be in any order.
+     * @return bool
+     */
+    private static function mcpSame(mixed $expected, mixed $actual, bool $anyOrder): bool
+    {
+        if (!is_array($expected) || !is_array($actual)) {
+            return $expected === $actual;
+        }
+        if (count($expected) !== count($actual) || array_is_list($expected) !== array_is_list($actual)) {
+            return false;
+        }
+        if (!array_is_list($expected)) {
+            foreach ($expected as $key => $value) {
+                if (!array_key_exists($key, $actual) || !self::mcpSame($value, $actual[$key], $anyOrder)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        if (!$anyOrder) {
+            foreach ($expected as $index => $value) {
+                if (!self::mcpSame($value, $actual[$index], false)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        $unused = $actual;
+        foreach ($expected as $value) {
+            $match = null;
+            foreach ($unused as $index => $candidate) {
+                if (self::mcpSame($value, $candidate, true)) {
+                    $match = $index;
+                    break;
+                }
+            }
+            if ($match === null) {
+                return false;
+            }
+            unset($unused[$match]);
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<mixed> $shape A level of the shape of assertMcpStructuredContentKeys().
+     * @param mixed $value The value at that level.
+     * @param string $at Its dot path, for the message.
+     * @param bool $exact Whether other keys are a problem.
+     * @return string|null What is wrong, or null.
+     */
+    private static function mcpShapeProblem(array $shape, mixed $value, string $at, bool $exact): ?string
+    {
+        $where = $at === '' ? 'the structuredContent' : '"' . $at . '"';
+        if (array_key_exists('*', $shape)) {
+            if (!is_array($value) || !array_is_list($value) || $value === []) {
+                return sprintf('%s is not a list with items, so "*" checks nothing.', ucfirst($where));
+            }
+            foreach ($value as $index => $item) {
+                $problem = self::mcpShapeProblem(
+                    is_array($shape['*']) ? $shape['*'] : [],
+                    $item,
+                    ltrim($at . '.' . $index, '.'),
+                    $exact,
+                );
+                if ($problem !== null) {
+                    return $problem;
+                }
+            }
+
+            return null;
+        }
+        if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+            return sprintf('%s is not an object.', ucfirst($where));
+        }
+        $named = [];
+        foreach ($shape as $key => $inner) {
+            $name = is_int($key) ? (string)$inner : (string)$key;
+            $named[] = $name;
+            if (!array_key_exists($name, $value)) {
+                return sprintf('%s has no "%s".', ucfirst($where), $name);
+            }
+            if (!is_int($key) && is_array($inner)) {
+                $problem = self::mcpShapeProblem($inner, $value[$name], ltrim($at . '.' . $name, '.'), $exact);
+                if ($problem !== null) {
+                    return $problem;
+                }
+            }
+        }
+        $other = array_diff(array_map('strval', array_keys($value)), $named);
+        if ($exact && $other !== []) {
+            return sprintf('%s has keys that are not described: %s.', ucfirst($where), implode(', ', $other));
+        }
+
+        return null;
     }
 
     /**

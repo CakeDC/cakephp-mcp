@@ -6,6 +6,7 @@ namespace CakeDC\Mcp\Test\TestCase\Tool;
 use Cake\ORM\Entity;
 use Cake\TestSuite\TestCase;
 use CakeDC\Mcp\Tool\ToolError;
+use Mcp\Exception\ToolCallException;
 
 class ToolErrorTest extends TestCase
 {
@@ -62,6 +63,14 @@ class ToolErrorTest extends TestCase
     public function testMessageWithoutAFieldIsListedAlone(): void
     {
         $this->assertSame("The data is invalid.\n- Something is off", ToolError::invalid(['Something is off'])->getMessage());
+    }
+
+    public function testMessageIsSentAsItIs(): void
+    {
+        $exception = ToolError::message('Order "A-1" does not exist.');
+
+        $this->assertInstanceOf(ToolCallException::class, $exception);
+        $this->assertSame('Order "A-1" does not exist.', $exception->getMessage());
     }
 
     public function testNoErrorsLeavesOnlyTheFirstLine(): void

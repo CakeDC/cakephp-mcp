@@ -7,6 +7,9 @@ provides a command that speaks MCP over standard input and output:
 bin/cake mcp server
 ```
 
+With several servers (see [Several servers](configuration.md#several-servers)),
+pick one with `--server`: `bin/cake mcp server --server admin`.
+
 ## Claude Code
 
 ```bash

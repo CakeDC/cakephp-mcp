@@ -4,33 +4,62 @@ declare(strict_types=1);
 namespace CakeDC\Mcp\Server;
 
 use Cake\Cache\Cache;
+use CakeDC\Mcp\App\AppTools;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
+use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use CakeDC\Mcp\Authorization\ContentGate;
+use CakeDC\Mcp\Authorization\ContentGuard;
+use CakeDC\Mcp\Authorization\ContentNotificationBus;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
 use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
 use CakeDC\Mcp\Authorization\ToolCallGuard;
 use CakeDC\Mcp\Authorization\ToolGate;
+use CakeDC\Mcp\Catalog\ToolCatalog;
 use CakeDC\Mcp\Container\ContainerBridge;
+use CakeDC\Mcp\Event\AppToolFilter;
 use CakeDC\Mcp\Event\AuditListener;
+use CakeDC\Mcp\Event\ContentListFilter;
 use CakeDC\Mcp\Event\EventDispatcher;
 use CakeDC\Mcp\Event\ToolListFilter;
+use CakeDC\Mcp\Event\ToolSchemaNormalizer;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
+use CakeDC\Mcp\OAuth\AuthSettings;
+use CakeDC\Mcp\Schema\SchemaNormalizer;
 use CakeDC\Mcp\TestSuite\RecordingTransport;
 use InvalidArgumentException;
+use Mcp\Capability\Discovery\CachedDiscoverer;
+use Mcp\Capability\Discovery\Discoverer;
 use Mcp\Capability\Registry;
+use Mcp\Capability\Registry\ReferenceHandler;
+use Mcp\Capability\Registry\ResourceTemplateReference;
+use Mcp\Capability\RegistryInterface;
 use Mcp\Event\ErrorEvent;
 use Mcp\Event\RequestEvent;
 use Mcp\Event\ResponseEvent;
+use Mcp\Exception\ResourceNotFoundException;
 use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\Extension\Apps\McpApps;
+use Mcp\Schema\Icon;
+use Mcp\Schema\JsonRpc\Request;
+use Mcp\Schema\Request\GetPromptRequest;
+use Mcp\Schema\Request\ReadResourceRequest;
+use Mcp\Schema\Tool;
+use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Session\Psr16SessionStore;
+use Mcp\Server\Subscription\NotificationBusInterface;
+use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
+use Mcp\Server\Wire\CachePolicy;
 use Psr\Container\ContainerInterface;
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
+use Psr\Log\NullLogger;
+use ReflectionProperty;
 use RuntimeException;
 use stdClass;
 use Stringable;
@@ -43,13 +72,83 @@ use Stringable;
 final class ServerFactory
 {
     /**
+     * Private properties of the SDK's Builder this factory reads, with their declared type in mcp/sdk 0.9. A
+     * release that changes one fails SdkInternalsTest instead of every request.
+     *
+     * @internal
+     * @var array<string, string>
+     */
+    public const BUILDER_PROPERTIES = [
+        'notificationBus' => '?Mcp\\Server\\Subscription\\NotificationBusInterface',
+        'extensions' => 'array',
+        'cachePolicy' => '?Mcp\\Server\\Wire\\CachePolicy',
+        'registry' => 'Mcp\\Capability\\RegistryInterface',
+        'requestHandlers' => 'array',
+        'referenceHandler' => '?Mcp\\Capability\\Registry\\ReferenceHandlerInterface',
+        'schemaValidator' => '?Mcp\\Capability\\Discovery\\SchemaValidator',
+        'explicitTools' => 'array',
+        'tools' => 'array',
+    ];
+
+    /**
+     * What #[McpWhen] removed in the last build.
+     *
+     * @var list<string>
+     */
+    private array $skipped = [];
+
+    /**
+     * The registry of the last build.
+     */
+    private ?RegistryInterface $lastRegistry = null;
+
+    /**
+     * Whether the last build announced the MCP Apps extension (from `Mcp.apps.enabled` or the host hook).
+     */
+    private bool $appsAnnounced = false;
+
+    /**
+     * The cache policy the config or the hook set, before `tools/list` is forced private.
+     */
+    private ?CachePolicy $cachePolicy = null;
+
+    /**
+     * The route values when the container has no McpRoute (a container without the plugin's services).
+     */
+    private ?McpRoute $route = null;
+
+    /**
      * @param \Psr\Container\ContainerInterface $container The host container.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The shared current identity.
+     * @param string $server The MCP server this factory builds: `default` or a key of `Mcp.servers`.
      */
     public function __construct(
         private readonly ContainerInterface $container,
         private readonly CurrentIdentity $identity,
+        private readonly string $server = McpConfig::DEFAULT_SERVER,
     ) {
+    }
+
+    /**
+     * A factory for another MCP server, with the same container and current identity.
+     *
+     * @param string $server `default` or a key of `Mcp.servers`.
+     * @return self
+     * @throws \InvalidArgumentException When the server is not configured.
+     */
+    public function forServer(string $server): self
+    {
+        McpConfig::get('route', $server);
+
+        return new self($this->container, $this->identity, $server);
+    }
+
+    /**
+     * @return string The MCP server this factory builds.
+     */
+    public function server(): string
+    {
+        return $this->server;
     }
 
     /**
@@ -76,65 +175,211 @@ final class ServerFactory
      */
     private function build(bool $trusted, LoggerInterface $logger): Server
     {
-        $gate = new ToolGate($this->authorizer(), $this->identity, $trusted);
+        $catalog = (array)McpConfig::get('catalog', $this->server);
+        $catalogOn = ($catalog['enabled'] ?? false) === true;
+        $patterns = array_values(array_filter((array)($catalog['tools'] ?? []), 'is_string'));
+        // The catalog's own tools are always allowed: each tool they run goes through the gate instead.
+        $authorizer = $this->authorizer();
+        $gate = new ToolGate(
+            $authorizer,
+            $this->identity,
+            $trusted,
+            $catalogOn ? [ToolCatalog::FIND, ToolCatalog::CALL] : [],
+        );
         $events = new EventDispatcher();
-        $events->listen(ResponseEvent::class, new ToolListFilter($gate));
-        // The guard goes first: the SDK asks request handlers in the order they were added.
+        /** @var \CakeDC\Mcp\Catalog\ToolCatalog|null $toolCatalog Set after the host hook. */
+        $toolCatalog = null;
+        // The catalog's own rule, so tools/list hides exactly what find_tools and call_tools offer.
+        $events->listen(ResponseEvent::class, new ToolListFilter(
+            $gate,
+            $catalogOn ? function (string $tool) use (&$toolCatalog): bool {
+                return $toolCatalog?->has($tool) ?? false;
+            } : null,
+            // The registry of the build: a page the filter empties is filled from the next ones.
+            fn(): ?RegistryInterface => $this->lastRegistry,
+        ));
+        if (McpConfig::get('schema.normalize', $this->server) === true) {
+            // After the filter, on the tools the caller may see.
+            $events->listen(ResponseEvent::class, new ToolSchemaNormalizer());
+        }
+        $appsOn = McpConfig::get('apps.enabled', $this->server) === true;
+        if ($appsOn) {
+            // Clients that do not render apps never get app-only tools listed. Only with Mcp.apps on: a 2.1
+            // application that wrote `visibility: ["app"]` itself keeps its tools/list.
+            $events->listen(ResponseEvent::class, new AppToolFilter());
+        }
+        // Denied resources and prompts, when the authorizer decides for them.
+        // Our own registry, set before the host hook (which may still replace it): #[McpWhen] prunes it after
+        // the build, and the audit asks it whether a tool exists, to tell a denied tool from an unknown one.
+        $registry = new Registry($events, $logger);
+        // A concrete URI is also checked against the template that serves it, found in the registry the server
+        // ends up with (by reference: the host hook may still replace it).
+        $contentGate = new ContentGate(
+            $authorizer,
+            $this->identity,
+            $trusted,
+            function (string $uri) use (&$registry): ?string {
+                try {
+                    $reference = $registry->getResource($uri);
+                } catch (ResourceNotFoundException) {
+                    return null;
+                }
+
+                return $reference instanceof ResourceTemplateReference
+                    ? $reference->resourceTemplate->uriTemplate
+                    : null;
+            },
+        );
+        if ($contentGate->active()) {
+            $events->listen(ResponseEvent::class, new ContentListFilter($contentGate));
+        }
+        // The guards go first: the SDK asks request handlers in the order they were added.
         $builder = Server::builder()->addRequestHandler(new ToolCallGuard($gate));
-        $audit = AuditSettings::fromConfig();
+        $ownHandlers = 1;
+        if ($contentGate->active()) {
+            $builder->addRequestHandler(new ContentGuard($contentGate));
+            $ownHandlers++;
+        }
+        $builder->setRegistry($registry);
+        $audit = AuditSettings::fromConfig($this->server, $this->route()->values());
         if ($audit->enabled) {
-            // The audit needs to know which tools exist, to tell a denied tool from an unknown one: it keeps
-            // the registry. Set before the host hook, which may still replace it (the audit then falls back
-            // to asking the gate only).
-            $registry = new Registry($events, $logger);
-            $builder->setRegistry($registry);
             $listener = new AuditListener(
                 $audit,
                 new AuditWriter($audit),
                 $gate,
                 $this->identity,
-                toolExists: fn(string $name): ?bool => $registry->hasTools() ? $registry->hasTool($name) : null,
+                // By reference: the host hook may still replace the registry.
+                toolExists: function (string $name) use (&$registry): ?bool {
+                    return $registry->hasTools() ? $registry->hasTool($name) : null;
+                },
+                appOnly: function (string $name) use (&$registry): bool {
+                    return $registry->hasTool($name) && AppTools::appOnly($registry->getTool($name)->tool);
+                },
+                via: function (Request $request) use (&$toolCatalog): ?string {
+                    return $toolCatalog?->made($request) ? ToolCatalog::CALL : null;
+                },
+                contentDenied: function (Request $request) use (&$registry, $contentGate): bool {
+                    if ($request instanceof ReadResourceRequest && !$contentGate->allowsRead($request->uri)) {
+                        try {
+                            $registry->getResource($request->uri);
+
+                            return true;
+                        } catch (ResourceNotFoundException) {
+                            return false;
+                        }
+                    }
+
+                    return $request instanceof GetPromptRequest
+                        && !$contentGate->allowsPrompt($request->name)
+                        && $registry->hasPrompt($request->name);
+                },
             );
             $events->listen(RequestEvent::class, $listener->onRequest(...));
             $events->listen(ResponseEvent::class, $listener->onResponse(...));
             $events->listen(ErrorEvent::class, $listener->onError(...));
         }
         $this->configure($builder);
+        // After the hook, which sets the bus: a listen stream carries no update of a resource the caller cannot read.
+        $bus = self::builderValue($builder, 'notificationBus');
+        if ($bus instanceof NotificationBusInterface && $contentGate->decidesResources()) {
+            $builder->setNotificationBus(new ContentNotificationBus($bus, $contentGate));
+        }
+        $extensions = self::builderValue($builder, 'extensions');
+        $hookEnabledApps = is_array($extensions) && isset($extensions[McpApps::EXTENSION_ID]);
+        if ($appsOn && !$hookEnabledApps) {
+            // After the hook, which may have enabled it already (a 2.1 application serving apps that way).
+            $builder->enableExtension(new McpApps());
+        }
+        $this->appsAnnounced = $appsOn || $hookEnabledApps;
+        // The registry the server will use, the plugin's or one the hook set.
+        $registry = $this->registryOf($builder);
+        // One bridge for the server and the catalog's inner calls: a tool class the host did not register is one
+        // object per server, whether it is called by name or through call_tools.
+        $bridge = new ContainerBridge($this->container);
+        if ($catalogOn) {
+            $this->assertCatalogCanRunEverything($builder, $ownHandlers);
+            $toolCatalog = new ToolCatalog(
+                $registry,
+                $gate,
+                $patterns,
+                self::positiveInt($catalog['maxCalls'] ?? 5, 'maxCalls'),
+                new ReferenceHandler($bridge),
+                $logger,
+                $this->scopePolicy(),
+                $events,
+                McpConfig::get('schema.normalize', $this->server) === true,
+                self::positiveInt($catalog['maxResultBytes'] ?? ToolCatalog::MAX_RESULT_BYTES, 'maxResultBytes'),
+            );
+            $this->addCatalog($builder, $toolCatalog);
+        }
         // Set after the host hook, so the hook cannot drop the tool list filter or replace these.
         $builder
             ->setServerInfo(
-                (string)McpConfig::get('server.name'),
-                (string)McpConfig::get('server.version'),
+                (string)McpConfig::get('server.name', $this->server),
+                (string)McpConfig::get('server.version', $this->server),
                 $this->optionalString('server.description'),
+                $this->icons(),
                 websiteUrl: $this->optionalString('server.websiteUrl'),
                 title: $this->optionalString('server.title'),
             )
-            ->setContainer(new ContainerBridge($this->container))
+            ->setContainer($bridge)
             ->setLogger($logger)
             ->setEventDispatcher($events)
             ->setSession(new Psr16SessionStore(
-                Cache::pool((string)McpConfig::get('session.cache')),
-                'mcp-',
-                (int)McpConfig::get('session.ttl'),
+                Cache::pool((string)McpConfig::get('session.cache', $this->server)),
+                $this->sessionPrefix(),
+                (int)McpConfig::get('session.ttl', $this->server),
             ));
 
-        $instructions = McpConfig::get('server.instructions');
+        $cachePolicy = CacheHints::fromConfig(McpConfig::get('server.cache', $this->server));
+        if ($cachePolicy !== null) {
+            $builder->setCachePolicy($cachePolicy);
+        }
+        // Whoever set the policy (the config or the hook), a list filtered per caller is never public.
+        $policy = self::builderValue($builder, 'cachePolicy');
+        $this->cachePolicy = $policy instanceof CachePolicy ? $policy : null;
+        if ($policy instanceof CachePolicy) {
+            $private = array_merge(
+                // Per caller with an authorizer; per client with MCP Apps, which lists app-only tools only to a
+                // client that renders apps (a shared cache keyed by method and cursor would mix the two lists).
+                $authorizer instanceof AllowAllToolAuthorizer && !$appsOn ? [] : ['tools/list'],
+                // A resource or prompt an authorizer filters is never in a shared cache either.
+                $contentGate->decidesResources()
+                    ? ['resources/list', 'resources/templates/list', 'resources/read']
+                    : [],
+                $contentGate->decidesPrompts() ? ['prompts/list'] : [],
+            );
+            $builder->setCachePolicy(CacheHints::private($policy, $private));
+        }
+
+        $instructions = McpConfig::get('server.instructions', $this->server);
         if (is_string($instructions) && $instructions !== '') {
             $builder->setInstructions($instructions);
         }
 
-        $scanDirs = $this->existingDirs((array)McpConfig::get('discovery.scanDirs'));
+        $scanDirs = $this->existingDirs((array)McpConfig::get('discovery.scanDirs', $this->server));
+        $excludeDirs = array_values(array_filter(
+            (array)McpConfig::get('discovery.excludeDirs', $this->server),
+            'is_string',
+        ));
+        $cache = McpConfig::discoveryCache($this->server);
         if ($scanDirs !== []) {
-            $cache = McpConfig::discoveryCache();
-            $builder->setDiscovery(
-                rtrim(ROOT, DS),
-                $scanDirs,
-                array_values(array_filter((array)McpConfig::get('discovery.excludeDirs'), 'is_string')),
-                $cache !== null ? Cache::pool($cache) : null,
-            );
+            $pool = $cache !== null ? Cache::pool($cache) : null;
+            $builder->setDiscovery(rtrim(ROOT, DS), $scanDirs, $excludeDirs, $pool);
         }
 
-        return $builder->build();
+        $server = $builder->build();
+        $this->skipped = Conditions::prune($registry, $this->server);
+        AppTools::link($registry);
+        if ($toolCatalog !== null) {
+            $this->assertCatalogOwnsItsTools($registry, $toolCatalog);
+            if ($scanDirs !== []) {
+                $this->assertNoDiscoveredToolTakesTheCatalogsNames($scanDirs, $excludeDirs, $cache);
+            }
+        }
+        $this->lastRegistry = $registry;
+
+        return $server;
     }
 
     /**
@@ -146,7 +391,7 @@ final class ServerFactory
      */
     private function configure(Builder $builder): void
     {
-        $configure = McpConfig::get('server.configure');
+        $configure = McpConfig::get('server.configure', $this->server);
         if ($configure === null) {
             return;
         }
@@ -165,7 +410,7 @@ final class ServerFactory
      */
     private function optionalString(string $path): ?string
     {
-        $value = McpConfig::get($path);
+        $value = McpConfig::get($path, $this->server);
 
         return is_string($value) && $value !== '' ? $value : null;
     }
@@ -191,7 +436,6 @@ final class ServerFactory
 
     /**
      * The names of the tools the server offers, as a trusted client lists them (no authorizer, every page).
-     * Builds the server the same way the endpoint does, without network calls.
      *
      * @internal Used by `bin/cake mcp check`; not part of the public API.
      * @return list<string>
@@ -199,7 +443,21 @@ final class ServerFactory
      */
     public function toolNames(): array
     {
-        $names = [];
+        return array_map(fn(array $tool): string => $tool['name'], $this->toolDefinitions());
+    }
+
+    /**
+     * The tools the server offers, as a trusted client lists them (no authorizer, every page), decoded from JSON:
+     * the schemas as clients see them, after `Mcp.schema.normalize` when it is on. Builds the server the same way
+     * the endpoint does, without network calls.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<array<string, mixed>> Each tool has a string `name`.
+     * @throws \RuntimeException When the server cannot list its tools.
+     */
+    public function toolDefinitions(): array
+    {
+        $tools = [];
         $cursor = null;
         for ($page = 0; $page < 100; $page++) {
             $list = ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list'];
@@ -215,18 +473,7 @@ final class ServerFactory
                 (string)json_encode(['jsonrpc' => '2.0', 'method' => 'notifications/initialized']),
                 (string)json_encode($list),
             ]);
-            // Only warnings and worse: the SDK's info lines would land among the output of `mcp check`.
-            $this->build(true, new class extends AbstractLogger {
-                /**
-                 * @inheritDoc
-                 */
-                public function log(mixed $level, string|Stringable $message, array $context = []): void
-                {
-                    if (!in_array($level, [LogLevel::INFO, LogLevel::DEBUG, LogLevel::NOTICE], true)) {
-                        (new McpLogger())->log($level, $message, $context);
-                    }
-                }
-            })->run($transport);
+            $this->build(true, $this->quietLogger())->run($transport);
             $result = $transport->responseFor(2)['result'] ?? null;
             if (!is_array($result) || !is_array($result['tools'] ?? null)) {
                 throw new RuntimeException(
@@ -235,7 +482,7 @@ final class ServerFactory
             }
             foreach ($result['tools'] as $tool) {
                 if (is_array($tool) && is_string($tool['name'] ?? null)) {
-                    $names[] = $tool['name'];
+                    $tools[] = $tool;
                 }
             }
             $cursor = $result['nextCursor'] ?? null;
@@ -244,7 +491,391 @@ final class ServerFactory
             }
         }
 
-        return $names;
+        return $tools;
+    }
+
+    /**
+     * Reads one of the Builder's private properties named in BUILDER_PROPERTIES.
+     *
+     * @internal
+     * @param \Mcp\Server\Builder $builder The builder.
+     * @param string $name A key of BUILDER_PROPERTIES.
+     * @return mixed
+     */
+    public static function builderValue(Builder $builder, string $name): mixed
+    {
+        assert(isset(self::BUILDER_PROPERTIES[$name]), sprintf('Builder::$%s is not in BUILDER_PROPERTIES.', $name));
+
+        return (new ReflectionProperty(Builder::class, $name))->getValue($builder);
+    }
+
+    /**
+     * The registry the builder holds after the host hook: the plugin's, or any RegistryInterface the hook set.
+     *
+     * @param \Mcp\Server\Builder $builder The builder.
+     * @return \Mcp\Capability\RegistryInterface
+     */
+    private function registryOf(Builder $builder): RegistryInterface
+    {
+        $registry = self::builderValue($builder, 'registry');
+        assert($registry instanceof RegistryInterface);
+
+        return $registry;
+    }
+
+    /**
+     * Inner calls of `call_tools` run through the plugin's gate, scopes, validation and audit, not through request
+     * handlers, a reference handler or a schema validator the host hook added: refuse the combination.
+     *
+     * @param \Mcp\Server\Builder $builder The builder, after the host hook.
+     * @param int $ownHandlers How many request handlers the plugin added itself, before the hook.
+     * @return void
+     * @throws \InvalidArgumentException When the hook added one of them, or a tool named like the catalog's.
+     */
+    private function assertCatalogCanRunEverything(Builder $builder, int $ownHandlers): void
+    {
+        $read = fn(string $property): mixed => self::builderValue($builder, $property);
+        $handlers = $read('requestHandlers');
+        $added = [];
+        if (is_array($handlers) && count($handlers) > $ownHandlers) {
+            $added[] = 'request handlers';
+        }
+        if ($read('referenceHandler') !== null) {
+            $added[] = 'a reference handler';
+        }
+        if ($read('schemaValidator') !== null) {
+            $added[] = 'a schema validator';
+        }
+        if ($added !== []) {
+            throw new InvalidArgumentException(sprintf(
+                'Mcp.server.configure added %s, and with Mcp.catalog on, a tool run by call_tools would not go '
+                . 'through it. Turn the catalog off for this server, or do the same in an authorizer.',
+                implode(' and ', $added),
+            ));
+        }
+        $explicit = array_map(
+            fn(mixed $tool): mixed => is_array($tool) && $tool['definition'] instanceof Tool
+                ? ['name' => $tool['definition']->name]
+                : null,
+            (array)$read('explicitTools'),
+        );
+        foreach ([...(array)$read('tools'), ...$explicit] as $tool) {
+            $name = is_array($tool) ? $tool['name'] ?? null : null;
+            if ($name === ToolCatalog::FIND || $name === ToolCatalog::CALL) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is the tool catalog\'s own tool: Mcp.server.configure cannot add a tool with that name.',
+                    $name,
+                ));
+            }
+        }
+    }
+
+    /**
+     * After the build: the catalog's tools are its own, not a discovered tool with the same name.
+     *
+     * @param \Mcp\Capability\RegistryInterface $registry The registry.
+     * @param \CakeDC\Mcp\Catalog\ToolCatalog $catalog The catalog.
+     * @return void
+     * @throws \InvalidArgumentException When another tool took one of the names.
+     */
+    private function assertCatalogOwnsItsTools(RegistryInterface $registry, ToolCatalog $catalog): void
+    {
+        foreach ([ToolCatalog::FIND => 'find', ToolCatalog::CALL => 'call'] as $name => $method) {
+            $handler = $registry->hasTool($name) ? $registry->getTool($name)->handler : null;
+            if (!is_array($handler) || $handler[0] !== $catalog || $handler[1] !== $method) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is the tool catalog\'s own tool: rename the tool of this server that has that name.',
+                    $name,
+                ));
+            }
+        }
+    }
+
+    /**
+     * The SDK skips a discovered tool whose name is already taken, here by the catalog, with a debug line only: the
+     * application's tool would vanish when the catalog is turned on. The discovery is read again (from its cache
+     * when it has one) to say so.
+     *
+     * @param list<string> $scanDirs The scanned directories.
+     * @param list<string> $excludeDirs The excluded directories.
+     * @param string|null $cache The discovery cache config.
+     * @return void
+     * @throws \InvalidArgumentException When a discovered tool has one of the catalog's names.
+     */
+    private function assertNoDiscoveredToolTakesTheCatalogsNames(
+        array $scanDirs,
+        array $excludeDirs,
+        ?string $cache,
+    ): void {
+        $discoverer = new Discoverer(new NullLogger());
+        if ($cache !== null) {
+            $discoverer = new CachedDiscoverer($discoverer, Cache::pool($cache), new NullLogger());
+        }
+        $tools = $discoverer->discover(rtrim(ROOT, DS), $scanDirs, $excludeDirs)->getTools();
+        foreach ([ToolCatalog::FIND, ToolCatalog::CALL] as $name) {
+            if (isset($tools[$name])) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is the tool catalog\'s own tool: rename the discovered tool %s, which the catalog hides '
+                    . 'while Mcp.catalog.enabled is on.',
+                    $name,
+                    self::handlerName($tools[$name]->handler),
+                ));
+            }
+        }
+    }
+
+    /**
+     * @param mixed $handler A tool handler.
+     * @return string
+     */
+    private static function handlerName(mixed $handler): string
+    {
+        if (is_array($handler) && count($handler) === 2 && is_string($handler[1])) {
+            $class = is_object($handler[0]) ? $handler[0]::class : (string)$handler[0];
+
+            return $class . '::' . $handler[1] . '()';
+        }
+
+        return is_string($handler) ? $handler : get_debug_type($handler);
+    }
+
+    /**
+     * Registers `find_tools` and `call_tools`.
+     *
+     * @param \Mcp\Server\Builder $builder The builder.
+     * @param \CakeDC\Mcp\Catalog\ToolCatalog $catalog The catalog.
+     * @return void
+     */
+    private function addCatalog(Builder $builder, ToolCatalog $catalog): void
+    {
+        $schemas = $catalog->inputSchemas();
+        $builder->addTool(
+            [$catalog, 'find'],
+            ToolCatalog::FIND,
+            'Find tools',
+            'Finds more tools of this server by what they do. Returns their names, descriptions and input schemas; '
+            . 'run them with call_tools.',
+            new ToolAnnotations(readOnlyHint: true, openWorldHint: false),
+            $schemas[ToolCatalog::FIND],
+        );
+        $builder->addTool(
+            [$catalog, 'call'],
+            ToolCatalog::CALL,
+            'Call tools',
+            'Runs tools found with find_tools, in order, and returns each result. Stops at the first error.',
+            null,
+            $schemas[ToolCatalog::CALL],
+        );
+    }
+
+    /**
+     * @return \Mcp\Server\Transport\Http\OAuth\ScopePolicy|null The server's scope policy; null in host mode.
+     */
+    private function scopePolicy(): ?ScopePolicy
+    {
+        $settings = AuthSettings::fromConfig($this->server);
+
+        return $settings->mode === AuthSettings::HOST ? null : $settings->scopePolicy();
+    }
+
+    /**
+     * @param mixed $value `Mcp.catalog.<key>`: an integer, or a string of digits as env() gives.
+     * @param string $key `maxCalls` or `maxResultBytes`.
+     * @return int
+     * @throws \InvalidArgumentException When it is not a positive integer.
+     */
+    private static function positiveInt(mixed $value, string $key): int
+    {
+        // A string of digits too: what env() gives.
+        if (is_string($value) && ctype_digit($value)) {
+            $value = (int)$value;
+        }
+        if (!is_int($value) || $value < 1) {
+            throw new InvalidArgumentException(sprintf('"Mcp.catalog.%s" must be a positive integer.', $key));
+        }
+
+        return $value;
+    }
+
+    /**
+     * Every tool registered on this server, including those the tool catalog keeps out of `tools/list`, as a
+     * trusted client would see them (schemas normalized when `schema.normalize` is on), decoded from JSON.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<array<string, mixed>> Each tool has a string `name`.
+     */
+    public function registeredToolDefinitions(): array
+    {
+        $this->build(true, $this->quietLogger());
+        $normalize = McpConfig::get('schema.normalize', $this->server) === true;
+        $tools = [];
+        foreach ($this->lastRegistry?->getTools()->references ?? [] as $tool) {
+            $definition = json_decode((string)json_encode($tool), true);
+            if (!is_array($definition) || !is_string($definition['name'] ?? null)) {
+                continue;
+            }
+            if ($normalize && is_array($definition['inputSchema'] ?? null)) {
+                $definition['inputSchema'] = SchemaNormalizer::normalize($definition['inputSchema']);
+            }
+            $tools[] = $definition;
+        }
+
+        return $tools;
+    }
+
+    /**
+     * Every resource registered on this server (not templates), decoded from JSON.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<array<string, mixed>> Each has a string `uri`.
+     */
+    public function registeredResourceDefinitions(): array
+    {
+        $this->build(true, $this->quietLogger());
+        $resources = [];
+        foreach ($this->lastRegistry?->getResources()->references ?? [] as $resource) {
+            $definition = json_decode((string)json_encode($resource), true);
+            if (is_array($definition) && is_string($definition['uri'] ?? null)) {
+                $resources[] = $definition;
+            }
+        }
+
+        return $resources;
+    }
+
+    /**
+     * Whether this server tells clients about MCP Apps: `Mcp.apps.enabled`, or the host hook enabled the extension.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return bool
+     */
+    public function appsAnnounced(): bool
+    {
+        $this->build(true, $this->quietLogger());
+
+        return $this->appsAnnounced;
+    }
+
+    /**
+     * The values of the parameters of this server's route in the current request (`/mcp/{tenant}`), shared with
+     * the tools through the container.
+     *
+     * @return \CakeDC\Mcp\Server\McpRoute
+     */
+    public function route(): McpRoute
+    {
+        if ($this->container->has(McpRoute::class)) {
+            $route = $this->container->get(McpRoute::class);
+            if ($route instanceof McpRoute) {
+                return $route;
+            }
+        }
+
+        return $this->route ??= new McpRoute();
+    }
+
+    /**
+     * The session keys of this server, and of this value of its route parameters, kept apart from the others.
+     *
+     * @return string
+     */
+    private function sessionPrefix(): string
+    {
+        $prefix = $this->server === McpConfig::DEFAULT_SERVER ? 'mcp-' : 'mcp-' . $this->server . '-';
+        $values = $this->route()->values();
+
+        return $values === [] ? $prefix : $prefix . hash('sha256', (string)json_encode($values)) . '-';
+    }
+
+    /**
+     * `Mcp.server.icons` as the SDK's icons.
+     *
+     * @return list<\Mcp\Schema\Icon>|null
+     * @throws \InvalidArgumentException When an entry is not an icon.
+     */
+    private function icons(): ?array
+    {
+        $icons = McpConfig::get('server.icons', $this->server);
+        if ($icons === null || $icons === []) {
+            return null;
+        }
+        if (!is_array($icons) || !array_is_list($icons)) {
+            throw new InvalidArgumentException('"Mcp.server.icons" must be null or a list of icons.');
+        }
+        try {
+            return array_map(fn(mixed $icon): Icon => Icon::fromArray(is_array($icon) ? $icon : []), $icons);
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidArgumentException(
+                sprintf('"Mcp.server.icons": %s Each icon needs a "src".', $e->getMessage()),
+                0,
+                $e,
+            );
+        }
+    }
+
+    /**
+     * The cache hints policy set by `Mcp.server.cache` or by the host hook, before the plugin forces `tools/list`
+     * private; null when neither set one.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return \Mcp\Server\Wire\CachePolicy|null
+     */
+    public function cachePolicy(): ?CachePolicy
+    {
+        $this->build(true, $this->quietLogger());
+
+        return $this->cachePolicy;
+    }
+
+    /**
+     * Whether $tool is a registered app-only tool, for the audit records the endpoint writes before the server
+     * runs (a refused token).
+     *
+     * @internal Used by the MCP controller; not part of the public API.
+     * @param string $tool A tool name.
+     * @return bool
+     */
+    public function isAppOnlyTool(string $tool): bool
+    {
+        if ($this->lastRegistry === null) {
+            $this->build(true, $this->quietLogger());
+        }
+        $registry = $this->lastRegistry;
+
+        return $registry !== null && $registry->hasTool($tool) && AppTools::appOnly($registry->getTool($tool)->tool);
+    }
+
+    /**
+     * What `#[McpWhen]` leaves out of this server, as a trusted client would see it.
+     *
+     * @internal Used by `bin/cake mcp check`; not part of the public API.
+     * @return list<string> `<kind> <name> (<why>)`.
+     */
+    public function skippedElements(): array
+    {
+        $this->build(true, $this->quietLogger());
+
+        return $this->skipped;
+    }
+
+    /**
+     * Only warnings and worse: the SDK's info lines would land among the output of `mcp check`.
+     *
+     * @return \Psr\Log\LoggerInterface
+     */
+    private function quietLogger(): LoggerInterface
+    {
+        return new class extends AbstractLogger {
+            /**
+             * @inheritDoc
+             */
+            public function log(mixed $level, string|Stringable $message, array $context = []): void
+            {
+                if (!in_array($level, [LogLevel::INFO, LogLevel::DEBUG, LogLevel::NOTICE], true)) {
+                    (new McpLogger())->log($level, $message, $context);
+                }
+            }
+        };
     }
 
     /**
@@ -255,12 +886,12 @@ final class ServerFactory
      */
     public function authorizer(): ToolAuthorizerInterface
     {
-        $authorizer = McpConfig::get('authorization.authorizer');
+        $authorizer = McpConfig::get('authorization.authorizer', $this->server);
         if ($authorizer instanceof ToolAuthorizerInterface) {
             return $authorizer;
         }
         if ($authorizer === RbacToolAuthorizer::class) {
-            return new RbacToolAuthorizer((array)McpConfig::get('authorization.rbac'));
+            return new RbacToolAuthorizer((array)McpConfig::get('authorization.rbac', $this->server));
         }
         if (is_string($authorizer) && is_subclass_of($authorizer, ToolAuthorizerInterface::class)) {
             $instance = (new ContainerBridge($this->container))->get($authorizer);

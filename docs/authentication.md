@@ -97,7 +97,10 @@ in the `identity` attribute, so the plugin reads it unchanged. Two defaults of
    permission rule for the endpoint and its protected resource metadata (used
    by [OAuth](oauth.md)) in your `config/permissions.php`, with `bypassAuth` so
    the request reaches the plugin, which then does its own 401 and per-tool
-   authorization. `McpConfig::rbacPermissions()` returns that rule:
+   authorization. `McpConfig::rbacPermissions()` returns that rule (and, with
+   a user mode client in `Mcp.clients`, two more: one for its sign-in routes,
+   and one with `bypassAuth` for its `client.json`, which authorization servers
+   fetch without a session):
 
    ```php
    // config/permissions.php
@@ -110,7 +113,8 @@ in the `identity` attribute, so the plugin reads it unchanged. Two defaults of
    ];
    ```
 
-   It is this rule, which you can also write by hand:
+   The first is this rule, which you can also write by hand (the client rules
+   are in [Calling other MCP servers](mcp-client.md)):
 
    ```php
    [

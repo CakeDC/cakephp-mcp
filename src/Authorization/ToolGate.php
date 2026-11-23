@@ -15,11 +15,13 @@ final class ToolGate
      * @param \CakeDC\Mcp\Authorization\ToolAuthorizerInterface $authorizer The configured authorizer.
      * @param \CakeDC\Mcp\Identity\CurrentIdentity $identity The current caller.
      * @param bool $trusted Skip the authorizer (stdio started by the developer).
+     * @param list<string> $alwaysAllowed Tools allowed whatever the authorizer says (the tool catalog's own tools).
      */
     public function __construct(
         private readonly ToolAuthorizerInterface $authorizer,
         private readonly CurrentIdentity $identity,
         private readonly bool $trusted = false,
+        private readonly array $alwaysAllowed = [],
     ) {
     }
 
@@ -29,6 +31,8 @@ final class ToolGate
      */
     public function allows(string $tool): bool
     {
-        return $this->trusted || $this->authorizer->canCall($this->identity->get(), $tool);
+        return $this->trusted
+            || in_array($tool, $this->alwaysAllowed, true)
+            || $this->authorizer->canCall($this->identity->get(), $tool);
     }
 }

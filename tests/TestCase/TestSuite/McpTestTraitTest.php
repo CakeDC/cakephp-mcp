@@ -51,6 +51,68 @@ class McpTestTraitTest extends TestCase
         $this->assertMcpStructuredContent(['subject' => '7', 'identifier' => 7]);
     }
 
+    public function testStructuredContentPath(): void
+    {
+        $this->mcpActingAs(['id' => 7]);
+        $this->mcpCallTool('whoami');
+
+        $this->assertMcpStructuredContentPath('identifier', 7);
+
+        $this->expectException(AssertionFailedError::class);
+        $this->assertMcpStructuredContentPath('identifier', '7');
+    }
+
+    public function testStructuredContentPathFailsWhenMissing(): void
+    {
+        $this->mcpCallTool('whoami');
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('nope.deeper');
+        $this->assertMcpStructuredContentPath('nope.deeper', null);
+    }
+
+    public function testStructuredContentHasSeesNullValues(): void
+    {
+        $this->mcpCallTool('whoami');
+
+        $this->assertMcpStructuredContentHas('identifier');
+
+        $this->expectException(AssertionFailedError::class);
+        $this->assertMcpStructuredContentHas('nope');
+    }
+
+    public function testListedForAnotherIdentityKeepsTheTestIdentity(): void
+    {
+        Configure::write('Mcp.authorization.authorizer', $this->onlyForAdmins('admin_only'));
+        $this->mcpActingAs(['id' => 7, 'role' => 'admin'], ['mcp:tools']);
+
+        $this->assertMcpToolListedFor(['id' => 2, 'role' => 'admin'], 'admin_only');
+        $this->assertMcpToolNotListedFor(['id' => 1, 'role' => 'user'], 'admin_only');
+        try {
+            $this->assertMcpToolListedFor(['id' => 1, 'role' => 'user'], 'admin_only');
+            $this->fail('The assertion passed for a user.');
+        } catch (AssertionFailedError) {
+        }
+
+        $this->mcpCallTool('whoami');
+        $this->assertMcpStructuredContentPath('identifier', 7);
+        $this->assertSame(['mcp:tools'], $this->_mcpScopes);
+    }
+
+    public function testUseServer(): void
+    {
+        Configure::write('Mcp.servers.admin', ['route' => '/mcp/admin', 'discovery' => ['scanDirs' => ['src/McpDocs']]]);
+
+        $this->mcpUseServer('admin');
+
+        $this->assertMcpToolListed('find_order');
+        $this->mcpCallTool('find_order', ['number' => 'A-1']);
+        $this->assertMcpStructuredContentPath('number', 'A-1');
+
+        $this->mcpUseServer('default');
+        $this->assertMcpToolListed('echo');
+    }
+
     public function testAnonymousByDefault(): void
     {
         $this->mcpCallTool('whoami');
@@ -105,6 +167,44 @@ class McpTestTraitTest extends TestCase
         $this->expectException(AssertionFailedError::class);
         $this->expectExceptionMessage('is not registered');
         $this->assertMcpToolDenied();
+    }
+
+    public function testDeniedKnowsCataloguedTools(): void
+    {
+        Configure::write('Mcp.catalog', ['enabled' => true, 'tools' => ['admin_only']]);
+        Configure::write('Mcp.authorization.authorizer', $this->onlyForAdmins('admin_only'));
+        $this->mcpActingAs(['id' => 1, 'role' => 'user']);
+
+        $this->mcpCallTool('admin_only');
+        $this->assertMcpToolDenied();
+        $this->assertMcpToolNotListed('admin_only');
+    }
+
+    public function testDeniedAndNotListedKnowAppOnlyTools(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+        Configure::write('Mcp.authorization.authorizer', $this->onlyForAdmins('inbox_rows'));
+        $this->mcpActingAs(['id' => 1, 'role' => 'user']);
+
+        $this->mcpCallTool('inbox_rows');
+        $this->assertMcpToolDenied();
+        $this->assertMcpToolNotListed('inbox_rows');
+    }
+
+    public function testWithAppsOnTheTraitSeesWhatAnAppsHostSees(): void
+    {
+        Configure::write('Mcp.discovery.scanDirs', ['src/McpApps']);
+        Configure::write('Mcp.apps.enabled', true);
+
+        // App-only, and nothing hides it from this identity.
+        $this->assertMcpToolListed('inbox_rows');
+        try {
+            $this->assertMcpToolNotListed('inbox_rows');
+            $this->fail('An app-only tool every identity may use is reported as not listed.');
+        } catch (AssertionFailedError $e) {
+            $this->assertStringNotContainsString('every identity may use', $e->getMessage());
+        }
     }
 
     public function testDeniedFailsWhenTheCallSucceeded(): void

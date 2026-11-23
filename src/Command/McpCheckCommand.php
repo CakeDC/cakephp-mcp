@@ -10,6 +10,7 @@ use Authentication\Identifier\IdentifierCollection;
 use Cake\Command\Command;
 use Cake\Console\Arguments;
 use Cake\Console\ConsoleIo;
+use Cake\Console\ConsoleOptionParser;
 use Cake\Core\App;
 use Cake\Core\Configure;
 use Cake\Core\Container;
@@ -26,16 +27,35 @@ use Cake\Routing\Router;
 use CakeDC\Mcp\Audit\AuditSettings;
 use CakeDC\Mcp\Audit\AuditWriter;
 use CakeDC\Mcp\Authorization\AllowAllToolAuthorizer;
+use CakeDC\Mcp\Authorization\ContentGate;
+use CakeDC\Mcp\Authorization\PromptAuthorizerInterface;
 use CakeDC\Mcp\Authorization\RbacToolAuthorizer;
+use CakeDC\Mcp\Authorization\ResourceAuthorizerInterface;
+use CakeDC\Mcp\Authorization\ToolAuthorizerInterface;
+use CakeDC\Mcp\Catalog\CatalogPatterns;
+use CakeDC\Mcp\Catalog\ToolCatalog;
+use CakeDC\Mcp\Client\ClientConfig;
+use CakeDC\Mcp\Client\McpClients;
+use CakeDC\Mcp\Client\OAuth\ClientMetadataDocument;
+use CakeDC\Mcp\Client\Store\ConnectionStoreInterface;
+use CakeDC\Mcp\Client\Store\TableConnectionStore;
 use CakeDC\Mcp\Identity\CurrentIdentity;
 use CakeDC\Mcp\Log\McpLogger;
 use CakeDC\Mcp\McpConfig;
 use CakeDC\Mcp\OAuth\AuthSettings;
 use CakeDC\Mcp\OAuth\ResourceServer;
+use CakeDC\Mcp\Schema\SchemaLint;
 use CakeDC\Mcp\Server\ServerFactory;
+use CakeDC\Mcp\TestSuite\RecordingTransport;
 use CakeDC\OAuthServer\Authenticator\TokenAuthenticator;
 use CakeDC\OAuthServer\OAuthServer;
+use InvalidArgumentException;
+use Mcp\Schema\Enum\CacheScope;
+use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\Extension\Apps\McpApps;
+use ReflectionClass;
 use ReflectionProperty;
+use Symfony\Component\Finder\Finder;
 use Throwable;
 
 /**
@@ -55,9 +75,14 @@ class McpCheckCommand extends Command
     private const LISTED_TOOLS = 10;
 
     /**
-     * @var list<string>|null
+     * @var list<array<string, mixed>>|null
      */
     private ?array $tools = null;
+
+    /**
+     * The server being checked.
+     */
+    private string $server = McpConfig::DEFAULT_SERVER;
 
     /**
      * @param \CakeDC\Mcp\Server\ServerFactory|null $serverFactory Builds the server, as the endpoint does.
@@ -88,8 +113,70 @@ class McpCheckCommand extends Command
      */
     public function execute(Arguments $args, ConsoleIo $io): int
     {
+        $all = McpConfig::servers();
+        $broken = McpConfig::serverErrors();
+        $only = $args->getOption('server');
         $failed = false;
-        foreach ($this->checks() as $name => $probe) {
+        if (is_string($only) && isset($broken[$only])) {
+            $failed = $this->runChecks(['Server ' . $only => fn(): array => ['fail', $broken[$only]]], $io);
+            // An entry named `default` is ignored, and the default server is still checked.
+            if (!in_array($only, $all, true)) {
+                return static::CODE_ERROR;
+            }
+        }
+        if (is_string($only) && !in_array($only, $all, true)) {
+            $io->err(sprintf('<error>"Mcp.servers.%s" is not configured.</error>', $only));
+
+            return static::CODE_ERROR;
+        }
+
+        // Entries of Mcp.servers that are not served: the plugin left their routes out.
+        if (!is_string($only)) {
+            foreach ($broken as $name => $error) {
+                $failed = $this->runChecks(['Server ' . $name => fn(): array => ['fail', $error]], $io) || $failed;
+            }
+        }
+        foreach (is_string($only) ? [$only] : $all as $server) {
+            $this->server = $server;
+            $this->tools = null;
+            if (count($all) > 1) {
+                $io->out(sprintf('<info>Server %s</info>', $server));
+            }
+            $failed = $this->runChecks($this->checks(), $io) || $failed;
+        }
+        // Across all servers, also with --server: a shared route or resource concerns the server checked.
+        if (count($all) > 1) {
+            $failed = $this->runChecks(['Servers' => fn(): array => $this->serversCheck($all)], $io) || $failed;
+        }
+        if (!is_string($only)) {
+            $failed = $this->runChecks(['Clients' => fn(): array => $this->clients()], $io) || $failed;
+        }
+
+        return $failed ? static::CODE_ERROR : static::CODE_SUCCESS;
+    }
+
+    /**
+     * @param \Cake\Console\ConsoleOptionParser $parser The parser.
+     * @return \Cake\Console\ConsoleOptionParser
+     */
+    protected function buildOptionParser(ConsoleOptionParser $parser): ConsoleOptionParser
+    {
+        return $parser->addOption('server', [
+            'help' => 'Check only this MCP server: default, or a key of Mcp.servers. All of them by default.',
+        ]);
+    }
+
+    /**
+     * Runs $checks and prints one line each.
+     *
+     * @param array<string, callable(): array{0: 'pass'|'warn'|'fail', 1: string}> $checks The checks.
+     * @param \Cake\Console\ConsoleIo $io The console.
+     * @return bool Whether one of them failed.
+     */
+    private function runChecks(array $checks, ConsoleIo $io): bool
+    {
+        $failed = false;
+        foreach ($checks as $name => $probe) {
             try {
                 [$status, $message] = $probe();
             } catch (Throwable $e) {
@@ -100,7 +187,334 @@ class McpCheckCommand extends Command
             $failed = $failed || $status === 'fail';
         }
 
-        return $failed ? static::CODE_ERROR : static::CODE_SUCCESS;
+        return $failed;
+    }
+
+    /**
+     * The MCP clients of `Mcp.clients`: each config valid, and for user mode the connect and callback routes and the
+     * token store's tables.
+     *
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function clients(): array
+    {
+        $names = ClientConfig::names();
+        $problems = array_values(ClientConfig::errors());
+        if ($names === [] && $problems === []) {
+            return ['pass', 'none'];
+        }
+        $described = [];
+        $warnings = [];
+        $userMode = false;
+        foreach ($names as $name) {
+            try {
+                $config = ClientConfig::fromConfig($name);
+            } catch (InvalidArgumentException $e) {
+                $problems[] = $e->getMessage();
+                continue;
+            }
+            if ($config->allowPrivateNetwork) {
+                $warnings[] = sprintf(
+                    '%s has allowPrivateNetwork: the authorization server its server names may be on your private '
+                    . 'network, so a compromised server can make the application call internal addresses',
+                    $name,
+                );
+            }
+            if ($config->isClientCredentials()) {
+                // Its token is kept in the connection store, like user grants.
+                $userMode = true;
+                $described[] = sprintf(
+                    '%s (client credentials from %s)',
+                    $name,
+                    $config->tokenUrl ?? (string)$config->issuer,
+                );
+                continue;
+            }
+            if (!$config->isUser()) {
+                // A token callable is never called here: it may read a vault.
+                $kind = $config->tokenProvider !== null ? 'app, token from a callable' : 'app';
+                $described[] = sprintf('%s (%s)', $name, $config->isStdio() ? 'stdio' : $kind);
+                continue;
+            }
+            $userMode = true;
+            try {
+                $connect = Router::url([
+                    'plugin' => 'CakeDC/Mcp',
+                    'controller' => 'McpClient',
+                    'action' => 'connect',
+                    'prefix' => false,
+                    $name,
+                ]);
+                [$registration, $problem] = self::registration($config);
+                if ($problem !== null) {
+                    $problems[] = $problem;
+                }
+                $described[] = sprintf('%s (user, connect at %s, %s)', $name, $connect, $registration);
+            } catch (MissingRouteException) {
+                $problems[] = 'the connect and callback routes of user mode clients are not connected: load the '
+                    . 'plugin routes';
+                $described[] = sprintf('%s (user)', $name);
+            }
+        }
+        if ($userMode) {
+            $problems = array_merge($problems, $this->clientStore());
+        }
+        $proxy = null;
+        try {
+            $proxy = ClientConfig::proxyForDisplay();
+        } catch (InvalidArgumentException $e) {
+            $problems[] = $e->getMessage();
+        }
+        if ($problems !== []) {
+            return ['fail', implode('; ', array_unique($problems)) . ', see ' . self::DOCS . 'mcp-client.md'];
+        }
+
+        $line = implode(', ', $described) . ($proxy === null ? '' : '; through the proxy ' . $proxy);
+        if ($warnings !== []) {
+            return ['warn', $line . '; ' . implode('; ', $warnings)];
+        }
+
+        return ['pass', $line];
+    }
+
+    /**
+     * How a user mode client gets its client id, as far as the config tells without asking the authorization server.
+     *
+     * @param \CakeDC\Mcp\Client\ClientConfig $config A user mode client.
+     * @return array{0: string, 1: string|null} The description, and a problem when `metadata` cannot work.
+     */
+    private static function registration(ClientConfig $config): array
+    {
+        if ($config->clientId !== null) {
+            return ['configured client id', null];
+        }
+        if ($config->registration === 'dynamic') {
+            return ['dynamic registration', null];
+        }
+        if ($config->registration === 'metadata') {
+            $servable = ClientMetadataDocument::servable($config);
+
+            return $servable
+                ? ['metadata document ' . ClientMetadataDocument::url($config), null]
+                : ['metadata document', sprintf(
+                    '"Mcp.clients.%s.registration" is "metadata", but App.fullBaseUrl is not a public https '
+                    . 'address, so no authorization server can fetch the document',
+                    $config->name,
+                )];
+        }
+
+        // As the sign-in decides it: the name must also resolve, to public addresses only.
+        return [ClientMetadataDocument::servable($config, McpClients::registry()->resolver())
+            ? sprintf(
+                'metadata document %s when the authorization server supports it, else dynamic registration (a '
+                . 'site no authorization server can reach, behind a VPN say, needs "registration" => "dynamic")',
+                ClientMetadataDocument::url($config),
+            )
+            : 'dynamic registration, App.fullBaseUrl is not a public https address', null];
+    }
+
+    /**
+     * @return list<string> What keeps user mode from storing tokens.
+     */
+    private function clientStore(): array
+    {
+        $store = ClientConfig::setting('store');
+        if (!is_string($store) || !is_subclass_of($store, ConnectionStoreInterface::class)) {
+            return [sprintf('"Mcp.client.store" must be a class implementing %s', ConnectionStoreInterface::class)];
+        }
+        if ($store !== TableConnectionStore::class) {
+            return [];
+        }
+        try {
+            new TableConnectionStore();
+        } catch (InvalidArgumentException $e) {
+            return [$e->getMessage()];
+        }
+        $schema = $this->fetchTable('CakeDC/Mcp.McpClientConnections')
+            ->getConnection()
+            ->getSchemaCollection();
+        $tables = $schema->listTables();
+        $problems = [];
+        foreach (['mcp_client_connections', 'mcp_client_registrations'] as $table) {
+            if (!in_array($table, $tables, true)) {
+                $problems[] = sprintf(
+                    'the table %s is missing: run bin/cake migrations migrate -p CakeDC/Mcp',
+                    $table,
+                );
+            }
+        }
+        // Only a table that a pre-release of 2.2 created lacks it: migrating again adds nothing, as the migration
+        // is the same.
+        if (
+            in_array('mcp_client_connections', $tables, true)
+            && !$schema->describe('mcp_client_connections')->hasColumn('requested_scope')
+        ) {
+            $problems[] = 'the table mcp_client_connections has no requested_scope column, so a pre-release of 2.2 '
+                . 'created it: run bin/cake migrations rollback -p CakeDC/Mcp, then bin/cake migrations migrate -p '
+                . 'CakeDC/Mcp (users connect again)';
+        }
+
+        return $problems;
+    }
+
+    /**
+     * Two servers on the same route, or accepting tokens for the same resource, are one server in disguise.
+     *
+     * @param list<string> $servers Every configured server.
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function serversCheck(array $servers): array
+    {
+        $routes = [];
+        $paths = [];
+        $resources = [];
+        $audiences = [];
+        foreach ($servers as $server) {
+            $route = McpConfig::get('route', $server);
+            if (is_string($route) && trim($route, '/') !== '') {
+                $paths[$server] = '/' . trim($route, '/');
+                // By shape: `/mcp/{tenant}` and `/mcp/{partner}` are the same route, and only one server answers.
+                $routes[(string)preg_replace('/\{[^}\/]+\}/', '{}', $paths[$server])][] = $server;
+            }
+            $settings = AuthSettings::fromConfig($server);
+            if ($settings->mode !== AuthSettings::HOST) {
+                $resources[$settings->resource][] = $server;
+            }
+            // An external authorization server's tokens are accepted by audience, not by resource.
+            foreach ($settings->external->audiences ?? [] as $audience) {
+                $audiences[$settings->external?->issuer . ' ' . $audience][] = $server;
+            }
+        }
+        $problems = [];
+        foreach ($routes as $names) {
+            if (count($names) > 1) {
+                $problems[] = sprintf('%s share the route %s', implode(' and ', $names), $paths[$names[0]]);
+            }
+        }
+        $problems = [...$problems, ...self::shadowedValues($paths)];
+        foreach ($resources as $resource => $names) {
+            if (count($names) > 1) {
+                $problems[] = sprintf(
+                    '%s share the resource %s, so a token for one works on the other',
+                    implode(' and ', $names),
+                    $resource,
+                );
+            }
+        }
+        foreach ($audiences as $key => $names) {
+            $names = array_values(array_unique($names));
+            if (count($names) > 1) {
+                [$issuer, $audience] = explode(' ', $key, 2);
+                $problems[] = sprintf(
+                    '%s accept the audience %s from %s, so a token for one works on the other: give each server '
+                    . 'its own auth.external.audience',
+                    implode(' and ', $names),
+                    $audience,
+                    $issuer,
+                );
+            }
+        }
+        if ($problems !== []) {
+            return ['fail', implode('; ', $problems)];
+        }
+        $nested = $this->nestedScanDirs($servers);
+        if ($nested !== []) {
+            return ['warn', implode('; ', $nested)];
+        }
+
+        return ['pass', sprintf('%d servers: %s', count($servers), implode(', ', $servers))];
+    }
+
+    /**
+     * A fixed route that fits another server's pattern (`/mcp/admin` next to `/mcp/{tenant}`): Cake's router matches
+     * fixed routes first, so that value of the pattern never reaches its server, and in oauth mode both would claim
+     * the same resource.
+     *
+     * @param array<string, string> $paths The route of each server.
+     * @return list<string>
+     */
+    private static function shadowedValues(array $paths): array
+    {
+        $problems = [];
+        foreach ($paths as $fixedServer => $fixed) {
+            if (McpConfig::routeParams($fixed) !== []) {
+                continue;
+            }
+            foreach ($paths as $server => $pattern) {
+                $values = $server === $fixedServer || McpConfig::routeParams($pattern) === []
+                    ? null
+                    : McpConfig::routeValues($pattern, $fixed);
+                if ($values !== null) {
+                    $problems[] = sprintf(
+                        'the route %s of %s fits %s of %s: the router sends it to %s, so %s never serves the value %s',
+                        $fixed,
+                        $fixedServer,
+                        $pattern,
+                        $server,
+                        $fixedServer,
+                        $server,
+                        implode('/', $values),
+                    );
+                }
+            }
+        }
+
+        return $problems;
+    }
+
+    /**
+     * Scan directories of one server that hold another server's, not excluded: discovery is recursive, so the
+     * outer server also registers the inner server's tools, resources and prompts.
+     *
+     * @param list<string> $servers The servers.
+     * @return list<string>
+     */
+    private function nestedScanDirs(array $servers): array
+    {
+        $dirs = [];
+        foreach ($servers as $server) {
+            foreach ((array)McpConfig::get('discovery.scanDirs', $server) as $dir) {
+                if (!is_string($dir)) {
+                    continue;
+                }
+                $real = realpath(rtrim(ROOT, DS) . DS . $dir);
+                if ($real !== false && is_dir($real)) {
+                    $dirs[] = [$server, $dir, $real];
+                }
+            }
+        }
+        $warnings = [];
+        foreach ($dirs as [$outer, $outerDir, $outerPath]) {
+            $excluded = array_filter((array)McpConfig::get('discovery.excludeDirs', $outer), 'is_string');
+            foreach ($dirs as [$inner, $innerDir, $innerPath]) {
+                if ($outer === $inner || !str_starts_with($innerPath, $outerPath . DIRECTORY_SEPARATOR)) {
+                    continue;
+                }
+                $relative = str_replace(DIRECTORY_SEPARATOR, '/', substr($innerPath, strlen($outerPath) + 1));
+                foreach ($excluded as $pattern) {
+                    // As the SDK's Finder reads it: relative to the scanned directory, any segment of the path.
+                    $pattern = '#(?:^|/)' . preg_quote(trim($pattern, '/'), '#') . '(?:/|$)#';
+                    if (preg_match($pattern, $relative) === 1) {
+                        continue 2;
+                    }
+                }
+                $warnings[] = sprintf(
+                    'the scan directory %s of %s holds %s of %s, so %s also registers %s\'s tools, resources and '
+                    . 'prompts: use sibling directories, or add \'excludeDirs\' => [\'%s\'] to the discovery of %s '
+                    . '(excludeDirs is relative to each scan directory)',
+                    $outerDir,
+                    $outer,
+                    $innerDir,
+                    $inner,
+                    $outer,
+                    $inner,
+                    $relative,
+                    $outer,
+                );
+            }
+        }
+
+        return $warnings;
     }
 
     /**
@@ -118,9 +532,15 @@ class McpCheckCommand extends Command
             'Allowed hosts' => fn(): array => $this->hosts(),
             'CSRF' => fn(): array => $this->csrf(),
             'Authenticators' => fn(): array => $this->authenticators(),
+            'Discovery' => fn(): array => $this->discovery(),
             'Tools' => fn(): array => $this->toolsCheck(),
+            'Tool schemas' => fn(): array => $this->toolSchemas(),
+            'Conditions' => fn(): array => $this->conditions(),
+            'Catalog' => fn(): array => $this->catalog(),
+            'Apps' => fn(): array => $this->apps(),
             'Authorizer' => fn(): array => $this->authorizerCheck(),
             'Tool scopes' => fn(): array => $this->toolScopes(),
+            'Cache hints' => fn(): array => $this->cacheHints(),
             'Logging' => fn(): array => $this->logging(),
             'Audit' => fn(): array => $this->audit(),
         ];
@@ -131,17 +551,219 @@ class McpCheckCommand extends Command
      */
     private function factory(): ServerFactory
     {
-        return $this->serverFactory ?? new ServerFactory(new Container(), new CurrentIdentity());
+        return ($this->serverFactory ?? new ServerFactory(new Container(), new CurrentIdentity()))
+            ->forServer($this->server);
     }
 
     /**
-     * The tools the server offers, listed once per run.
+     * Every tool registered on the server, catalogued and app-only ones included, without the catalog's own
+     * `find_tools` and `call_tools`.
      *
-     * @return list<string>
+     * @return list<array<string, mixed>>
+     */
+    private function registeredTools(): array
+    {
+        return $this->tools ??= array_values(array_filter(
+            $this->factory()->registeredToolDefinitions(),
+            fn(array $tool): bool => !in_array($tool['name'], [ToolCatalog::FIND, ToolCatalog::CALL], true),
+        ));
+    }
+
+    /**
+     * @return list<string> The names of `registeredTools()`.
      */
     private function toolNames(): array
     {
-        return $this->tools ??= $this->factory()->toolNames();
+        return array_map(fn(array $tool): string => (string)$tool['name'], $this->registeredTools());
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function apps(): array
+    {
+        $links = [];
+        foreach ($this->factory()->registeredToolDefinitions() as $tool) {
+            $uri = $tool['_meta']['ui']['resourceUri'] ?? null;
+            if (is_string($uri)) {
+                $links[(string)$tool['name']] = $uri;
+            }
+        }
+        ksort($links);
+        // On in the config, or announced by the host hook (as a 2.1 application could).
+        $enabled = $this->factory()->appsAnnounced();
+        if (!$enabled) {
+            return $links === []
+                ? ['pass', 'off']
+                : ['fail', sprintf(
+                    '%s link to apps but Mcp.apps.enabled is off, so clients are not told about apps, see %s',
+                    implode(', ', array_keys($links)),
+                    self::DOCS . 'apps.md',
+                )];
+        }
+        $apps = [];
+        foreach ($this->factory()->registeredResourceDefinitions() as $resource) {
+            if (($resource['mimeType'] ?? null) === McpApps::MIME_TYPE) {
+                $apps[] = (string)$resource['uri'];
+            }
+        }
+        sort($apps);
+        $missing = [];
+        foreach ($links as $tool => $uri) {
+            if (!in_array($uri, $apps, true)) {
+                $missing[] = sprintf('%s links to %s, which is not an app resource', $tool, $uri);
+            }
+        }
+        if ($missing !== []) {
+            return ['fail', implode('; ', $missing) . sprintf(
+                ' (a ui:// resource with MIME type %s), see %s',
+                McpApps::MIME_TYPE,
+                self::DOCS . 'apps.md',
+            )];
+        }
+
+        if ($apps === []) {
+            return ['pass', 'on, no app resources'];
+        }
+        $line = sprintf('%d app resources: %s', count($apps), implode(', ', $apps));
+        $broken = $this->unrenderedApps($apps);
+
+        return $broken === []
+            ? ['pass', $line]
+            : ['warn', $line . '; ' . implode('; ', $broken) . ', see ' . self::DOCS . 'apps.md'];
+    }
+
+    /**
+     * Reads each app page through the server, as a host does (trusted, without a caller): a page that needs one
+     * may fail here and render for a user, so a failure only warns.
+     *
+     * @param list<string> $apps The app resource URIs.
+     * @return list<string> `<uri> does not render: <error>` for each page whose read fails.
+     */
+    private function unrenderedApps(array $apps): array
+    {
+        $messages = [
+            ['jsonrpc' => '2.0', 'id' => 'init', 'method' => 'initialize', 'params' => [
+                'protocolVersion' => ProtocolVersion::latestHandshake()->value,
+                'capabilities' => ['extensions' => [McpApps::EXTENSION_ID => ['mimeTypes' => [McpApps::MIME_TYPE]]]],
+                'clientInfo' => ['name' => 'mcp check', 'version' => '1.0'],
+            ]],
+            ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'],
+        ];
+        foreach ($apps as $index => $uri) {
+            $messages[] = [
+                'jsonrpc' => '2.0',
+                'id' => $index,
+                'method' => 'resources/read',
+                'params' => ['uri' => $uri],
+            ];
+        }
+        $transport = new RecordingTransport(array_map(
+            fn(array $message): string => (string)json_encode($message),
+            $messages,
+        ));
+        try {
+            $this->factory()->create(true)->run($transport);
+        } catch (Throwable $e) {
+            return [sprintf('the pages could not be read: %s', $e->getMessage())];
+        }
+        $broken = [];
+        foreach ($apps as $index => $uri) {
+            $answer = $transport->responseFor($index);
+            if (!isset($answer['result'])) {
+                $error = $answer['error']['message'] ?? 'no answer';
+                $broken[] = sprintf('%s does not render: %s', $uri, is_string($error) ? $error : 'no answer');
+            }
+        }
+
+        return $broken;
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function catalog(): array
+    {
+        if (McpConfig::get('catalog.enabled', $this->server) !== true) {
+            return ['pass', 'off'];
+        }
+        $patterns = array_values(array_filter((array)McpConfig::get('catalog.tools', $this->server), 'is_string'));
+        $catalogued = [];
+        $kept = [];
+        $tools = [];
+        foreach ($this->registeredTools() as $tool) {
+            $name = (string)$tool['name'];
+            $tools[] = $name;
+            $meta = is_array($tool['_meta'] ?? null) ? $tool['_meta'] : null;
+            if (CatalogPatterns::catalogues($patterns, $name, $meta)) {
+                $catalogued[] = $name;
+            } elseif (CatalogPatterns::matches($patterns, $name) && CatalogPatterns::keptOut($meta) !== 'app-only') {
+                // App-only tools are never for the model: only a tool the model sees is worth naming here.
+                $kept[] = $name;
+            }
+        }
+        sort($catalogued);
+        sort($kept);
+        $unused = array_values(array_filter($patterns, fn(string $pattern): bool => array_filter(
+            $tools,
+            fn(string $tool): bool => fnmatch($pattern, $tool),
+        ) === []));
+        if ($unused !== []) {
+            return ['warn', sprintf(
+                '%s matches no tool (Mcp.catalog.tools), see %s',
+                implode(', ', $unused),
+                self::DOCS . 'tools.md#tool-catalog',
+            )];
+        }
+
+        $line = sprintf('%d tools behind find_tools and call_tools', count($catalogued))
+            . ($catalogued === [] ? '' : ': ' . self::names($catalogued));
+        if ($kept !== []) {
+            $line .= sprintf(
+                '; kept in tools/list because they link to an app, which the host reads from tools/list: %s',
+                implode(', ', $kept),
+            );
+        }
+
+        return ['pass', $line];
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function conditions(): array
+    {
+        $skipped = $this->factory()->skippedElements();
+
+        return ['pass', $skipped === [] ? 'nothing skipped' : 'skipped: ' . implode('; ', $skipped)];
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function toolSchemas(): array
+    {
+        // Registered tools, catalogued ones included: find_tools hands their schemas to the model too.
+        $tools = $this->factory()->registeredToolDefinitions();
+        if ($tools === []) {
+            return ['pass', 'no tools to check'];
+        }
+        $problems = [];
+        foreach ($tools as $tool) {
+            foreach (SchemaLint::problems($tool) as $problem) {
+                $problems[] = $tool['name'] . '.' . $problem;
+            }
+        }
+        if ($problems === []) {
+            return ['pass', sprintf('%d tools, no problems', count($tools))];
+        }
+
+        return ['warn', sprintf(
+            '%s. Some hosts reject type arrays and the model cannot tell what an untyped or undescribed '
+            . 'parameter takes. See %s',
+            implode('; ', $problems),
+            self::DOCS . 'tools.md#input-schemas',
+        )];
     }
 
     /**
@@ -153,7 +775,7 @@ class McpCheckCommand extends Command
         if ($tools !== []) {
             return ['pass', sprintf('%d tools: %s', count($tools), self::names($tools))];
         }
-        $dirs = array_filter((array)McpConfig::get('discovery.scanDirs'), 'is_string');
+        $dirs = array_filter((array)McpConfig::get('discovery.scanDirs', $this->server), 'is_string');
 
         return ['warn', sprintf(
             'no tool found in %s (Mcp.discovery.scanDirs). A tool is a public method with #[McpTool] in a class '
@@ -169,11 +791,22 @@ class McpCheckCommand extends Command
     private function authorizerCheck(): array
     {
         $authorizer = $this->factory()->authorizer();
+        $rbac = McpConfig::get('authorization.rbac', $this->server);
+        if (is_array($rbac) && $rbac !== [] && !$authorizer instanceof RbacToolAuthorizer) {
+            return ['warn', sprintf(
+                'authorization.rbac has rules, but the authorizer is %s, so they are ignored. Set '
+                . 'authorization.authorizer to RbacToolAuthorizer (a server that sets authorization replaces the '
+                . 'whole section), see %s',
+                (new ReflectionClass($authorizer))->getShortName(),
+                self::DOCS . 'configuration.md#several-servers',
+            )];
+        }
+        $coverage = self::contentCoverage($authorizer);
         if ($authorizer instanceof AllowAllToolAuthorizer) {
-            return ['pass', 'AllowAllToolAuthorizer: every identified caller may call every tool'];
+            return ['pass', 'AllowAllToolAuthorizer: every identified caller may call every tool; ' . $coverage];
         }
         if (!$authorizer instanceof RbacToolAuthorizer) {
-            return ['pass', $authorizer::class];
+            return ['pass', $authorizer::class . '; ' . $coverage];
         }
         $docs = self::DOCS . 'authorization.md#rbactoolauthorizer-cakedcauth';
         $rules = $authorizer->permissions();
@@ -184,7 +817,20 @@ class McpCheckCommand extends Command
                 RbacToolAuthorizer::PLUGIN,
                 RbacToolAuthorizer::CONTROLLER,
                 $docs,
-            )];
+            ) . '; ' . $coverage];
+        }
+        $misnamed = self::misnamedControllers($rules);
+        if ($misnamed !== []) {
+            return ['warn', sprintf(
+                "rules for plugin '%s' name controllers it does not have, so they decide nothing: %s. The "
+                . "controllers are '%s' (tools), '%s' and '%s', see %s",
+                RbacToolAuthorizer::PLUGIN,
+                implode(', ', $misnamed),
+                RbacToolAuthorizer::CONTROLLER,
+                RbacToolAuthorizer::RESOURCES,
+                RbacToolAuthorizer::PROMPTS,
+                $docs,
+            ) . '; ' . $coverage];
         }
         $forTools = count(array_filter($rules, fn(mixed $rule): bool => is_array($rule) && self::allowsTools($rule)));
         if ($forTools === 0) {
@@ -195,10 +841,83 @@ class McpCheckCommand extends Command
                 RbacToolAuthorizer::PLUGIN,
                 RbacToolAuthorizer::CONTROLLER,
                 $docs,
-            )];
+            ) . '; ' . $coverage];
         }
 
-        return ['pass', sprintf('RbacToolAuthorizer, %d of %d rules for the tools', $forTools, count($rules))];
+        return ['pass', sprintf(
+            'RbacToolAuthorizer, %d of %d rules for the tools; %s',
+            $forTools,
+            count($rules),
+            $coverage,
+        )];
+    }
+
+    /**
+     * The controllers that rules for plugin `CakeDC/Mcp` name and the plugin does not have (`Resource`, `prompts`):
+     * such a rule matches nothing, and a content rule never switches its check on.
+     *
+     * @param array<mixed> $rules The Rbac rules.
+     * @return list<string>
+     */
+    private static function misnamedControllers(array $rules): array
+    {
+        $known = [
+            RbacToolAuthorizer::CONTROLLER,
+            RbacToolAuthorizer::RESOURCES,
+            RbacToolAuthorizer::PROMPTS,
+            // The plugin's routes (McpConfig::rbacPermissions()).
+            'Mcp',
+            'ProtectedResource',
+            'McpClient',
+        ];
+        $misnamed = [];
+        foreach ($rules as $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            $plugin = $rule['plugin'] ?? null;
+            $ours = $plugin === RbacToolAuthorizer::PLUGIN
+                || (is_array($plugin) && in_array(RbacToolAuthorizer::PLUGIN, $plugin, true));
+            if (!$ours) {
+                continue;
+            }
+            foreach ((array)($rule['controller'] ?? []) as $controller) {
+                if (is_string($controller) && !str_contains($controller, '*') && !in_array($controller, $known, true)) {
+                    $misnamed[$controller] = $controller;
+                }
+            }
+        }
+
+        return array_values($misnamed);
+    }
+
+    /**
+     * Whether the authorizer decides who reads resources and gets prompts.
+     *
+     * @param \CakeDC\Mcp\Authorization\ToolAuthorizerInterface $authorizer The authorizer.
+     * @return string
+     */
+    private static function contentCoverage(ToolAuthorizerInterface $authorizer): string
+    {
+        $rbac = $authorizer instanceof RbacToolAuthorizer;
+        $resources = $authorizer instanceof ResourceAuthorizerInterface
+            && (!$rbac || $authorizer->decidesFor(RbacToolAuthorizer::RESOURCES));
+        $prompts = $authorizer instanceof PromptAuthorizerInterface
+            && (!$rbac || $authorizer->decidesFor(RbacToolAuthorizer::PROMPTS));
+        if ($resources && $prompts) {
+            return 'resources and prompts are covered';
+        }
+        if (!$resources && !$prompts) {
+            return 'resources and prompts are not covered' . ($rbac
+                ? ' (no rule for controller Resources or Prompts)'
+                : ': every caller may list, read and get them');
+        }
+        [$covered, $not, $controller] = $resources
+            ? ['resources', 'prompts', RbacToolAuthorizer::PROMPTS]
+            : ['prompts', 'resources', RbacToolAuthorizer::RESOURCES];
+
+        return sprintf('%s are covered, %s are not', $covered, $not)
+            . ($rbac ? sprintf(' (no rule for controller %s)', $controller) : '');
     }
 
     /**
@@ -251,8 +970,15 @@ class McpCheckCommand extends Command
      */
     private function toolScopes(): array
     {
-        $settings = AuthSettings::fromConfig();
+        $settings = AuthSettings::fromConfig($this->server);
         if ($settings->mode === AuthSettings::HOST) {
+            $scopes = (array)McpConfig::get('auth.scopes', $this->server);
+            if (array_filter($scopes, fn(mixed $value): bool => $value !== []) !== []) {
+                return ['warn', 'auth.scopes is set, but host mode does not check scopes. Set auth.mode to oauth or '
+                    . 'external (a server that sets auth replaces the whole section), see '
+                    . self::DOCS . 'configuration.md#several-servers'];
+            }
+
             return ['pass', 'host mode, access tokens and their scopes do not apply'];
         }
         $tools = $this->toolNames();
@@ -264,7 +990,11 @@ class McpCheckCommand extends Command
                 $problems[] = 'tools that need no scope, so any valid token may call them: ' . self::names($free);
             }
         }
-        $unknown = array_values(array_diff(array_keys($settings->toolScopes), $tools));
+        // The catalog's own tools take a scope too: the SDK checks it before the inner calls are checked.
+        $known = McpConfig::get('catalog.enabled', $this->server) === true
+            ? [...$tools, ToolCatalog::FIND, ToolCatalog::CALL]
+            : $tools;
+        $unknown = array_values(array_diff(array_keys($settings->toolScopes), $known));
         if ($unknown !== []) {
             $problems[] = 'Mcp.auth.scopes.tools names tools that do not exist: ' . implode(', ', $unknown);
         }
@@ -311,7 +1041,7 @@ class McpCheckCommand extends Command
      */
     private function audit(): array
     {
-        $settings = AuditSettings::fromConfig();
+        $settings = AuditSettings::fromConfig($this->server);
         if (!$settings->enabled) {
             return ['pass', 'off'];
         }
@@ -367,12 +1097,47 @@ class McpCheckCommand extends Command
      */
     private function endpoint(): array
     {
-        $route = McpConfig::get('route');
+        $route = McpConfig::get('route', $this->server);
+        if ($this->server !== McpConfig::DEFAULT_SERVER && $route === false) {
+            return ['pass', sprintf(
+                'no HTTP route (route is false): served over stdio only, with bin/cake mcp server --server %s',
+                $this->server,
+            )];
+        }
         if (!is_string($route) || $route === '') {
             return ['warn', 'Mcp.route is disabled: only stdio (bin/cake mcp server) is served'];
         }
 
-        return ['pass', rtrim((string)Configure::read('App.fullBaseUrl'), '/') . $route];
+        $url = rtrim((string)Configure::read('App.fullBaseUrl'), '/') . $route;
+        $params = McpConfig::routeParams($route);
+        if ($params !== [] && $this->server === McpConfig::DEFAULT_SERVER) {
+            return ['fail', sprintf(
+                'Mcp.route %s has parameters, which only a named server may have (Mcp.servers): the default '
+                . 'server answers every request with an error, see %s',
+                $route,
+                self::DOCS . 'configuration.md#routes-with-parameters',
+            )];
+        }
+
+        $values = $params === [] ? '' : sprintf(' (one server per value of %s)', implode(', ', $params));
+        if ($params === []) {
+            return ['pass', $url];
+        }
+        $names = implode(', ', $params);
+        $auth = (array)McpConfig::get('auth', $this->server);
+        if (($auth['mode'] ?? AuthSettings::HOST) === AuthSettings::HOST) {
+            return ['warn', sprintf(
+                '%s%s: host mode binds nothing to the value of %s, which the caller chooses in the URL: check in the '
+                . 'tools or the authorizer that the identity belongs to it, see %s',
+                $url,
+                $values,
+                $names,
+                self::DOCS . 'configuration.md#routes-with-parameters',
+            )];
+        }
+        // A configured resource or audience without every parameter stops the server (McpConfig), so a server
+        // that gets here binds each token to one value.
+        return ['pass', $url . $values];
     }
 
     /**
@@ -380,14 +1145,14 @@ class McpCheckCommand extends Command
      */
     private function authentication(): array
     {
-        $settings = AuthSettings::fromConfig();
+        $settings = AuthSettings::fromConfig($this->server);
 
         return ['pass', match ($settings->mode) {
             AuthSettings::OAUTH => 'oauth mode: access tokens of cakedc/cakephp-oauth-server in this application',
             AuthSettings::EXTERNAL => sprintf('external mode: JWT access tokens from %s', $settings->external?->issuer),
             default => sprintf(
                 'host mode: the identity your authentication puts in the "%s" request attribute',
-                (string)McpConfig::get('identity.attribute'),
+                (string)McpConfig::get('identity.attribute', $this->server),
             ),
         }];
     }
@@ -397,10 +1162,25 @@ class McpCheckCommand extends Command
      */
     private function resource(): array
     {
-        $settings = AuthSettings::fromConfig();
+        $settings = AuthSettings::fromConfig($this->server);
         if ($settings->mode === AuthSettings::HOST) {
             return ['pass', 'not used in host mode'];
         }
+        // A default server with Mcp.route false is stdio only: its auth is the base the named servers inherit.
+        $route = McpConfig::get('route', $this->server);
+        if (!is_string($route) || trim($route, '/') === '') {
+            return ['pass', 'no HTTP endpoint'];
+        }
+        $declared = $this->declaredRouteValues();
+        if ($declared !== null && $declared['values'] === []) {
+            return ['fail', sprintf(
+                'no resource in OAuthServer.resources fits %s: declare the resource of each value of the route, '
+                . 'see %s',
+                $declared['pattern'],
+                self::DOCS . 'configuration.md#routes-with-parameters',
+            )];
+        }
+        $settings = AuthSettings::fromConfig($this->server, $this->routeSample());
         $server = new ResourceServer($settings);
         $metadata = $server->metadata();
         $server->validator(new CurrentIdentity());
@@ -411,6 +1191,15 @@ class McpCheckCommand extends Command
             $metadata->getMetadataUrl(),
             $scopes === [] ? 'none declared' : implode(' ', $scopes),
         );
+        if ($declared !== null) {
+            $count = count($declared['values']);
+            $message .= sprintf(
+                '; %d declared %s %s',
+                $count,
+                $count === 1 ? 'resource fits' : 'resources fit',
+                $declared['pattern'],
+            );
+        }
         $audiences = $settings->external?->audiences;
         if ($audiences === null) {
             return ['pass', $message];
@@ -432,26 +1221,31 @@ class McpCheckCommand extends Command
      */
     private function metadataRoute(): array
     {
-        $settings = AuthSettings::fromConfig();
+        $settings = AuthSettings::fromConfig($this->server);
         if ($settings->mode === AuthSettings::HOST) {
             return ['pass', 'not used in host mode'];
         }
-        $route = McpConfig::get('route');
+        $route = McpConfig::get('route', $this->server);
         if (!is_string($route) || $route === '') {
             return ['pass', 'no HTTP endpoint'];
         }
+        $declared = $this->declaredRouteValues();
+        if ($declared !== null && $declared['values'] === []) {
+            return ['fail', 'no declared resource fits the route, see the Resource line'];
+        }
+        $values = $this->routeSample();
         try {
             $url = Router::url([
                 'plugin' => 'CakeDC/Mcp',
                 'controller' => 'ProtectedResource',
                 'action' => 'metadata',
                 'prefix' => false,
-            ]);
+            ] + ($this->server === McpConfig::DEFAULT_SERVER ? [] : ['server' => $this->server]) + $values);
         } catch (MissingRouteException) {
             return ['fail', 'the metadata route of the plugin is not connected: load the plugin routes'];
         }
         $advertised = (string)parse_url(
-            (new ResourceServer($settings))->metadata()->getMetadataUrl(),
+            (new ResourceServer(AuthSettings::fromConfig($this->server, $values)))->metadata()->getMetadataUrl(),
             PHP_URL_PATH,
         );
         if ($url !== $advertised) {
@@ -467,12 +1261,64 @@ class McpCheckCommand extends Command
     }
 
     /**
+     * The values to probe this server's route with: none on a fixed route; in oauth mode those of the first
+     * resource declared in OAuthServer.resources that fits the route's resource; otherwise `sample` for each
+     * parameter. A probe of the pattern itself (`/mcp/t/{tenant}`) is no request the server ever answers.
+     *
+     * @return array<string, string>
+     */
+    private function routeSample(): array
+    {
+        $params = McpConfig::routeParams(McpConfig::get('route', $this->server));
+        if ($params === []) {
+            return [];
+        }
+
+        return $this->declaredRouteValues()['values'][0] ?? array_fill_keys($params, 'sample');
+    }
+
+    /**
+     * In oauth mode on a route with parameters, the values of each resource declared in OAuthServer.resources that
+     * fits the server's resource pattern (`http://localhost/mcp/t/{tenant}`); null otherwise.
+     *
+     * @return array{pattern: string, values: list<array<string, string>>}|null
+     */
+    private function declaredRouteValues(): ?array
+    {
+        if (McpConfig::routeParams(McpConfig::get('route', $this->server)) === []) {
+            return null;
+        }
+        try {
+            $settings = AuthSettings::fromConfig($this->server);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+        if ($settings->mode !== AuthSettings::OAUTH || !$this->oauthServerInstalled()) {
+            return null;
+        }
+        $pattern = $settings->resource;
+        $regex = '#^' . preg_replace(
+            '/\\\{([A-Za-z_][A-Za-z0-9_]*)\\\}/',
+            '(?P<$1>' . McpConfig::ROUTE_VALUE . ')',
+            preg_quote($pattern, '#'),
+        ) . '$#';
+        $values = [];
+        foreach (OAuthServer::server()->config()->resources->all() as $resource) {
+            if (preg_match($regex, $resource->identifier, $match) === 1) {
+                $values[] = array_filter($match, 'is_string', ARRAY_FILTER_USE_KEY);
+            }
+        }
+
+        return ['pattern' => $pattern, 'values' => $values];
+    }
+
+    /**
      * @return array{0: 'pass'|'warn'|'fail', 1: string}
      */
     private function hosts(): array
     {
-        $allowed = McpConfig::allowedHosts();
-        $settings = AuthSettings::fromConfig();
+        $allowed = McpConfig::allowedHosts($this->server);
+        $settings = AuthSettings::fromConfig($this->server, $this->routeSample());
         if ($settings->mode === AuthSettings::HOST) {
             return ['pass', implode(', ', $allowed)];
         }
@@ -494,7 +1340,7 @@ class McpCheckCommand extends Command
      */
     private function csrf(): array
     {
-        $route = McpConfig::get('route');
+        $route = McpConfig::get('route', $this->server);
         if (!is_string($route) || $route === '') {
             return ['pass', 'no HTTP endpoint'];
         }
@@ -508,7 +1354,10 @@ class McpCheckCommand extends Command
             }
             $callback = (new ReflectionProperty(CsrfProtectionMiddleware::class, 'skipCheckCallback'))
                 ->getValue($middleware);
-            $request = new ServerRequest(['url' => $route, 'environment' => ['REQUEST_METHOD' => 'POST']]);
+            $request = new ServerRequest([
+                'url' => McpConfig::withRouteValues($route, $this->routeSample()),
+                'environment' => ['REQUEST_METHOD' => 'POST'],
+            ]);
 
             return is_callable($callback) && $callback($request) === true
                 ? ['pass', 'the MCP route is skipped']
@@ -526,8 +1375,8 @@ class McpCheckCommand extends Command
      */
     private function authenticators(): array
     {
-        $settings = AuthSettings::fromConfig();
-        $route = McpConfig::get('route');
+        $settings = AuthSettings::fromConfig($this->server);
+        $route = McpConfig::get('route', $this->server);
         if ($settings->mode !== AuthSettings::OAUTH || !is_string($route) || $route === '') {
             return ['pass', 'nothing to check outside oauth mode'];
         }
@@ -539,6 +1388,7 @@ class McpCheckCommand extends Command
             return ['warn', $app . '; its authenticators were not inspected'];
         }
         $prefix = OAuthServer::server()->config()->tokenPrefix;
+        $route = McpConfig::withRouteValues($route, $this->routeSample());
         $probe = (new ServerRequest(['url' => $route, 'environment' => ['REQUEST_METHOD' => 'POST']]))
             ->withHeader('Authorization', 'Bearer ' . $prefix . '_at_' . str_repeat('A', 43));
         if (!$app instanceof AuthenticationServiceProviderInterface) {
@@ -680,6 +1530,44 @@ class McpCheckCommand extends Command
     }
 
     /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function cacheHints(): array
+    {
+        // Read from the factory, so a policy the hook set is seen as the server sends it.
+        $policy = $this->factory()->cachePolicy();
+        if ($policy === null) {
+            return ['pass', 'off (private, not cached)'];
+        }
+        $perUser = !$this->factory()->authorizer() instanceof AllowAllToolAuthorizer;
+        $perClient = McpConfig::get('apps.enabled', $this->server) === true;
+        $note = null;
+        if ($policy->scopeFor('tools/list') === CacheScope::Public && ($perUser || $perClient)) {
+            $note = $perUser
+                ? 'tools/list is sent private, because the authorizer can give each user different tools'
+                : 'tools/list is sent private, because clients with and without MCP Apps get different tools';
+        }
+        // Over HTTP, an authorizer that decides who reads which resource makes the plugin send resources/read
+        // private (the check builds the server trusted, where nothing is filtered).
+        $readsPerUser = (new ContentGate($this->factory()->authorizer(), new CurrentIdentity()))->decidesResources();
+        if ($policy->scopeFor('resources/read') === CacheScope::Public && !$readsPerUser) {
+            return ['warn', implode('; ', array_filter([
+                $note,
+                'resources/read is public: only right when every resource reads the same for every user. Set it '
+                . 'to private in Mcp.server.cache.methods, see ' . self::DOCS . 'configuration.md#keys',
+            ]))];
+        }
+        if ($policy->scopeFor('resources/read') === CacheScope::Public) {
+            $note = implode('; ', array_filter([
+                $note,
+                'resources/read is sent private, because the authorizer decides who reads which resource',
+            ]));
+        }
+
+        return ['pass', sprintf('ttl %d ms', $policy->ttlFor('tools/list')) . ($note === null ? '' : '; ' . $note)];
+    }
+
+    /**
      * Whether cakedc/cakephp-oauth-server is installed.
      *
      * @return bool
@@ -687,6 +1575,34 @@ class McpCheckCommand extends Command
     protected function oauthServerInstalled(): bool
     {
         return class_exists(OAuthServer::class);
+    }
+
+    /**
+     * Whether symfony/finder is installed: the SDK's attribute discovery needs it, and without it the SDK skips
+     * discovery with only a log warning.
+     *
+     * @return bool
+     */
+    protected function finderAvailable(): bool
+    {
+        return class_exists(Finder::class);
+    }
+
+    /**
+     * @return array{0: 'pass'|'warn'|'fail', 1: string}
+     */
+    private function discovery(): array
+    {
+        $dirs = array_values(array_filter((array)McpConfig::get('discovery.scanDirs', $this->server), 'is_string'));
+        if ($dirs === []) {
+            return ['pass', 'off (no Mcp.discovery.scanDirs)'];
+        }
+        if (!$this->finderAvailable()) {
+            return ['fail', 'Mcp.discovery.scanDirs is set but symfony/finder is not installed, so the SDK skips '
+                . 'discovery and the server has no tools. Run: composer require symfony/finder'];
+        }
+
+        return ['pass', 'scans ' . implode(', ', $dirs)];
     }
 
     /**

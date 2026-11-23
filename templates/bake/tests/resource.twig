@@ -1,0 +1,22 @@
+{{ element('Bake.file_header', {
+    namespace: testNamespace,
+    classImports: [
+        'Cake\\TestSuite\\TestCase',
+        'CakeDC\\Mcp\\TestSuite\\McpTestTrait',
+    ],
+}) }}
+
+class {{ className }}Test extends TestCase
+{
+    use McpTestTrait;
+
+    public function testItHasContent(): void
+    {
+        $this->mcpActingAs(['id' => 1]);
+
+        $this->mcpReadResource('app://{{ uriName }}');
+
+        $this->assertMcpResourceContains('# {{ className }}');
+        $this->assertMcpResourceListed('app://{{ uriName }}');
+    }
+}

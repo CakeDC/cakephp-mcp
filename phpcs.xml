@@ -10,4 +10,5 @@
     <exclude-pattern>tests/Conformance/Sdk/*</exclude-pattern>
     <exclude-pattern>tests/Conformance/tmp/*</exclude-pattern>
     <exclude-pattern>tests/Conformance/results/*</exclude-pattern>
+    <exclude-pattern>tests/Conformance/results-client/*</exclude-pattern>
 </ruleset>

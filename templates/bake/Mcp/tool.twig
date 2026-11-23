@@ -1,0 +1,27 @@
+{{ element('Bake.file_header', {
+    namespace: "#{namespace}\\Mcp",
+    classImports: [
+        'Mcp\\Capability\\Attribute\\McpTool',
+        'Mcp\\Capability\\Attribute\\Schema',
+        'Mcp\\Schema\\ToolAnnotations',
+    ],
+}) }}
+
+#[McpTool(name: '{{ mcpName }}', annotations: new ToolAnnotations(readOnlyHint: true, openWorldHint: false))]
+class {{ className }}
+{
+    /**
+     * Describe what the tool does and when to use it: the model reads this to decide whether to call it.
+     *
+     * @param string $query What to look for. Leave it out for everything.
+     * @param int $limit How many results to return, 1 to 50.
+     * @return array<string, mixed>
+     */
+    public function __invoke(
+        string $query = '',
+        #[Schema(minimum: 1, maximum: 50)]
+        int $limit = 10,
+    ): array {
+        return ['query' => $query, 'limit' => $limit, 'items' => []];
+    }
+}
