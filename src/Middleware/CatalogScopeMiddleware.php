@@ -60,8 +60,9 @@ final class CatalogScopeMiddleware implements MiddlewareInterface
         // Handed on byte for byte: the transport reads the body again.
         $request = $request->withBody($this->streams->createStream($body));
         $required = CatalogScopes::required($this->policy, json_decode($body, true), $this->patterns);
-        // The token already holds the scopes the policy implies (the SDK middleware expanded them).
-        if (array_diff($required, $token->getScopes()) === []) {
+        // The SDK middleware already expanded the token's scopes; expanding again changes nothing then, and keeps
+        // this the same set ToolCatalog::callable() compares with.
+        if (array_diff($required, $this->policy->expand($token->getScopes())) === []) {
             return $handler->handle($request);
         }
 
