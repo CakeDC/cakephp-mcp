@@ -221,6 +221,30 @@ class UserConnectionTest extends TestCase
         $this->assertSame(['at-new-account', 'rt-new-account', 'read write admin'], [$stored?->accessToken, $stored?->refreshToken, $stored?->scope]);
     }
 
+    public function testARefreshWhoseClaimWasTakenOverStillKeepsTheRotatedRefreshToken(): void
+    {
+        $this->seed('7', 30);
+        $this->server->guarded->on('POST', FakeOAuthServer::ISSUER . '/token', function (): HttpResponse {
+            // The claim outlives its lease (a clock that differs between servers, say) and another request takes it
+            // over before this one stores what the authorization server answers.
+            $this->assertTrue($this->store->claimRefresh('linear', '7', 'request-b', -60));
+
+            return new HttpResponse(200, [], (string)json_encode([
+                'access_token' => 'at-2',
+                'refresh_token' => 'rt-2',
+                'token_type' => 'Bearer',
+                'expires_in' => 3600,
+            ]));
+        });
+        $this->server->mcp->tokens[] = 'at-2';
+        McpClients::setRegistry($this->server->registry($this->store));
+
+        $this->assertSame('at-2', $this->whoami());
+        $stored = $this->store->get('linear', '7');
+        // rt-seed is spent at a server that rotates refresh tokens: losing rt-2 would disconnect the user later.
+        $this->assertSame(['at-2', 'rt-2'], [$stored?->accessToken, $stored?->refreshToken]);
+    }
+
     public function testADisconnectDuringARefreshStaysDisconnected(): void
     {
         $this->seed('7', 30);

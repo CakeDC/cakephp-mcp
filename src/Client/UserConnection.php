@@ -378,6 +378,10 @@ final class UserConnection
                 // The user signed in again meanwhile, which ended this refresh: that grant is the one to use.
                 return $current->accessToken;
             }
+            // The claim outlived its lease and another request took it over, but nothing newer was stored: keep
+            // these tokens, or a refresh token the server rotated is lost and the user is disconnected later. The
+            // other request then finds its claim gone, or its refresh refused, and uses what is stored here.
+            $store->save($updated);
         }
 
         return $updated->accessToken;
