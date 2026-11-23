@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.0 (2026-11-20)
+## 2.2.0 (2026-11-23)
 
 Behaviour changes a 2.1 application can notice, without changing its config or code:
 
