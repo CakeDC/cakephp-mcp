@@ -72,6 +72,25 @@ use Stringable;
 final class ServerFactory
 {
     /**
+     * Private properties of the SDK's Builder this factory reads, with their declared type in mcp/sdk 0.9. A
+     * release that changes one fails SdkInternalsTest instead of every request.
+     *
+     * @internal
+     * @var array<string, string>
+     */
+    public const BUILDER_PROPERTIES = [
+        'notificationBus' => '?Mcp\\Server\\Subscription\\NotificationBusInterface',
+        'extensions' => 'array',
+        'cachePolicy' => '?Mcp\\Server\\Wire\\CachePolicy',
+        'registry' => 'Mcp\\Capability\\RegistryInterface',
+        'requestHandlers' => 'array',
+        'referenceHandler' => '?Mcp\\Capability\\Registry\\ReferenceHandlerInterface',
+        'schemaValidator' => '?Mcp\\Capability\\Discovery\\SchemaValidator',
+        'explicitTools' => 'array',
+        'tools' => 'array',
+    ];
+
+    /**
      * What #[McpWhen] removed in the last build.
      *
      * @var list<string>
@@ -261,11 +280,11 @@ final class ServerFactory
         }
         $this->configure($builder);
         // After the hook, which sets the bus: a listen stream carries no update of a resource the caller cannot read.
-        $bus = (new ReflectionProperty(Builder::class, 'notificationBus'))->getValue($builder);
+        $bus = self::builderValue($builder, 'notificationBus');
         if ($bus instanceof NotificationBusInterface && $contentGate->decidesResources()) {
             $builder->setNotificationBus(new ContentNotificationBus($bus, $contentGate));
         }
-        $extensions = (new ReflectionProperty(Builder::class, 'extensions'))->getValue($builder);
+        $extensions = self::builderValue($builder, 'extensions');
         $hookEnabledApps = is_array($extensions) && isset($extensions[McpApps::EXTENSION_ID]);
         if ($appsOn && !$hookEnabledApps) {
             // After the hook, which may have enabled it already (a 2.1 application serving apps that way).
@@ -317,7 +336,7 @@ final class ServerFactory
             $builder->setCachePolicy($cachePolicy);
         }
         // Whoever set the policy (the config or the hook), a list filtered per caller is never public.
-        $policy = (new ReflectionProperty(Builder::class, 'cachePolicy'))->getValue($builder);
+        $policy = self::builderValue($builder, 'cachePolicy');
         $this->cachePolicy = $policy instanceof CachePolicy ? $policy : null;
         if ($policy instanceof CachePolicy) {
             $private = array_merge(
@@ -476,6 +495,21 @@ final class ServerFactory
     }
 
     /**
+     * Reads one of the Builder's private properties named in BUILDER_PROPERTIES.
+     *
+     * @internal
+     * @param \Mcp\Server\Builder $builder The builder.
+     * @param string $name A key of BUILDER_PROPERTIES.
+     * @return mixed
+     */
+    public static function builderValue(Builder $builder, string $name): mixed
+    {
+        assert(isset(self::BUILDER_PROPERTIES[$name]), sprintf('Builder::$%s is not in BUILDER_PROPERTIES.', $name));
+
+        return (new ReflectionProperty(Builder::class, $name))->getValue($builder);
+    }
+
+    /**
      * The registry the builder holds after the host hook: the plugin's, or any RegistryInterface the hook set.
      *
      * @param \Mcp\Server\Builder $builder The builder.
@@ -483,7 +517,7 @@ final class ServerFactory
      */
     private function registryOf(Builder $builder): RegistryInterface
     {
-        $registry = (new ReflectionProperty(Builder::class, 'registry'))->getValue($builder);
+        $registry = self::builderValue($builder, 'registry');
         assert($registry instanceof RegistryInterface);
 
         return $registry;
@@ -500,7 +534,7 @@ final class ServerFactory
      */
     private function assertCatalogCanRunEverything(Builder $builder, int $ownHandlers): void
     {
-        $read = fn(string $property): mixed => (new ReflectionProperty(Builder::class, $property))->getValue($builder);
+        $read = fn(string $property): mixed => self::builderValue($builder, $property);
         $handlers = $read('requestHandlers');
         $added = [];
         if (is_array($handlers) && count($handlers) > $ownHandlers) {
