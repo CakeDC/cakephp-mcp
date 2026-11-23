@@ -20,9 +20,10 @@ use InvalidArgumentException;
  * The browser side of a user mode client's sign-in, at `Mcp.client.route`:
  *
  * - `GET {route}/{client}/connect?redirect=/local/path`: the logged-in user starts connecting; the sign-in is kept
- *   in the session and the browser goes to the authorization server.
+ *   in the session next to the others still in time (MAX_PENDING) and the browser goes to the authorization server.
  * - `GET {route}/{client}/callback`: the authorization server sends the browser back; the same user must be logged
- *   in, the `state` must match the sign-in in the session (used once), and the grant is stored.
+ *   in, the `state` must match a sign-in in the session (used once; one that matches none ends them all), and the
+ *   grant is stored.
  *
  * Both answer with a redirect to the local path and a flash message; nothing the server said is shown.
  */
@@ -31,6 +32,12 @@ class McpClientController extends Controller
     use SkipsHostAuthorizationTrait;
 
     private const SESSION_KEY = 'McpClient.pending';
+
+    /**
+     * Sign-ins in progress kept per client in a session: each connect starts its own, so one started by a forged
+     * request does not end the one the user is at the authorization server with.
+     */
+    private const MAX_PENDING = 5;
 
     /**
      * @return void
@@ -70,7 +77,13 @@ class McpClientController extends Controller
 
             return $this->redirect($returnTo);
         }
-        $this->request->getSession()->write(self::SESSION_KEY . '.' . $config->name, $pending->toArray());
+        $session = $this->request->getSession();
+        $key = self::SESSION_KEY . '.' . $config->name;
+        $kept = array_map(
+            fn(PendingAuthorization $other): array => $other->toArray(),
+            self::unexpired($session->read($key)),
+        );
+        $session->write($key, array_slice([...$kept, $pending->toArray()], -self::MAX_PENDING));
 
         return $this->redirect($url);
     }
@@ -111,13 +124,28 @@ class McpClientController extends Controller
         }
         $session = $this->request->getSession();
         $key = self::SESSION_KEY . '.' . $config->name;
-        // Used once, whatever happens next.
-        $pending = PendingAuthorization::fromArray($session->consume($key));
+        $all = self::unexpired($session->consume($key));
+        $state = $this->request->getQuery('state');
+        $pending = null;
+        $others = [];
+        foreach ($all as $candidate) {
+            if ($pending === null && is_string($state) && hash_equals($candidate->state, $state)) {
+                $pending = $candidate;
+            } else {
+                $others[] = $candidate->toArray();
+            }
+        }
         $failed = sprintf('The connection to %s could not be completed. Try again.', $config->name);
         if ($pending === null) {
+            // A state that matches none: every sign-in in progress ends, as with a single one.
             $this->Flash->error($failed);
+            $last = end($all);
 
-            return $this->redirect('/');
+            return $this->redirect($last === false ? '/' : $last->returnTo);
+        }
+        // This one is used once, whatever happens next; the others stay.
+        if ($others !== []) {
+            $session->write($key, $others);
         }
         $userId = $this->currentUserId();
         if ($userId === null || !hash_equals($pending->userId, $userId)) {
@@ -150,6 +178,24 @@ class McpClientController extends Controller
         $this->Flash->success(sprintf('Connected to %s.', $config->name));
 
         return $this->redirect($pending->returnTo);
+    }
+
+    /**
+     * @param mixed $stored What the session holds for a client.
+     * @return list<\CakeDC\Mcp\Client\OAuth\PendingAuthorization> Its sign-ins still in time, oldest first.
+     */
+    private static function unexpired(mixed $stored): array
+    {
+        $now = time();
+        $pending = [];
+        foreach (is_array($stored) ? $stored : [] as $data) {
+            $one = PendingAuthorization::fromArray($data);
+            if ($one !== null && $now - $one->createdAt <= PendingAuthorization::LIFETIME) {
+                $pending[] = $one;
+            }
+        }
+
+        return $pending;
     }
 
     /**

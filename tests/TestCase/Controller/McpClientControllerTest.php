@@ -156,6 +156,37 @@ class McpClientControllerTest extends TestCase
         $this->assertCount(1, $this->server->tokenRequests);
     }
 
+    public function testAnotherConnectDoesNotEndASignInInProgress(): void
+    {
+        $first = $this->connect(1, '/first');
+        // A second connect, say from a cross-site <img src=".../connect"> while the user is at the authorization
+        // server: it starts its own sign-in and leaves the first one alone.
+        $session = $_SESSION ?? [];
+        $this->session($session);
+        $second = $this->connect(1, '/second');
+        $this->assertNotSame($first['state'], $second['state']);
+
+        $this->returnFromAuthorization(['code' => 'good-code', 'state' => $first['state'], 'iss' => FakeOAuthServer::ISSUER]);
+
+        $this->assertRedirect('/first');
+        $this->assertFlashMessage('Connected to linear.');
+        $this->assertNotNull((new TableConnectionStore())->get('linear', '1'));
+    }
+
+    public function testOnlyTheLatestFewSignInsAreKept(): void
+    {
+        $first = $this->connect(1, '/first');
+        for ($i = 0; $i < 5; $i++) {
+            $this->session($_SESSION ?? []);
+            $this->connect(1, '/later');
+        }
+
+        $this->returnFromAuthorization(['code' => 'good-code', 'state' => $first['state'], 'iss' => FakeOAuthServer::ISSUER]);
+
+        $this->assertSame([], $this->server->tokenRequests, 'A session holds at most five sign-ins in progress.');
+        $this->assertNull((new TableConnectionStore())->get('linear', '1'));
+    }
+
     public function testOnlyLocalRedirects(): void
     {
         foreach (['https://evil.example.com/x', '//evil.example.com/x', '/\\evil.example.com', 'javascript:alert(1)'] as $redirect) {
