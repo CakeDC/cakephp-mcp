@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Controller;
 
 use Cake\Controller\Controller;
 use Cake\Http\Response;
+use Cake\I18n\DateTime;
 use Cake\Log\Log;
 use CakeDC\Mcp\Client\ClientConfig;
 use CakeDC\Mcp\Client\Exception\ClientException;
@@ -186,7 +187,8 @@ class McpClientController extends Controller
      */
     private static function unexpired(mixed $stored): array
     {
-        $now = time();
+        // The clock OAuthFlow stamps and checks them with.
+        $now = DateTime::now()->getTimestamp();
         $pending = [];
         foreach (is_array($stored) ? $stored : [] as $data) {
             $one = PendingAuthorization::fromArray($data);

@@ -5,6 +5,7 @@ namespace CakeDC\Mcp\Test\TestCase\Controller;
 
 use Cake\Core\Configure;
 use Cake\Datasource\ConnectionManager;
+use Cake\I18n\DateTime;
 use Cake\Routing\Router;
 use Cake\TestSuite\IntegrationTestTrait;
 use Cake\TestSuite\TestCase;
@@ -171,6 +172,21 @@ class McpClientControllerTest extends TestCase
         $this->assertRedirect('/first');
         $this->assertFlashMessage('Connected to linear.');
         $this->assertNotNull((new TableConnectionStore())->get('linear', '1'));
+    }
+
+    public function testTheSignInsInTheSessionFollowTheSameClockAsTheFlow(): void
+    {
+        // An application's tests often fix the time; the session's sign-ins must not look expired then.
+        DateTime::setTestNow(new DateTime('2026-01-01 10:00:00'));
+        try {
+            $query = $this->connect();
+            $this->returnFromAuthorization(['code' => 'good-code', 'state' => $query['state'], 'iss' => FakeOAuthServer::ISSUER]);
+        } finally {
+            DateTime::setTestNow(null);
+        }
+
+        $this->assertRedirect('/settings');
+        $this->assertFlashMessage('Connected to linear.');
     }
 
     public function testOnlyTheLatestFewSignInsAreKept(): void
